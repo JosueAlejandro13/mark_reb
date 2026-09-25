@@ -1,0 +1,32 @@
+buildscript {
+    ext.kotlin_version = '2.0.21' // o 2.1.0 si quieres arriesgarte a lo más nuevo
+    repositories {
+        google()
+        mavenCentral()
+    }
+    dependencies {
+        // Subir AGP ayuda con Kotlin 2.x y nuevos SDKs
+        classpath 'com.android.tools.build:gradle:8.9.1'
+        // Plugin Kotlin: ¡faltaba! Sin esto estabas compilando con una versión vieja (1.8.x)
+        classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:${kotlin_version}"
+        classpath 'com.google.gms:google-services:4.4.2'
+    }
+}
+
+allprojects {
+    repositories {
+        google()
+        mavenCentral()
+        maven { url 'https://developer.huawei.com/repo/' }
+    }
+}
+
+rootProject.buildDir = "../build"
+subprojects {
+    project.buildDir = "${rootProject.buildDir}/${project.name}"
+    project.evaluationDependsOn(":app")
+}
+
+tasks.register("clean", Delete) {
+    delete rootProject.buildDir
+}

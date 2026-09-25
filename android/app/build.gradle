@@ -1,0 +1,59 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    // El plugin de Flutter debe ir después de los de Android/Kotlin (ya correcto)
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+}
+
+android {
+    namespace "com.example.mark_v3"
+
+    // Toma valores provistos por Flutter; OK dejarlo así
+    compileSdk flutter.compileSdkVersion
+    ndkVersion flutter.ndkVersion
+
+    // Recomendado subir a Java 17 para AGP 8.5.x + Kotlin 2.x
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+
+    defaultConfig {
+        applicationId "com.example.mark_v3"
+        minSdkVersion flutter.minSdkVersion
+        targetSdk flutter.targetSdkVersion
+        versionCode flutter.versionCode
+        versionName flutter.versionName
+        multiDexEnabled true
+    }
+
+    buildTypes {
+        release {
+            // TODO firma real
+            signingConfig signingConfigs.debug
+            // shrink/minify según necesites
+        }
+    }
+}
+
+flutter {
+    source "../.."
+}
+
+dependencies {
+    // Usa BOM: quita versiones individuales
+    implementation platform("com.google.firebase:firebase-bom:33.9.0")
+
+    // Sin versión: BOM decide versiones compatibles
+    implementation "com.google.firebase:firebase-perf"
+    implementation "com.google.firebase:firebase-messaging-ktx"
+    implementation "com.google.firebase:firebase-analytics-ktx"
+
+    // Si necesitas otras libs Firebase, agrégalas igual (sin versión)
+    // implementation "com.google.firebase:firebase-crashlytics-ktx" etc.
+}

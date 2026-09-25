@@ -1,0 +1,20 @@
+{
+  "buildFiles": [
+    "C:\\Users\\Developer_Caleni\\fvm\\versions\\3.24.0\\packages\\flutter_tools\\gradle\\src\\main\\groovy\\CMakeLists.txt"
+  ],
+  "cleanCommandsComponents": [
+    [
+      "C:\\Users\\Developer_Caleni\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+      "-C",
+      "C:\\Users\\Developer_Caleni\\Music\\Caleni\\Caleni\\Caleni\\proyect\\mark_v3\\android\\app\\.cxx\\Debug\\50b574b6\\x86",
+      "clean"
+    ]
+  ],
+  "buildTargetsCommandComponents": [
+    "C:\\Users\\Developer_Caleni\\AppData\\Local\\Android\\Sdk\\cmake\\3.22.1\\bin\\ninja.exe",
+    "-C",
+    "C:\\Users\\Developer_Caleni\\Music\\Caleni\\Caleni\\Caleni\\proyect\\mark_v3\\android\\app\\.cxx\\Debug\\50b574b6\\x86",
+    "{LIST_OF_TARGETS_TO_BUILD}"
+  ],
+  "libraries": {}
+}

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "721419935186",
+    "project_id": "noti-f369f",
+    "storage_bucket": "noti-f369f.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:721419935186:android:96ddcd3048a055f7fdfc0b",
+        "android_client_info": {
+          "package_name": "com.example.mark_v3"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAwLR9PnRP2FExqKSs2HXvESjiX7NgykFA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

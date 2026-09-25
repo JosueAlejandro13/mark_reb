@@ -1,0 +1,2 @@
+C:/Users/Developer_Caleni/Music/Caleni/Caleni/Caleni/proyect/mark_v3/android/app/.cxx/RelWithDebInfo/2u3t3a45/x86/CMakeFiles/edit_cache.dir
+C:/Users/Developer_Caleni/Music/Caleni/Caleni/Caleni/proyect/mark_v3/android/app/.cxx/RelWithDebInfo/2u3t3a45/x86/CMakeFiles/rebuild_cache.dir

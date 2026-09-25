@@ -1,0 +1,5 @@
+{
+  "dart.flutterSdkPath": ".fvm/versions/3.24.0",
+  "editor.inlineSuggest.syntaxHighlightingEnabled": true,
+  "editor.suggest.showConstants": false
+}
