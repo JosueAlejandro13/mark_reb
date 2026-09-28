@@ -76,7 +76,8 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     final dateOfBirth = data['dateBirth'];
     if (dateOfBirth != null) {
       if (dateOfBirth is DateTime) {
-        _dateOfBirthController.text = DateFormat('yyyy-MM-dd').format(dateOfBirth);
+        _dateOfBirthController.text =
+            DateFormat('yyyy-MM-dd').format(dateOfBirth);
       } else {
         final parsed = DateTime.tryParse(dateOfBirth.toString());
         if (parsed != null) {
@@ -103,8 +104,8 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       pickerTitle: const Text(
         "Fecha de nacimiento",
         style: TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
+          fontSize: 15,
+          fontWeight: FontWeight.w700,
           color: Color(0xFF0F172A),
         ),
       ),
@@ -113,7 +114,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       minDateTime: DateTime(1930),
       maxDateTime: DateTime.now(),
       pickerTextStyle: const TextStyle(
-        fontSize: 18,
+        fontSize: 16,
         color: Color(0xFF0F172A),
         fontWeight: FontWeight.w600,
       ),
@@ -124,13 +125,14 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         });
       },
       displayCloseIcon: true,
-      buttonContent: const Icon(Icons.check_rounded, color: Colors.white),
+      buttonContent:
+          const Icon(Icons.check_rounded, color: Colors.white, size: 18),
       buttonStyle: BoxDecoration(
         color: const Color(0xFF0886B5),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(12),
       ),
-      buttonWidth: 60,
-      buttonPadding: 10,
+      buttonWidth: 50,
+      buttonPadding: 8,
     ).show(context);
   }
 
@@ -162,29 +164,29 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         Material(
           color: Colors.transparent,
           child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 20),
-            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: const Color(0xFF10B981),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
                 ),
               ],
             ),
             child: const Row(
               children: [
-                Icon(Icons.check_circle_rounded, color: Colors.white, size: 24),
-                SizedBox(width: 12),
+                Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+                SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     "Cambios guardados con éxito.",
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 14,
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -200,29 +202,30 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         Material(
           color: Colors.transparent,
           child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 20),
-            padding: const EdgeInsets.all(16),
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
               color: const Color(0xFFEF4444),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius: BorderRadius.circular(14),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 8,
+                  offset: const Offset(0, 3),
                 ),
               ],
             ),
             child: const Row(
               children: [
-                Icon(Icons.error_outline_rounded, color: Colors.white, size: 24),
-                SizedBox(width: 12),
+                Icon(Icons.error_outline_rounded,
+                    color: Colors.white, size: 20),
+                SizedBox(width: 10),
                 Expanded(
                   child: Text(
                     "Error al guardar cambios. Verifica tus datos e intenta de nuevo.",
                     style: TextStyle(
                       color: Colors.white,
-                      fontSize: 14,
+                      fontSize: 13,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -244,181 +247,182 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       _populateFields(state.userData!);
     }
 
-    return Scaffold(
-      body: Stack(
-        children: [
-          AnimatedContainer(
-            duration: const Duration(seconds: 5),
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  Color.fromARGB(255, 250, 250, 250),
-                  Color.fromARGB(255, 205, 240, 255),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-            ),
-          ),
-          SafeArea(
-            child: state.isLoading
-            ? Center(
-                child: Lottie.asset(
-                  'assets/loading.json',
-                  width: 90,
-                  height: 90,
-                ),
-              )
-            : GestureDetector(
-                onTap: () => FocusScope.of(context).unfocus(),
-                behavior: HitTestBehavior.translucent,
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 18.0,
-                    vertical: 14.0,
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            Color.fromARGB(255, 250, 250, 250),
+            Color.fromARGB(255, 205, 240, 255),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: state.isLoading
+              ? Center(
+                  child: Lottie.asset(
+                    'assets/loading.json',
+                    width: 70,
+                    height: 70,
                   ),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        // Encabezado
-                        _buildHeader(context),
-                        const SizedBox(height: 20),
+                )
+              : GestureDetector(
+                  onTap: () => FocusScope.of(context).unfocus(),
+                  behavior: HitTestBehavior.translucent,
+                  child: SingleChildScrollView(
+                    physics: const BouncingScrollPhysics(),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16.0,
+                      vertical: 8.0,
+                    ),
+                    child: Form(
+                      key: _formKey,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Encabezado
+                          _buildHeader(context),
+                          const SizedBox(height: 12),
 
-                        // CARD 1: INFORMACIÓN PERSONAL
-                        _buildSectionCard(
-                          icon: Icons.person_rounded,
-                          iconColor: const Color(0xFF0886B5),
-                          iconBg: const Color(0xFFE0F2FE),
-                          title: 'Datos Personales',
-                          subtitle: 'Nombre y correo del colaborador',
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildFormField(
-                                    controller: _firstNameController,
-                                    label: 'Nombre',
-                                    icon: Icons.badge_outlined,
-                                    validator: (val) => val == null || val.trim().isEmpty
-                                        ? 'Ingresa tu nombre'
+                          // CARD 1: INFORMACIÓN PERSONAL
+                          _buildSectionCard(
+                            icon: Icons.person_rounded,
+                            iconColor: const Color(0xFF0886B5),
+                            iconBg: const Color(0xFFE0F2FE),
+                            title: 'Datos Personales',
+                            subtitle: 'Nombre y correo del colaborador',
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildFormField(
+                                      controller: _firstNameController,
+                                      label: 'Nombre',
+                                      icon: Icons.badge_outlined,
+                                      validator: (val) =>
+                                          val == null || val.trim().isEmpty
+                                              ? 'Ingresa tu nombre'
+                                              : null,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _buildFormField(
+                                      controller: _lastNameController,
+                                      label: 'Apellido',
+                                      icon: Icons.person_outline_rounded,
+                                      validator: (val) =>
+                                          val == null || val.trim().isEmpty
+                                              ? 'Ingresa tu apellido'
+                                              : null,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              _buildFormField(
+                                controller: _emailController,
+                                label: 'Correo Electrónico',
+                                icon: Icons.email_outlined,
+                                enabled: false,
+                                helperText:
+                                    'El correo no puede modificarse directamente',
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 11),
+
+                          // CARD 2: CONTACTO Y DOMICILIO
+                          _buildSectionCard(
+                            icon: Icons.phone_android_rounded,
+                            iconColor: const Color(0xFFEA580C),
+                            iconBg: const Color(0xFFFFF7ED),
+                            title: 'Contacto y Ubicación',
+                            subtitle:
+                                'Números de teléfono y domicilio registrado',
+                            children: [
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildMaskedPhoneField(
+                                      controller: _phoneController,
+                                      label: 'Tel. Fijo',
+                                      icon: Icons.phone_outlined,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _buildMaskedPhoneField(
+                                      controller: _mobilPhoneController,
+                                      label: 'Tel. Móvil',
+                                      icon: Icons.phone_iphone_rounded,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 10),
+                              _buildFormField(
+                                controller: _addressController,
+                                label: 'Dirección Completa',
+                                icon: Icons.home_outlined,
+                                validator: (val) =>
+                                    val == null || val.trim().isEmpty
+                                        ? 'Ingresa tu dirección'
                                         : null,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _buildFormField(
-                                    controller: _lastNameController,
-                                    label: 'Apellido',
-                                    icon: Icons.person_outline_rounded,
-                                    validator: (val) => val == null || val.trim().isEmpty
-                                        ? 'Ingresa tu apellido'
-                                        : null,
-                                  ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                            _buildFormField(
-                              controller: _emailController,
-                              label: 'Correo Electrónico',
-                              icon: Icons.email_outlined,
-                              enabled: false,
-                              helperText: 'El correo no puede modificarse directamente',
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 11),
 
-                        // CARD 2: CONTACTO Y DOMICILIO
-                        _buildSectionCard(
-                          icon: Icons.phone_android_rounded,
-                          iconColor: const Color(0xFFEA580C),
-                          iconBg: const Color(0xFFFFF7ED),
-                          title: 'Contacto y Ubicación',
-                          subtitle: 'Números de teléfono y domicilio registrado',
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildMaskedPhoneField(
-                                    controller: _phoneController,
-                                    label: 'Tel. Fijo',
-                                    icon: Icons.phone_outlined,
+                          // CARD 3: NACIMIENTO Y EMPLEO
+                          _buildSectionCard(
+                            icon: Icons.work_outline_rounded,
+                            iconColor: const Color(0xFF7C3AED),
+                            iconBg: const Color(0xFFF3E8FF),
+                            title: 'Nacimiento y Empleo',
+                            subtitle: 'Fecha de nacimiento y datos asignados',
+                            children: [
+                              _buildDateField(context),
+                              const SizedBox(height: 10),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: _buildFormField(
+                                      controller: _employeeNumController,
+                                      label: 'No. Empleado',
+                                      icon: Icons.numbers_rounded,
+                                      enabled: false,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _buildMaskedPhoneField(
-                                    controller: _mobilPhoneController,
-                                    label: 'Tel. Móvil',
-                                    icon: Icons.phone_iphone_rounded,
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: _buildFormField(
+                                      controller: _idJobTitleController,
+                                      label: 'Puesto / Cargo',
+                                      icon: Icons.badge_outlined,
+                                      enabled: false,
+                                    ),
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 14),
-                            _buildFormField(
-                              controller: _addressController,
-                              label: 'Dirección Completa',
-                              icon: Icons.home_outlined,
-                              validator: (val) => val == null || val.trim().isEmpty
-                                  ? 'Ingresa tu dirección'
-                                  : null,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 16),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 18),
 
-                        // CARD 3: NACIMIENTO Y EMPLEO
-                        _buildSectionCard(
-                          icon: Icons.work_outline_rounded,
-                          iconColor: const Color(0xFF7C3AED),
-                          iconBg: const Color(0xFFF3E8FF),
-                          title: 'Nacimiento y Empleo',
-                          subtitle: 'Fecha de nacimiento y datos asignados',
-                          children: [
-                            _buildDateField(context),
-                            const SizedBox(height: 14),
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: _buildFormField(
-                                    controller: _employeeNumController,
-                                    label: 'No. Empleado',
-                                    icon: Icons.numbers_rounded,
-                                    enabled: false,
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: _buildFormField(
-                                    controller: _idJobTitleController,
-                                    label: 'Puesto / Cargo',
-                                    icon: Icons.badge_outlined,
-                                    enabled: false,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-
-                        // BOTÓN DE GUARDAR CAMBIOS
-                        _buildSaveButton(state),
-                        const SizedBox(height: 30),
-                      ],
+                          // BOTÓN DE GUARDAR CAMBIOS
+                          _buildSaveButton(state),
+                          const SizedBox(height: 24),
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          ],
         ),
-      );
+      ),
+    );
   }
 
   // --- HEADER SUPERIOR ---
@@ -428,20 +432,20 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         Material(
           color: Colors.transparent,
           child: InkWell(
-            borderRadius: BorderRadius.circular(15),
+            borderRadius: BorderRadius.circular(12),
             onTap: () => Navigator.pop(context),
             child: Container(
-              width: 44,
-              height: 44,
+              width: 38,
+              height: 38,
               decoration: BoxDecoration(
                 color: Colors.white,
-                borderRadius: BorderRadius.circular(15),
+                borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: Colors.black.withOpacity(0.04)),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
+                    color: Colors.black.withOpacity(0.02),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
                   ),
                 ],
               ),
@@ -449,13 +453,13 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                 child: Icon(
                   Icons.arrow_back_ios_new_rounded,
                   color: Color(0xFF0F172A),
-                  size: 18,
+                  size: 16,
                 ),
               ),
             ),
           ),
         ),
-        const SizedBox(width: 14),
+        const SizedBox(width: 12),
         const Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -463,16 +467,17 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
               Text(
                 'Editar Perfil',
                 style: TextStyle(
-                  fontSize: 22,
+                  fontSize: 18,
                   fontWeight: FontWeight.w800,
                   color: Color(0xFF0F172A),
-                  letterSpacing: -0.5,
+                  letterSpacing: -0.4,
                 ),
               ),
+              SizedBox(height: 1),
               Text(
                 'Actualiza tus datos personales y de contacto',
                 style: TextStyle(
-                  fontSize: 12.5,
+                  fontSize: 11.5,
                   color: Color(0xFF64748B),
                   fontWeight: FontWeight.w400,
                 ),
@@ -495,16 +500,16 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(22),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.black.withOpacity(0.04)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.03),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 8,
+            offset: const Offset(0, 3),
           ),
         ],
       ),
@@ -514,17 +519,17 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
           Row(
             children: [
               Container(
-                width: 40,
-                height: 40,
+                width: 34,
+                height: 34,
                 decoration: BoxDecoration(
                   color: iconBg,
-                  borderRadius: BorderRadius.circular(12),
+                  borderRadius: BorderRadius.circular(10),
                 ),
                 child: Center(
-                  child: Icon(icon, color: iconColor, size: 20),
+                  child: Icon(icon, color: iconColor, size: 17),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 10),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -532,8 +537,8 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                     Text(
                       title,
                       style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
                         color: Color(0xFF0F172A),
                         letterSpacing: -0.2,
                       ),
@@ -541,7 +546,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                     Text(
                       subtitle,
                       style: const TextStyle(
-                        fontSize: 11.5,
+                        fontSize: 11,
                         color: Color(0xFF64748B),
                       ),
                     ),
@@ -550,7 +555,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
               ),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 12),
           ...children,
         ],
       ),
@@ -571,46 +576,47 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       enabled: enabled,
       validator: validator,
       style: TextStyle(
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: FontWeight.w600,
         color: enabled ? const Color(0xFF0F172A) : const Color(0xFF64748B),
       ),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: TextStyle(
-          fontSize: 13,
+          fontSize: 12,
           color: enabled ? Colors.grey[600] : Colors.grey[400],
           fontWeight: FontWeight.w500,
         ),
         helperText: helperText,
-        helperStyle: TextStyle(fontSize: 11, color: Colors.grey[500]),
+        helperStyle: TextStyle(fontSize: 10, color: Colors.grey[500]),
         prefixIcon: Icon(
           icon,
-          size: 19,
+          size: 17,
           color: enabled ? const Color(0xFF0886B5) : Colors.grey[400],
         ),
         filled: true,
         fillColor: enabled ? const Color(0xFFF8FAFC) : const Color(0xFFF1F5F9),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         isDense: true,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.black.withOpacity(0.06)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.black.withOpacity(0.05)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.black.withOpacity(0.06)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.black.withOpacity(0.05)),
         ),
         disabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           borderSide: BorderSide(color: Colors.black.withOpacity(0.03)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Color(0xFF0886B5), width: 1.8),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF0886B5), width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Color(0xFFEF4444)),
         ),
       ),
@@ -636,40 +642,41 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         return null;
       },
       style: const TextStyle(
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: FontWeight.w600,
         color: Color(0xFF0F172A),
       ),
       decoration: InputDecoration(
         labelText: label,
         labelStyle: TextStyle(
-          fontSize: 13,
+          fontSize: 12,
           color: Colors.grey[600],
           fontWeight: FontWeight.w500,
         ),
         prefixIcon: Icon(
           icon,
-          size: 19,
+          size: 17,
           color: const Color(0xFFEA580C),
         ),
         filled: true,
         fillColor: const Color(0xFFF8FAFC),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         isDense: true,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.black.withOpacity(0.06)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.black.withOpacity(0.05)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.black.withOpacity(0.06)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.black.withOpacity(0.05)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Color(0xFFEA580C), width: 1.8),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFFEA580C), width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Color(0xFFEF4444)),
         ),
       ),
@@ -703,44 +710,46 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         return null;
       },
       style: const TextStyle(
-        fontSize: 14,
+        fontSize: 13,
         fontWeight: FontWeight.w600,
         color: Color(0xFF0F172A),
       ),
       decoration: InputDecoration(
         labelText: 'Fecha de Nacimiento',
         labelStyle: TextStyle(
-          fontSize: 13,
+          fontSize: 12,
           color: Colors.grey[600],
           fontWeight: FontWeight.w500,
         ),
         prefixIcon: const Icon(
           Icons.calendar_month_rounded,
-          size: 19,
+          size: 17,
           color: Color(0xFF7C3AED),
         ),
         suffixIcon: const Icon(
           Icons.keyboard_arrow_down_rounded,
           color: Colors.black54,
+          size: 18,
         ),
         filled: true,
         fillColor: const Color(0xFFF8FAFC),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         isDense: true,
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.black.withOpacity(0.06)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.black.withOpacity(0.05)),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: BorderSide(color: Colors.black.withOpacity(0.06)),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: BorderSide(color: Colors.black.withOpacity(0.05)),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
-          borderSide: const BorderSide(color: Color(0xFF7C3AED), width: 1.8),
+          borderRadius: BorderRadius.circular(12),
+          borderSide: const BorderSide(color: Color(0xFF7C3AED), width: 1.5),
         ),
         errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(12),
           borderSide: const BorderSide(color: Color(0xFFEF4444)),
         ),
       ),
@@ -751,7 +760,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   Widget _buildSaveButton(EditProfileState state) {
     return Container(
       width: double.infinity,
-      height: 52,
+      height: 46,
       decoration: BoxDecoration(
         gradient: const LinearGradient(
           colors: [
@@ -761,42 +770,42 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: const Color(0xFF0886B5).withOpacity(0.35),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
+            color: const Color(0xFF0886B5).withOpacity(0.3),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(18),
+          borderRadius: BorderRadius.circular(14),
           onTap: state.isSaving ? null : _handleSave,
           child: Center(
             child: state.isSaving
                 ? const SizedBox(
-                    width: 22,
-                    height: 22,
+                    width: 20,
+                    height: 20,
                     child: CircularProgressIndicator(
                       color: Colors.white,
-                      strokeWidth: 2.5,
+                      strokeWidth: 2,
                     ),
                   )
                 : const Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.save_rounded, color: Colors.white, size: 20),
+                      Icon(Icons.save_rounded, color: Colors.white, size: 18),
                       SizedBox(width: 8),
                       Text(
                         'Guardar Cambios',
                         style: TextStyle(
                           color: Colors.white,
-                          fontSize: 15,
+                          fontSize: 14,
                           fontWeight: FontWeight.w700,
-                          letterSpacing: 0.3,
+                          letterSpacing: 0.2,
                         ),
                       ),
                     ],
