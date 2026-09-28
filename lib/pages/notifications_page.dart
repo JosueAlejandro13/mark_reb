@@ -62,13 +62,13 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Encabezado de la Pantalla (sin botón atrás ya que está en el BottomNav)
+              // Encabezado de la Pantalla
               _buildHeader(state, notifier),
-              const SizedBox(height: 14),
+              const SizedBox(height: 10),
 
               // Pestañas de Filtro (Todas / No leídas / Leídas)
               _buildFilterTabs(state, notifier),
-              const SizedBox(height: 12),
+              const SizedBox(height: 8),
 
               // Lista de Notificaciones o Estado Vacío
               Expanded(
@@ -76,8 +76,8 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                     ? Center(
                         child: Lottie.asset(
                           'assets/loading.json',
-                          width: 90,
-                          height: 90,
+                          width: 70,
+                          height: 70,
                         ),
                       )
                     : notifications.isEmpty
@@ -86,13 +86,15 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                             physics: const AlwaysScrollableScrollPhysics(
                               parent: BouncingScrollPhysics(),
                             ),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 18,
-                              vertical: 10,
+                            padding: const EdgeInsets.only(
+                              left: 16,
+                              right: 16,
+                              top: 6,
+                              bottom: 85,
                             ),
                             itemCount: notifications.length,
                             separatorBuilder: (_, __) =>
-                                const SizedBox(height: 12),
+                                const SizedBox(height: 8),
                             itemBuilder: (context, index) {
                               final item = notifications[index];
                               return _buildNotificationCard(
@@ -118,27 +120,27 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
     NotificationsNotifier notifier,
   ) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 6.0),
       child: Row(
         children: [
           if (widget.showBackButton) ...[
             Material(
               color: Colors.transparent,
               child: InkWell(
-                borderRadius: BorderRadius.circular(15),
+                borderRadius: BorderRadius.circular(10),
                 onTap: () => Navigator.pop(context),
                 child: Container(
-                  width: 44,
-                  height: 44,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     color: Colors.white,
-                    borderRadius: BorderRadius.circular(15),
+                    borderRadius: BorderRadius.circular(10),
                     border: Border.all(color: Colors.black.withOpacity(0.04)),
                     boxShadow: [
                       BoxShadow(
                         color: Colors.black.withOpacity(0.04),
-                        blurRadius: 10,
-                        offset: const Offset(0, 4),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
@@ -146,13 +148,13 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                     child: Icon(
                       Icons.arrow_back_ios_new_rounded,
                       color: Color(0xFF0F172A),
-                      size: 18,
+                      size: 15,
                     ),
                   ),
                 ),
               ),
             ),
-            const SizedBox(width: 14),
+            const SizedBox(width: 10),
           ],
           const Expanded(
             child: Column(
@@ -161,16 +163,16 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                 Text(
                   'Notificaciones',
                   style: TextStyle(
-                    fontSize: 24,
+                    fontSize: 18,
                     fontWeight: FontWeight.w800,
                     color: Color(0xFF0F172A),
-                    letterSpacing: -0.6,
+                    letterSpacing: -0.4,
                   ),
                 ),
                 Text(
                   'Avisos y mensajes de tu operación',
                   style: TextStyle(
-                    fontSize: 13,
+                    fontSize: 11.5,
                     color: Color(0xFF64748B),
                     fontWeight: FontWeight.w400,
                   ),
@@ -182,14 +184,14 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
             Material(
               color: Colors.transparent,
               child: InkWell(
-                borderRadius: BorderRadius.circular(14),
+                borderRadius: BorderRadius.circular(10),
                 onTap: () => notifier.markAllAsRead(widget.userId),
                 child: Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
                   decoration: BoxDecoration(
                     color: const Color(0xFFE0F2FE),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: const Row(
                     mainAxisSize: MainAxisSize.min,
@@ -197,13 +199,13 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                       Icon(
                         Icons.done_all_rounded,
                         color: Color(0xFF0284C7),
-                        size: 16,
+                        size: 14,
                       ),
-                      SizedBox(width: 5),
+                      SizedBox(width: 4),
                       Text(
                         'Leídas',
                         style: TextStyle(
-                          fontSize: 11.5,
+                          fontSize: 10.5,
                           fontWeight: FontWeight.w700,
                           color: Color(0xFF0284C7),
                         ),
@@ -224,12 +226,12 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
     NotificationsNotifier notifier,
   ) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 18.0),
+      padding: const EdgeInsets.symmetric(horizontal: 16.0),
       child: Container(
-        padding: const EdgeInsets.all(4),
+        padding: const EdgeInsets.all(3),
         decoration: BoxDecoration(
           color: const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Row(
           children: [
@@ -270,16 +272,16 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
         onTap: onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: const EdgeInsets.symmetric(vertical: 6),
           decoration: BoxDecoration(
             color: isSelected ? Colors.white : Colors.transparent,
-            borderRadius: BorderRadius.circular(12),
+            borderRadius: BorderRadius.circular(10),
             boxShadow: isSelected
                 ? [
                     BoxShadow(
                       color: Colors.black.withOpacity(0.05),
-                      blurRadius: 6,
-                      offset: const Offset(0, 2),
+                      blurRadius: 4,
+                      offset: const Offset(0, 1.5),
                     ),
                   ]
                 : [],
@@ -290,7 +292,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
               Text(
                 title,
                 style: TextStyle(
-                  fontSize: 12.5,
+                  fontSize: 11.5,
                   fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
                   color: isSelected
                       ? const Color(0xFF0F172A)
@@ -298,22 +300,22 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                 ),
               ),
               if (count > 0) ...[
-                const SizedBox(width: 6),
+                const SizedBox(width: 4),
                 Container(
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                   decoration: BoxDecoration(
                     color: highlightBadge
                         ? const Color(0xFFEF4444)
                         : (isSelected
                             ? const Color(0xFFE2E8F0)
                             : const Color(0xFFCBD5E1)),
-                    borderRadius: BorderRadius.circular(10),
+                    borderRadius: BorderRadius.circular(8),
                   ),
                   child: Text(
                     count.toString(),
                     style: TextStyle(
-                      fontSize: 10.5,
+                      fontSize: 9.5,
                       fontWeight: FontWeight.w700,
                       color: highlightBadge ? Colors.white : const Color(0xFF334155),
                     ),
@@ -336,43 +338,43 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
     return Container(
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(20),
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
           color: item.isRead
               ? Colors.black.withOpacity(0.03)
               : const Color(0xFF0886B5).withOpacity(0.2),
-          width: item.isRead ? 1 : 1.4,
+          width: item.isRead ? 1 : 1.2,
         ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(item.isRead ? 0.02 : 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.black.withOpacity(item.isRead ? 0.02 : 0.04),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
           ),
         ],
       ),
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(14),
           onTap: () {
             notifier.markAsRead(widget.userId, item.id);
             _showNotificationDetailsModal(context, item, notifier);
           },
           child: Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 10.0),
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 // Icono squircle
                 Container(
-                  width: 44,
-                  height: 44,
+                  width: 36,
+                  height: 36,
                   decoration: BoxDecoration(
                     color: item.isRead
                         ? const Color(0xFFF1F5F9)
                         : const Color(0xFFE0F2FE),
-                    borderRadius: BorderRadius.circular(14),
+                    borderRadius: BorderRadius.circular(10),
                   ),
                   child: Icon(
                     item.isRead
@@ -381,10 +383,10 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                     color: item.isRead
                         ? const Color(0xFF64748B)
                         : const Color(0xFF0284C7),
-                    size: 22,
+                    size: 18,
                   ),
                 ),
-                const SizedBox(width: 14),
+                const SizedBox(width: 10),
 
                 // Contenido
                 Expanded(
@@ -400,7 +402,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                fontSize: 14.5,
+                                fontSize: 13,
                                 fontWeight: item.isRead
                                     ? FontWeight.w600
                                     : FontWeight.w800,
@@ -409,10 +411,10 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                             ),
                           ),
                           if (!item.isRead) ...[
-                            const SizedBox(width: 8),
+                            const SizedBox(width: 6),
                             Container(
-                              width: 8,
-                              height: 8,
+                              width: 6,
+                              height: 6,
                               decoration: const BoxDecoration(
                                 color: Color(0xFF0886B5),
                                 shape: BoxShape.circle,
@@ -421,30 +423,30 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                           ],
                         ],
                       ),
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 3),
                       Text(
                         item.description,
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontSize: 12.5,
+                          fontSize: 11,
                           color: Colors.grey[600],
-                          height: 1.35,
+                          height: 1.3,
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 6),
                       Row(
                         children: [
                           Icon(
                             Icons.access_time_rounded,
-                            size: 13,
+                            size: 11,
                             color: Colors.grey[400],
                           ),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 3),
                           Text(
                             item.getTimeAgo(),
                             style: TextStyle(
-                              fontSize: 11.5,
+                              fontSize: 10,
                               color: Colors.grey[500],
                               fontWeight: FontWeight.w500,
                             ),
@@ -470,30 +472,30 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
         children: [
           Lottie.asset(
             'assets/sindatos.json',
-            width: 160,
-            height: 160,
+            width: 110,
+            height: 110,
             repeat: true,
             errorBuilder: (_, __, ___) => const Icon(
               Icons.notifications_off_outlined,
-              size: 70,
+              size: 50,
               color: Color(0xFFCBD5E1),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           const Text(
             'Todo al día',
             style: TextStyle(
-              fontSize: 18,
+              fontSize: 15,
               fontWeight: FontWeight.w800,
               color: Color(0xFF0F172A),
               letterSpacing: -0.3,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text(
             'No tienes notificaciones pendientes en este momento.',
             style: TextStyle(
-              fontSize: 13,
+              fontSize: 11.5,
               color: Colors.grey[500],
             ),
             textAlign: TextAlign.center,
@@ -517,39 +519,39 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
         return Container(
           decoration: const BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
           ),
-          padding: const EdgeInsets.fromLTRB(22, 12, 22, 28),
+          padding: const EdgeInsets.fromLTRB(18, 10, 18, 20),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Center(
                 child: Container(
-                  width: 38,
-                  height: 4,
+                  width: 32,
+                  height: 3.5,
                   decoration: BoxDecoration(
                     color: Colors.grey[300],
                     borderRadius: BorderRadius.circular(10),
                   ),
                 ),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.all(12),
+                    padding: const EdgeInsets.all(9),
                     decoration: BoxDecoration(
                       color: const Color(0xFFE0F2FE),
-                      borderRadius: BorderRadius.circular(16),
+                      borderRadius: BorderRadius.circular(12),
                     ),
                     child: const Icon(
                       Icons.notifications_active_rounded,
                       color: Color(0xFF0284C7),
-                      size: 26,
+                      size: 20,
                     ),
                   ),
-                  const SizedBox(width: 14),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -557,7 +559,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                         Text(
                           item.title,
                           style: const TextStyle(
-                            fontSize: 18,
+                            fontSize: 15,
                             fontWeight: FontWeight.w800,
                             color: Color(0xFF0F172A),
                             letterSpacing: -0.3,
@@ -567,7 +569,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                         Text(
                           item.getTimeAgo(),
                           style: TextStyle(
-                            fontSize: 12,
+                            fontSize: 11,
                             color: Colors.grey[500],
                           ),
                         ),
@@ -576,18 +578,18 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                   ),
                 ],
               ),
-              const SizedBox(height: 18),
-              Divider(color: Colors.grey[100]),
               const SizedBox(height: 14),
+              Divider(color: Colors.grey[100]),
+              const SizedBox(height: 10),
               Text(
                 item.description,
                 style: const TextStyle(
-                  fontSize: 14.5,
+                  fontSize: 12.5,
                   color: Color(0xFF334155),
-                  height: 1.5,
+                  height: 1.4,
                 ),
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 18),
               Row(
                 children: [
                   IconButton(
@@ -598,18 +600,18 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                     icon: Icon(
                       Icons.delete_outline_rounded,
                       color: Colors.red[600],
-                      size: 24,
+                      size: 20,
                     ),
                   ),
-                  const SizedBox(width: 8),
+                  const SizedBox(width: 6),
                   Expanded(
                     child: ElevatedButton(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF0F172A),
                         foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        padding: const EdgeInsets.symmetric(vertical: 10),
                         shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(16),
+                          borderRadius: BorderRadius.circular(12),
                         ),
                         elevation: 0,
                       ),
@@ -617,7 +619,7 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
                       child: const Text(
                         'Cerrar',
                         style: TextStyle(
-                          fontSize: 14.5,
+                          fontSize: 13,
                           fontWeight: FontWeight.w700,
                         ),
                       ),
