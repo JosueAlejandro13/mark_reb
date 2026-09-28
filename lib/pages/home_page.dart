@@ -1,16 +1,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:get/get.dart';
 import 'package:mark_v3/pages/MenuPage.dart';
-import 'package:mark_v3/services/ConnectionNotification_/NotificationCon_service.dart';
+import 'package:mark_v3/providers/home_provider.dart';
 import 'package:mark_v3/services/database_service.dart';
 import 'profile_page.dart';
 import 'home_page_content.dart';
 import 'notifications_page.dart';
-import 'package:curved_navigation_bar/curved_navigation_bar.dart';
+import 'package:mark_v3/widgets/modern_floating_nav_bar.dart';
 
 //Autor: Josue Hernandez
-class HomePage extends StatefulWidget {
+class HomePage extends ConsumerStatefulWidget {
   final String userId;
   final String userName;
   final String idCollaborator;
@@ -46,51 +47,32 @@ class HomePage extends StatefulWidget {
       required this.password});
 
   @override
-  State<HomePage> createState() => _HomePageState();
+  ConsumerState<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
-  int _selectedIndex = 0;
-  final List<Widget> pages = [];
-  final PageController _pageController = PageController();
-
+class _HomePageState extends ConsumerState<HomePage> with WidgetsBindingObserver {
   Timer? _inactivityTimer;
   Timer? _dialogTimer;
   final Duration _timeoutDuration = const Duration(minutes: 100000);
   final Duration _dialogTimeoutDuration = const Duration(seconds: 10);
-  int unreadCount = 0;
 
   @override
   void initState() {
     super.initState();
-    _fetchUnreadNotifications();
-
     WidgetsBinding.instance.addObserver(this);
     _resetInactivityTimer();
+
+    // Carga inicial de notificaciones con Riverpod
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(homeProvider.notifier).fetchUnreadNotifications(widget.userId);
+    });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _cancelInactivityTimer();
-    _pageController.dispose();
-
     super.dispose();
-  }
-
-  Future<void> _fetchUnreadNotifications() async {
-    int userId = int.parse(widget.userId);
-
-    List<Map<String, dynamic>> notifications =
-        await NotificationService().getNotifications(userId.toString());
-
-    int unreadNotifications =
-        notifications.where((notif) => notif['sendApp'] == 1).length;
-
-    print("Notificaciones no leídas: $unreadNotifications");
-    setState(() {
-      unreadCount = unreadNotifications;
-    });
   }
 
   Future<void> _handleAppCloseOrBackground() async {
@@ -112,6 +94,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) {
       debugPrint('App en el primer plano');
       _handleAppOpenOrBackground();
+      ref.read(homeProvider.notifier).fetchUnreadNotifications(widget.userId);
     } else if (state == AppLifecycleState.inactive) {
       debugPrint('App inactiva temporalmente');
     } else if (state == AppLifecycleState.paused ||
@@ -123,7 +106,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   void _resetInactivityTimer() {
     _cancelInactivityTimer();
-
     _inactivityTimer = Timer(_timeoutDuration, _showInactivityDialog);
   }
 
@@ -137,7 +119,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   void _showInactivityDialog() {
-    final screenHeight = MediaQuery.of(context).size.height;
     final screenWidth = MediaQuery.of(context).size.width;
     showDialog(
       context: context,
@@ -149,14 +130,25 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 fontSize: screenWidth * 0.040, fontWeight: FontWeight.w500),
           ),
           content: Text(
-            'Tu sesión se cerrará en 10 segundos. ¿Deseas continuar?',
-            style: TextStyle(fontSize: screenWidth * 0.033),
+            'Tu sesión se cerrará pronto por inactividad. ¿Deseas continuar?',
+            style: TextStyle(fontSize: screenWidth * 0.035),
           ),
           actions: [
             TextButton(
               onPressed: () {
+                _cancelInactivityTimer();
                 Navigator.of(context).pop();
+                _handleInactivity();
+              },
+              child: Text(
+                'Cerrar Sesión',
+                style: TextStyle(fontSize: screenWidth * 0.030),
+              ),
+            ),
+            TextButton(
+              onPressed: () {
                 _resetInactivityTimer();
+                Navigator.of(context).pop();
               },
               style: TextButton.styleFrom(
                 backgroundColor: const Color(0xFF0886B5),
@@ -185,8 +177,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
+    final homeState = ref.watch(homeProvider);
+    final homeNotifier = ref.read(homeProvider.notifier);
+
     final List<Widget> pages = [
       HomePageContent(
           usuario: widget.userName,
@@ -194,13 +187,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           idCollaborator: widget.idCollaborator,
           idMainAccount: widget.idMainAccount),
       NotificationsPage(userId: widget.userId),
-      ProfilePage(
-          usuario: widget.userName,
-          userId: widget.userId,
-          idCollaborator: widget.idCollaborator,
-          idMainAccount: widget.idMainAccount,
-          email: widget.email,
-          password: widget.password),
       MenuPage(
         idCollaborator: widget.idCollaborator,
         idMainAccount: widget.idMainAccount,
@@ -215,148 +201,92 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         additionalPermissions: widget.additionalPermissions,
         creationId: widget.creationId,
       ),
+      ProfilePage(
+          usuario: widget.userName,
+          userId: widget.userId,
+          idCollaborator: widget.idCollaborator,
+          idMainAccount: widget.idMainAccount,
+          email: widget.email,
+          password: widget.password,
+          uuid: widget.uuid,
+          creationId: widget.creationId),
     ];
-
-    void onItemTapped(int index) {
-      setState(() {
-        _selectedIndex = index;
-      });
-      _resetInactivityTimer();
-    }
 
     return GestureDetector(
       behavior: HitTestBehavior.translucent,
       onTap: _resetInactivityTimer,
       onPanDown: (_) => _resetInactivityTimer(),
-      child: Scaffold(
-        appBar: PreferredSize(
-          preferredSize: const Size.fromHeight(20.0),
-          child: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
+      child: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            colors: [
+              Color.fromARGB(255, 250, 250, 250),
+              Color.fromARGB(255, 205, 240, 255),
+            ],
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
           ),
         ),
-        body: Stack(
-          children: [
-            AnimatedContainer(
-              duration: const Duration(seconds: 5),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Color.fromARGB(255, 250, 250, 250),
-                    Color.fromARGB(255, 205, 240, 255)
+        child: Scaffold(
+          backgroundColor: Colors.transparent,
+          appBar: PreferredSize(
+            preferredSize: Size.zero,
+            child: AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+            ),
+          ),
+          body: Stack(
+            children: [
+              IndexedStack(
+                index: homeState.selectedNavIndex,
+                children: pages,
+              ),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ModernFloatingNavBar(
+                  currentIndex: homeState.selectedNavIndex,
+                  activeContentColor: const Color(0xFF0886B5),
+                  activeCapsuleColor: const Color(0xFFE0F2FE),
+                  inactiveContentColor: const Color(0xFF64748B),
+                  onTap: (index) {
+                    homeNotifier.setNavIndex(index);
+                    if (index == 1) {
+                      homeNotifier.fetchUnreadNotifications(widget.userId);
+                    }
+                  },
+                  items: [
+                    const ModernNavItem(
+                      icon: Icons.home_outlined,
+                      activeIcon: Icons.home_rounded,
+                      label: 'Inicio',
+                    ),
+                    ModernNavItem(
+                      icon: Icons.notifications_none_rounded,
+                      activeIcon: Icons.notifications_rounded,
+                      label: 'Notificaciones',
+                      showBadge: homeState.unreadNotifications > 0,
+                      badgeCount: homeState.unreadNotifications > 0
+                          ? homeState.unreadNotifications
+                          : null,
+                    ),
+                    const ModernNavItem(
+                      icon: Icons.dashboard_outlined,
+                      activeIcon: Icons.dashboard_rounded,
+                      label: 'Menú',
+                    ),
+                    const ModernNavItem(
+                      icon: Icons.person_outline_rounded,
+                      activeIcon: Icons.person_rounded,
+                      label: 'Perfil',
+                    ),
                   ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
                 ),
               ),
-            ),
-            PageView(
-              controller: _pageController,
-              onPageChanged: (index) {
-                setState(() {
-                  _selectedIndex = index;
-                });
-              },
-              children: pages,
-            ),
-          ],
-        ),
-        bottomNavigationBar: CurvedNavigationBar(
-          backgroundColor: Colors.transparent,
-          color: const Color.fromARGB(255, 205, 240, 255),
-          buttonBackgroundColor: Colors.white,
-          height: 47.0,
-          items: [
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.home,
-                    size: screenWidth * 0.056, color: Colors.black),
-                Text('Inicio',
-                    style: TextStyle(
-                        fontSize: screenWidth * 0.022, color: Colors.black)),
-              ],
-            ),
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    Icon(Icons.notifications,
-                        size: screenWidth * 0.056, color: Colors.black),
-                    if (unreadCount >
-                        0) // Solo muestra el número si unreadCount es mayor que 0
-                      Positioned(
-                        right: -9,
-                        top: -17,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: Colors.red,
-                            shape: BoxShape.circle,
-                          ),
-                          constraints: const BoxConstraints(
-                            minWidth: 17,
-                            minHeight: 17,
-                          ),
-                          child: Text(
-                            unreadCount.toString(),
-                            style: TextStyle(
-                              fontSize: screenWidth * 0.029,
-                              color: Colors.white,
-                              fontWeight: FontWeight.bold,
-                            ),
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                Text('Notificaciones',
-                    style: TextStyle(
-                        fontSize: screenWidth * 0.022, color: Colors.black)),
-              ],
-            ),
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.person,
-                    size: screenWidth * 0.056, color: Colors.black),
-                Text('Perfil',
-                    style: TextStyle(
-                        fontSize: screenWidth * 0.022, color: Colors.black)),
-              ],
-            ),
-            Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Icon(Icons.menu,
-                    size: screenWidth * 0.056, color: Colors.black),
-                Text('Menú',
-                    style: TextStyle(
-                        fontSize: screenWidth * 0.022, color: Colors.black)),
-              ],
-            ),
-          ],
-          onTap: (index) {
-            if (mounted) {
-              setState(() {
-                _selectedIndex = index;
-              });
-
-              if (index == 1) {
-                _fetchUnreadNotifications();
-              }
-            }
-            _pageController.animateToPage(
-              index,
-              duration: const Duration(milliseconds: 1),
-              curve: Curves.easeInOut,
-            );
-          },
-          index: _selectedIndex,
+            ],
+          ),
         ),
       ),
     );
