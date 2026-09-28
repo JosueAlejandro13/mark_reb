@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:mark_v3/services/ConnectionNotification_/NotificationCon_service.dart';
 
 // Estado inmutable de la vista Home
 class HomeState {
+  final int selectedNavIndex;
   final String searchQuery;
   final bool isGpsActive;
   final bool isRefreshing;
@@ -10,6 +12,7 @@ class HomeState {
   final String transmissionStatus;
 
   const HomeState({
+    this.selectedNavIndex = 0,
     this.searchQuery = '',
     this.isGpsActive = true,
     this.isRefreshing = false,
@@ -19,6 +22,7 @@ class HomeState {
   });
 
   HomeState copyWith({
+    int? selectedNavIndex,
     String? searchQuery,
     bool? isGpsActive,
     bool? isRefreshing,
@@ -27,6 +31,7 @@ class HomeState {
     String? transmissionStatus,
   }) {
     return HomeState(
+      selectedNavIndex: selectedNavIndex ?? this.selectedNavIndex,
       searchQuery: searchQuery ?? this.searchQuery,
       isGpsActive: isGpsActive ?? this.isGpsActive,
       isRefreshing: isRefreshing ?? this.isRefreshing,
@@ -44,6 +49,22 @@ class HomeNotifier extends Notifier<HomeState> {
   @override
   HomeState build() {
     return const HomeState();
+  }
+
+  void setNavIndex(int index) {
+    state = state.copyWith(selectedNavIndex: index);
+  }
+
+  Future<void> fetchUnreadNotifications(String userId) async {
+    try {
+      final int uid = int.tryParse(userId) ?? 0;
+      final notifications =
+          await NotificationService().getNotifications(uid.toString());
+      final int unread = notifications.where((n) => n['sendApp'] == 1).length;
+      state = state.copyWith(unreadNotifications: unread);
+    } catch (_) {
+      // Ignorar errores de red temporales
+    }
   }
 
   void updateSearch(String query) {
@@ -64,6 +85,7 @@ class HomeNotifier extends Notifier<HomeState> {
 
   Future<void> refreshHome(String userId) async {
     state = state.copyWith(isRefreshing: true);
+    await fetchUnreadNotifications(userId);
     await Future.delayed(const Duration(milliseconds: 600));
     state = state.copyWith(isRefreshing: false);
   }
