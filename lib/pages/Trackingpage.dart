@@ -1,798 +1,1194 @@
 import 'dart:async';
-import 'dart:convert';
+import 'dart:math';
 import 'dart:ui' as ui;
-import 'dart:ui';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:lottie/lottie.dart' show Lottie;
-import 'package:mark_v3/pages/Error_/ConnectionErrorPage.dart';
-import 'package:mark_v3/pages/Error_/ServerErrorPage.dart';
-import 'package:mark_v3/pages/Error_/TrackingErrorPage.dart';
 import 'package:intl/intl.dart';
-import 'package:image/image.dart' as img;
-import 'package:mark_v3/services/ConnectionTracking_/TrackingCon_service.dart';
-import 'package:top_snackbar_flutter/top_snack_bar.dart';
+import 'package:mark_v3/providers/Tracking_/tracking_provider.dart';
+import 'package:mark_v3/widgets/app_skeleton.dart';
+import 'package:mark_v3/widgets/snackbar_top.dart';
+import 'package:mark_v3/pages/Error_/TrackingErrorPage.dart';
+import 'package:mark_v3/widgets/vehicle_commands_sheet.dart';
+import 'package:mark_v3/widgets/vehicle_alerts_sheet.dart';
 
-//Autor: Josue Hernandez
-class TrackingPage extends StatefulWidget {
+// Autor: Josue Hernandez - Reboot Completo con Riverpod y Diseño Ejecutivo
+class TrackingPage extends ConsumerStatefulWidget {
   final String userId;
 
   const TrackingPage({super.key, required this.userId});
 
   @override
-  _TrackingPageState createState() => _TrackingPageState();
+  ConsumerState<TrackingPage> createState() => _TrackingPageState();
 }
 
-class _TrackingPageState extends State<TrackingPage>
-    with TickerProviderStateMixin {
-  final TrackingconService dbService = TrackingconService();
-  late GoogleMapController _mapController;
-  LatLng mapCenter = const LatLng(19.4326, -99.1332);
+class _TrackingPageState extends ConsumerState<TrackingPage>
+    with SingleTickerProviderStateMixin {
+  GoogleMapController? _mapController;
+  final Map<String, BitmapDescriptor> _markerIconCache = {};
   Set<Marker> _markers = {};
-  List<Map<String, dynamic>> devices = [];
-  late AnimationController _animationController;
-  late Animation<double> _sizeAnimation;
-  Map<String, String> deviceTimeElapsed = {};
-  bool _isLoading = false;
-  bool isCancelled = false;
-  bool _hasError = false;
-  bool _hasData = false;
-  Timer? _timer;
-  final Map<MarkerId, Marker> _existingMarkers = {};
-  final Map<String, BitmapDescriptor> _iconCache = {};
-  final Map<MarkerId, String> _markerIconKeys = {};
-  final Map<MarkerId, LatLng> _markerPositions = {};
-  bool _isUpdating = false;
-  String? _selectedVehicleId;
-  LatLng? _currentPosition;
+  late AnimationController _pulseController;
+  bool _initialPositionSet = false;
 
   @override
   void initState() {
     super.initState();
-    _determinePosition();
-    _fetchTrackingData();
-    _setupAnimation();
-    _startPeriodicUpdates();
-  }
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
 
-  void _startPeriodicUpdates() {
-    _timer = Timer.periodic(Duration(seconds: 2), (Timer timer) async {
-      if (_isUpdating) return;
-      _isUpdating = true;
-      try {
-        await _updateTrackingData();
-      } finally {
-        _isUpdating = false;
-      }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(trackingProvider.notifier).loadDevices(widget.userId);
     });
   }
 
-  Future<void> _updateTrackingData() async {
-    if (_selectedVehicleId == null || isCancelled) return;
-
-    try {
-      final trackingData = await dbService.obtenerTracking(_selectedVehicleId!);
-
-      if (trackingData.isNotEmpty) {
-        final updatedDevice = trackingData.first;
-
-        if (mounted) {
-          setState(() {
-            devices = devices.map((device) {
-              if (device['id'].toString() == _selectedVehicleId) {
-                return {
-                  ...device,
-                  'lat': updatedDevice['lat'],
-                  'lng': updatedDevice['lng'],
-                  'ignStatus': updatedDevice['ignStatus'],
-                  'driveStat': updatedDevice['driveStat'],
-                  'dir': updatedDevice['dir'],
-                };
-              }
-              return device;
-            }).toList();
-          });
-
-          await _updateMarkers();
-
-          LatLng newPosition = LatLng(
-            double.parse(updatedDevice['lat'].toString()),
-            double.parse(updatedDevice['lng'].toString()),
-          );
-
-          if (_currentPosition == null ||
-              _currentPosition!.latitude != newPosition.latitude ||
-              _currentPosition!.longitude != newPosition.longitude) {
-            _mapController.animateCamera(
-              CameraUpdate.newLatLng(newPosition),
-            );
-
-            _currentPosition = newPosition;
-          }
-        }
-      }
-    } catch (e) {
-      debugPrint('Error al actualizar los datos de seguimiento: $e');
-    }
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _mapController?.dispose();
+    ref.read(trackingProvider.notifier).stopPolling();
+    super.dispose();
   }
 
-  void _setupAnimation() {
-    _animationController = AnimationController(
-      vsync: this,
-      duration: const Duration(seconds: 1),
-    )..repeat(reverse: true);
-
-    _sizeAnimation =
-        Tween<double>(begin: 90.0, end: 100.0).animate(_animationController);
+  double _parseCoordinate(dynamic val, [double fallback = 0.0]) {
+    if (val == null) return fallback;
+    String s = val.toString().trim();
+    if (s.startsWith('+')) {
+      s = s.substring(1).trim();
+    }
+    if (s.endsWith('.')) {
+      s = '${s}0';
+    }
+    return double.tryParse(s) ?? fallback;
   }
 
-  Future<void> _updateMarkers() async {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final double baseIconSize = screenWidth * 0.25;
+  Future<BitmapDescriptor> _getMarkerIcon({
+    required bool isGreen,
+    required double direction,
+  }) async {
+    // Normalizar dirección a pasos de 15 grados para optimizar caché
+    final int roundedDirection = (direction / 15).round() * 15;
+    final String cacheKey = '${isGreen ? "green" : "grey"}_$roundedDirection';
 
-    Set<Marker> newMarkers = {};
-    bool hasChanges = false;
-
-    final deviceIds = devices
-        .map((device) => device['id']?.toString() ?? 'default_id')
-        .toSet();
-    _existingMarkers
-        .removeWhere((markerId, _) => !deviceIds.contains(markerId.value));
-    _markerIconKeys
-        .removeWhere((markerId, _) => !deviceIds.contains(markerId.value));
-
-    for (var device in devices) {
-      if (device['lat'] != null && device['lng'] != null) {
-        final lat = double.tryParse(device['lat']?.toString() ?? '0.0') ?? 0.0;
-        final lng = double.tryParse(device['lng']?.toString() ?? '0.0') ?? 0.0;
-        final driveStat = device['ignStatus'] ?? 0;
-        final bool isGreen = driveStat == 1;
-        final double direction =
-            double.tryParse(device['dir']?.toString() ?? '0.0') ?? 0.0;
-
-        final iconSize = isGreen ? _sizeAnimation.value : baseIconSize;
-        final markerId = MarkerId(device['id']?.toString() ?? 'default_id');
-        final String iconKey = '${isGreen ? "green" : "black"}_$iconSize';
-
-        final double previousSize = double.tryParse(
-                _markerIconKeys[markerId]?.split('_')[1] ?? '$baseIconSize') ??
-            baseIconSize;
-        if ((previousSize - iconSize).abs() < 1.0 &&
-            _markerIconKeys[markerId] == iconKey) {
-          newMarkers.add(_existingMarkers[markerId]!);
-          continue;
-        }
-
-        LatLng newPos = LatLng(lat, lng);
-        LatLng oldPos = _existingMarkers[markerId]?.position ?? newPos;
-
-        LatLng smoothPos = LatLng(
-          lerpDouble(oldPos.latitude, newPos.latitude, 0.95)!,
-          lerpDouble(oldPos.longitude, newPos.longitude, 0.95)!,
-        );
-
-        final customIcon = await _getCachedIcon(
-          isGreen
-              ? const ui.Color.fromARGB(255, 36, 146, 39)
-              : const ui.Color.fromARGB(255, 139, 139, 139),
-          iconSize,
-          screenWidth,
-        );
-
-        // ignore: unnecessary_null_comparison
-        if (customIcon == null) {
-          debugPrint(
-              'Error: No se pudo obtener el ícono para el marcador ${markerId.value}');
-          continue;
-        }
-
-        if (_existingMarkers.containsKey(markerId)) {
-          final existingMarker = _existingMarkers[markerId]!;
-
-          if (existingMarker.position != smoothPos ||
-              existingMarker.rotation != direction ||
-              _markerIconKeys[markerId] != iconKey) {
-            hasChanges = true;
-
-            final updatedMarker = existingMarker.copyWith(
-              positionParam: smoothPos,
-              rotationParam: direction,
-              iconParam: customIcon,
-            );
-
-            newMarkers.add(updatedMarker);
-            _existingMarkers[markerId] = updatedMarker;
-            _markerIconKeys[markerId] = iconKey;
-          } else {
-            newMarkers.add(existingMarker);
-          }
-        } else {
-          hasChanges = true;
-
-          final newMarker = Marker(
-            markerId: markerId,
-            position: smoothPos,
-            icon: customIcon,
-            onTap: () => _showCarInfo(context, device),
-            rotation: direction,
-            flat: true,
-            anchor: const Offset(0.5, 0.5),
-          );
-
-          newMarkers.add(newMarker);
-          _existingMarkers[markerId] = newMarker;
-          _markerIconKeys[markerId] = iconKey;
-        }
-      }
+    if (_markerIconCache.containsKey(cacheKey)) {
+      return _markerIconCache[cacheKey]!;
     }
 
-    if (hasChanges && mounted) {
-      if (!setEquals(_markers, newMarkers)) {
-        setState(() {
-          _markers = newMarkers;
-        });
-      }
-    }
-  }
-
-  Future<BitmapDescriptor> _getCachedIcon(
-      Color color, double size, double screenWidth) async {
-    String key = '${color.value}_$size';
-
-    if (_iconCache.containsKey(key)) {
-      return _iconCache[key]!;
-    }
-
-    final icon = await _generateCustomMarkerIcon(
-      iconSize: size,
-      screenWidth: screenWidth,
-      color: color,
+    final icon = await _drawCustomMarker(
+      isGreen: isGreen,
+      direction: direction,
     );
-
-    _iconCache[key] = icon;
+    _markerIconCache[cacheKey] = icon;
     return icon;
   }
 
-  Future<BitmapDescriptor> _generateCustomMarkerIcon({
-    required double iconSize,
-    required double screenWidth,
-    required Color color,
+  Future<BitmapDescriptor> _drawCustomMarker({
+    required bool isGreen,
+    required double direction,
   }) async {
-    final double markerSize = screenWidth * 0.27;
-
+    const double size = 96.0;
     final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
     final Canvas canvas = Canvas(pictureRecorder);
 
-    canvas.translate(markerSize / 2, markerSize / 2);
+    final primaryColor = isGreen
+        ? const Color(0xFF10B981) // Verde esmeralda moderno
+        : const Color(0xFF64748B); // Slate profesional
+    final ringColor = isGreen
+        ? const Color(0xFF10B981).withOpacity(0.25)
+        : const Color(0xFF64748B).withOpacity(0.20);
 
-    final ByteData data = await rootBundle.load('assets/gps.png');
-    final List<int> bytes = data.buffer.asUint8List();
-    final img.Image image = img.decodeImage(Uint8List.fromList(bytes))!;
+    // Halo exterior de pulso
+    final Paint pulsePaint = Paint()
+      ..color = ringColor
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+        const Offset(size / 2, size / 2), size * 0.44, pulsePaint);
 
-    img.Image coloredImage = img.colorOffset(image,
-        red: color.red, green: color.green, blue: color.blue);
+    // Sombra del marcador
+    final Path shadowPath = Path()
+      ..addOval(Rect.fromCircle(
+        center: const Offset(size / 2, size / 2 + 3),
+        radius: size * 0.32,
+      ));
+    canvas.drawShadow(shadowPath, Colors.black.withOpacity(0.35), 6.0, false);
 
-    final double scaleFactor = iconSize / coloredImage.width;
-    final int newWidth = (coloredImage.width * scaleFactor).toInt();
-    final int newHeight = (coloredImage.height * scaleFactor).toInt();
-    final img.Image resizedImage =
-        img.copyResize(coloredImage, width: newWidth, height: newHeight);
+    // Círculo blanco de fondo
+    final Paint whiteBgPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+        const Offset(size / 2, size / 2), size * 0.32, whiteBgPaint);
 
-    final ui.Image uiImage = await _loadUiImage(resizedImage);
+    // Círculo principal con color de estado
+    final Paint circlePaint = Paint()
+      ..color = primaryColor
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+        const Offset(size / 2, size / 2), size * 0.26, circlePaint);
 
-    final Paint paint = Paint()
-      ..colorFilter = ColorFilter.mode(color, BlendMode.modulate);
+    // Borde blanco interior
+    final Paint innerBorderPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    canvas.drawCircle(
+        const Offset(size / 2, size / 2), size * 0.26, innerBorderPaint);
 
-    canvas.drawImage(
-      uiImage,
-      Offset(-uiImage.width / 2, -uiImage.height / 2),
-      paint,
-    );
-    final ui.Image finalImage = await pictureRecorder
-        .endRecording()
-        .toImage(markerSize.toInt(), markerSize.toInt());
+    // Flecha / Indicador de dirección orientada
+    canvas.save();
+    canvas.translate(size / 2, size / 2);
+    canvas.rotate((direction * pi) / 180.0);
 
-    final dataImg = await finalImage.toByteData(format: ui.ImageByteFormat.png);
-    return BitmapDescriptor.fromBytes(dataImg!.buffer.asUint8List());
-  }
+    final Paint arrowPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
 
-  Future<ui.Image> _loadUiImage(img.Image image) async {
-    final completer = Completer<ui.Image>();
-    ui.decodeImageFromList(Uint8List.fromList(img.encodePng(image)), (result) {
-      return completer.complete(result);
-    });
-    return completer.future;
-  }
+    final Path arrowPath = Path()
+      ..moveTo(0, -size * 0.16)
+      ..lineTo(size * 0.11, size * 0.12)
+      ..lineTo(0, size * 0.05)
+      ..lineTo(-size * 0.11, size * 0.12)
+      ..close();
 
-  Future<void> _withLoading(Future<void> Function() action) async {
-    if (mounted) {
-      setState(() {
-        _isLoading = true;
-      });
+    canvas.drawPath(arrowPath, arrowPaint);
+    canvas.restore();
+
+    final ui.Image image = await pictureRecorder.endRecording().toImage(
+          size.toInt(),
+          size.toInt(),
+        );
+    final ByteData? byteData =
+        await image.toByteData(format: ui.ImageByteFormat.png);
+
+    if (byteData == null) {
+      return BitmapDescriptor.defaultMarker;
     }
-
-    try {
-      await action();
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
+    return BitmapDescriptor.fromBytes(byteData.buffer.asUint8List());
   }
 
-  Future<void> _fetchTrackingData() async {
-    isCancelled = false;
-    _hasError = false;
+  Future<void> _buildMarkers(List<Map<String, dynamic>> devices) async {
+    final Set<Marker> newMarkers = {};
 
-    await _withLoading(() async {
-      try {
-        final tracking = await dbService.getDevicesBySubAccount(widget.userId);
+    for (final device in devices) {
+      final lat = _parseCoordinate(device['lat']);
+      final lng = _parseCoordinate(device['lng']);
 
-        if (isCancelled || !mounted) return;
+      if (lat == 0.0 && lng == 0.0) continue;
 
-        if (tracking.isNotEmpty) {
-          debugPrint('Datos obtenidos: $tracking');
+      final bool isGreen = (device['ignStatus'] ?? 0) == 1;
+      final double direction =
+          double.tryParse(device['dir']?.toString() ?? '0.0') ?? 0.0;
+      final markerId = MarkerId(device['id'].toString());
 
-          setState(() {
-            _hasData = true;
-            devices = tracking;
-            if (tracking.isNotEmpty) {
-              double lat =
-                  double.tryParse(tracking[0]['lat']?.toString() ?? '') ??
-                      19.4326;
-              double lng =
-                  double.tryParse(tracking[0]['lng']?.toString() ?? '') ??
-                      -99.1332;
-              mapCenter = LatLng(lat, lng);
-            }
-          });
-
-          final nowUtc = DateTime.now().toUtc();
-          final nowUtcRounded = DateTime(nowUtc.year, nowUtc.month, nowUtc.day,
-              nowUtc.hour, nowUtc.minute, nowUtc.second);
-
-          debugPrint('Hora actual (UTC): $nowUtc');
-          debugPrint('Hora actual redondeada (UTC): $nowUtcRounded');
-
-          for (var device in tracking) {
-            if (isCancelled || !mounted) return;
-
-            final lastUpdate =
-                int.tryParse(device['timApagado']?.toString() ?? '0') ?? 0;
-            final offsetLocalHours =
-                int.tryParse(device['timOper']?.toString() ?? '0') ?? 0;
-
-            debugPrint(
-                'Offset de la zona horaria local (desde timOper): $offsetLocalHours horas');
-
-            if (lastUpdate > 0) {
-              final utcDateTime = DateTime.fromMillisecondsSinceEpoch(
-                  lastUpdate * 1000,
-                  isUtc: true);
-              debugPrint('timApagado (UTC): $utcDateTime');
-
-              final nowLocal =
-                  nowUtcRounded.add(Duration(hours: offsetLocalHours));
-              final utcDateTimeLocal =
-                  utcDateTime.add(Duration(hours: offsetLocalHours));
-
-              debugPrint(
-                  'Hora actual ajustada a UTC$offsetLocalHours: $nowLocal');
-              debugPrint(
-                  'timApagado ajustado a UTC$offsetLocalHours: $utcDateTimeLocal');
-
-              final diferenciaLocal = nowLocal.difference(utcDateTimeLocal);
-
-              debugPrint('Diferencia ajustada a hora local: $diferenciaLocal');
-
-              final dias = diferenciaLocal.inDays;
-              final horas = diferenciaLocal.inHours % 24;
-              final minutos = diferenciaLocal.inMinutes % 60;
-              final segundos = diferenciaLocal.inSeconds % 60;
-
-              final List<String> partes = [];
-              if (dias > 0) {
-                partes.add('$dias días');
-                if (horas > 0 || minutos > 0 || segundos > 0) {
-                  partes.add('con');
-                }
-              }
-              if (horas > 0) {
-                partes.add('$horas horas');
-                if (minutos > 0 || segundos > 0) {
-                  partes.add(',');
-                }
-              }
-              if (minutos > 0) {
-                partes.add('$minutos minutos');
-                if (segundos > 0) {
-                  partes.add('y');
-                }
-              }
-              if (segundos > 0) {
-                partes.add('$segundos segundos');
-              }
-
-              final mensaje = partes.join(' ');
-
-              debugPrint('Mensaje formateado: $mensaje');
-
-              if (mounted) {
-                setState(() {
-                  deviceTimeElapsed[device['id'].toString()] = mensaje;
-                });
-              }
-
-              debugPrint('Tiempo de operación ${device['id']}: $mensaje');
-            } else {
-              debugPrint(
-                  'Tiempo de operación ${device['id']}: Timestamp no válido (lastUpdate = $lastUpdate)');
-            }
-          }
-          _updateMarkers();
-        } else {
-          if (mounted) {
-            setState(() {
-              _hasData = false;
-            });
-          }
-          debugPrint('No se encontraron dispositivos.');
-          throw Exception("No hay datos disponibles");
-        }
-      } catch (e) {
-        _handleError(e);
-        return;
-      }
-    });
-  }
-
-  void _handleError(Object e) {
-    if (!mounted) return;
-    setState(() {
-      _hasData = false;
-      _hasError = true;
-      _isLoading = false;
-    });
-
-    if (e.toString().contains('SocketException')) {
-      debugPrint('SocketException: Error de conexión.');
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => ConnectionErrorPage(
-            onRetry: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (context) => widget),
-              );
-            },
-          ),
-        ),
+      final icon = await _getMarkerIcon(
+        isGreen: isGreen,
+        direction: direction,
       );
-      return;
-    }
 
-    if (e.toString().contains('TimeoutException')) {
-      debugPrint('TimeoutException: Tiempo de espera excedido.');
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => ServerErrorPage(
-            onRetry: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (context) => widget),
-              );
-            },
+      newMarkers.add(
+        Marker(
+          markerId: markerId,
+          position: LatLng(lat, lng),
+          icon: icon,
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
+          rotation: 0.0, // La orientación ya se dibujó en el icono
+          infoWindow: InfoWindow(
+            title: (device['economico'] ??
+                    device['eco'] ??
+                    device['name'] ??
+                    'Vehículo')
+                .toString(),
+            snippet: isGreen ? 'En marcha' : 'Motor detenido',
+            onTap: () => _showVehicleFullDetails(context, device),
           ),
-        ),
-      );
-      return;
-    }
-
-    if (e.toString().contains('No hay datos disponibles')) {
-      if (!mounted) return;
-      setState(() {
-        _hasData = false;
-        _hasError = true;
-        _isLoading = false;
-      });
-
-      debugPrint('No hay datos disponibles.');
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => TrackingErrorPage(
-            onRetry: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (context) => widget),
-              );
-            },
-          ),
-        ),
-      );
-      return;
-    }
-    debugPrint('Error inesperado al obtener datos: $e');
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (context) => TrackingErrorPage(
-          onRetry: () {
-            Navigator.of(context).pushReplacement(
-              MaterialPageRoute(builder: (context) => widget),
-            );
+          onTap: () {
+            ref
+                .read(trackingProvider.notifier)
+                .selectVehicle(device['id'].toString());
+            _animateCameraToPosition(LatLng(lat, lng), 16.5);
           },
         ),
+      );
+    }
+
+    if (mounted) {
+      setState(() {
+        _markers = newMarkers;
+      });
+    }
+  }
+
+  void _animateCameraToPosition(LatLng position, [double zoom = 16.0]) {
+    _mapController?.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(target: position, zoom: zoom),
       ),
     );
-    return;
   }
 
-  void cancelLoading() {
-    isCancelled = true;
-  }
+  void _fitAllVehicles(List<Map<String, dynamic>> devices) {
+    final validPoints = devices
+        .map((d) =>
+            LatLng(_parseCoordinate(d['lat']), _parseCoordinate(d['lng'])))
+        .where((pos) => pos.latitude != 0.0 && pos.longitude != 0.0)
+        .toList();
 
-  Future<void> _determinePosition() async {
-    if (!mounted) return;
+    if (validPoints.isEmpty) return;
 
-    bool serviceEnabled;
-    LocationPermission permission;
-
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      debugPrint('Los servicios de ubicación están desactivados.');
-
-      showTopSnackBar(
-        Overlay.of(context),
-        _buildErrorSnackBar(
-          context,
-          "Los servicios de ubicación están desactivados. Por favor, actívalos.",
-        ),
-      );
-
-      Future.delayed(const Duration(seconds: 2), () {
-        Geolocator.openLocationSettings();
-      });
-
+    if (validPoints.length == 1) {
+      _animateCameraToPosition(validPoints.first, 15.5);
       return;
     }
 
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
-        debugPrint('Permiso de ubicación denegado.');
-        return;
+    double minLat = validPoints.map((p) => p.latitude).reduce(min);
+    double maxLat = validPoints.map((p) => p.latitude).reduce(max);
+    double minLng = validPoints.map((p) => p.longitude).reduce(min);
+    double maxLng = validPoints.map((p) => p.longitude).reduce(max);
+
+    _mapController?.animateCamera(
+      CameraUpdate.newLatLngBounds(
+        LatLngBounds(
+          southwest: LatLng(minLat, minLng),
+          northeast: LatLng(maxLat, maxLng),
+        ),
+        80.0,
+      ),
+    );
+  }
+
+  Future<void> _centerOnUserLocation() async {
+    try {
+      final hasPermission = await Geolocator.checkPermission();
+      if (hasPermission == LocationPermission.denied ||
+          hasPermission == LocationPermission.deniedForever) {
+        final req = await Geolocator.requestPermission();
+        if (req == LocationPermission.denied ||
+            req == LocationPermission.deniedForever) {
+          _showSnackBar(
+            'Permiso de ubicación denegado.',
+            isError: true,
+          );
+          return;
+        }
+      }
+
+      final position = await Geolocator.getCurrentPosition();
+      _animateCameraToPosition(
+        LatLng(position.latitude, position.longitude),
+        16.0,
+      );
+    } catch (e) {
+      _showSnackBar('No se pudo obtener la ubicación actual: $e',
+          isError: true);
+    }
+  }
+
+  void _showSnackBar(String text, {bool isError = false}) {
+    if (!mounted) return;
+    if (isError) {
+      SnackbarTop.showError(context, text);
+    } else {
+      SnackbarTop.showInfo(context, text);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final clampedScaler = mediaQuery.textScaler.clamp(
+      minScaleFactor: 0.85,
+      maxScaleFactor: 1.15,
+    );
+    final isSmallScreen = mediaQuery.size.width < 360;
+
+    final trackingState = ref.watch(trackingProvider);
+    final notifier = ref.read(trackingProvider.notifier);
+
+    // Reconstruir marcadores si los dispositivos cambiaron
+    ref.listen<TrackingState>(trackingProvider, (prev, next) {
+      if (prev?.devices != next.devices) {
+        _buildMarkers(next.devices);
+
+        // Primera vez que llegan datos, encuadrar la flota
+        if (!_initialPositionSet && next.devices.isNotEmpty) {
+          _initialPositionSet = true;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _fitAllVehicles(next.devices);
+          });
+        }
+
+        // Si hay una unidad seleccionada y está en marcha, seguir suavemente con la cámara
+        if (next.selectedVehicleId != null) {
+          final sel = next.selectedVehicle;
+          if (sel != null && (sel['ignStatus'] ?? 0) == 1) {
+            final lat = _parseCoordinate(sel['lat']);
+            final lng = _parseCoordinate(sel['lng']);
+            if (lat != 0.0 && lng != 0.0) {
+              _mapController?.animateCamera(
+                CameraUpdate.newLatLng(LatLng(lat, lng)),
+              );
+            }
+          }
+        }
+      }
+    });
+
+    final selectedDevice = trackingState.selectedVehicle;
+
+    // Si los dispositivos ya están cargados pero aún no se dibujaron los marcadores
+    if (_markers.isEmpty && trackingState.devices.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _markers.isEmpty) {
+          _buildMarkers(trackingState.devices);
+        }
+      });
+    }
+
+    // Calcular posición inicial para el mapa
+    LatLng initialTarget = const LatLng(19.4326, -99.1332);
+    if (trackingState.devices.isNotEmpty) {
+      final firstLat = _parseCoordinate(trackingState.devices[0]['lat']);
+      final firstLng = _parseCoordinate(trackingState.devices[0]['lng']);
+      if (firstLat != 0.0 && firstLng != 0.0) {
+        initialTarget = LatLng(firstLat, firstLng);
       }
     }
 
-    if (permission == LocationPermission.deniedForever) {
-      debugPrint('Los permisos de ubicación están permanentemente denegados.');
-      return;
+    if (trackingState.hasError && !trackingState.isLoading) {
+      return TrackingErrorPage(
+        onRetry: () => notifier.loadDevices(widget.userId),
+      );
     }
 
-    Position position = await Geolocator.getCurrentPosition();
-
-    if (!mounted) return;
-    setState(() {
-      mapCenter = LatLng(position.latitude, position.longitude);
-    });
-
-    debugPrint('Ubicación actual: ${position.latitude}, ${position.longitude}');
-  }
-
-  Widget _buildErrorSnackBar(BuildContext context, String message) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    return Material(
-      color: Colors.transparent,
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 20),
-        padding: const EdgeInsets.all(16),
-        decoration: BoxDecoration(
-          color: Colors.redAccent,
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(
+    return MediaQuery(
+      data: mediaQuery.copyWith(textScaler: clampedScaler),
+      child: Scaffold(
+        body: Stack(
           children: [
-            const Icon(Icons.error, color: Colors.white, size: 24),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(
-                  fontSize: screenWidth * 0.034,
-                  color: Colors.white,
-                ),
+            // MAPA DE GOOGLE PRINCIPAL
+            GoogleMap(
+              initialCameraPosition: CameraPosition(
+                target: initialTarget,
+                zoom: 14.5,
+              ),
+              mapType: trackingState.mapType,
+              trafficEnabled: trackingState.showTraffic,
+              markers: _markers,
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              compassEnabled: false,
+              mapToolbarEnabled: false,
+              padding: EdgeInsets.only(
+                top: mediaQuery.padding.top + 72,
+                bottom: selectedDevice != null ? 245 : 20,
+              ),
+              onMapCreated: (controller) {
+                _mapController = controller;
+                if (trackingState.devices.isNotEmpty) {
+                  _fitAllVehicles(trackingState.devices);
+                }
+              },
+              onTap: (_) {
+                // Al pulsar el mapa, deseleccionar si se quiere ocultar la tarjeta
+                if (trackingState.selectedVehicleId != null) {
+                  notifier.selectVehicle(null);
+                }
+              },
+            ),
+
+            // BARRA SUPERIOR EJECUTIVA FLOTANTE
+            Positioned(
+              top: mediaQuery.padding.top + 8,
+              left: isSmallScreen ? 10 : 16,
+              right: isSmallScreen ? 10 : 16,
+              child: _buildFloatingTopBar(
+                context,
+                trackingState,
+                notifier,
+                isSmallScreen,
               ),
             ),
+
+            // CONTROLES LATERALES FLOTANTES (Derecha)
+            Positioned(
+              right: isSmallScreen ? 10 : 16,
+              top: mediaQuery.padding.top + 76,
+              child: _buildFloatingMapControls(
+                context,
+                trackingState,
+                notifier,
+              ),
+            ),
+
+            // TARJETA INFERIOR FLOTANTE DE VEHÍCULO SELECCIONADO
+            if (selectedDevice != null)
+              Positioned(
+                left: isSmallScreen ? 10 : 16,
+                right: isSmallScreen ? 10 : 16,
+                bottom: mediaQuery.padding.bottom + 12,
+                child: _buildSelectedVehicleCard(
+                  context,
+                  selectedDevice,
+                  trackingState,
+                  notifier,
+                  isSmallScreen,
+                ),
+              ),
+
+            // SKELETON Y LOADING FLOTANTE APPLE
+            if (trackingState.isLoading) ...[
+              // Shimmer bar flotante superior
+              Positioned(
+                top: mediaQuery.padding.top + 8,
+                left: isSmallScreen ? 10 : 16,
+                right: isSmallScreen ? 10 : 16,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.96),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: Row(
+                    children: const [
+                      AppShimmerBox(width: 36, height: 36, borderRadius: 12),
+                      SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            AppShimmerBox.text(width: 130, height: 14),
+                            SizedBox(height: 5),
+                            AppShimmerBox.text(width: 190, height: 10),
+                          ],
+                        ),
+                      ),
+                      SizedBox(width: 10),
+                      AppShimmerBox(width: 48, height: 32, borderRadius: 10),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Card de carga central estilo Apple
+              Center(
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 26, vertical: 22),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withOpacity(0.96),
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0F172A).withOpacity(0.08),
+                        blurRadius: 24,
+                        offset: const Offset(0, 8),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const AppShimmerBox.circular(size: 38),
+                      const SizedBox(height: 16),
+                      const Text(
+                        'Conectando con la flota...',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Obteniendo posiciones GPS en tiempo real',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w400,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
     );
   }
 
-  @override
-  void dispose() {
-    _animationController.dispose();
-    _timer?.cancel();
-    isCancelled = true;
-    _isUpdating = false;
-    super.dispose();
-  }
+  // BARRA SUPERIOR FLOTANTE
+  Widget _buildFloatingTopBar(
+    BuildContext context,
+    TrackingState state,
+    TrackingNotifier notifier,
+    bool isSmallScreen,
+  ) {
+    final activeCount = state.movingCount;
+    final totalCount = state.devices.length;
 
-  void _showCarInfo(BuildContext context, Map<String, dynamic> device) {
-    Map<String, dynamic> deviceInfo = {
-      'id': device['id'],
-      'status_servidor': device['status_servidor'],
-      'lat': device['lat'],
-      'lng': device['lng'],
-      'ignStatus': device['ignStatus'],
-      'dir': device['dir'],
-      'timApagado': device['timApagado'],
-      'timOper': device['timOper'],
-      'placas': device['placas'],
-      'make': device['make'],
-      'model': device['model'],
-      'year': device['year'],
-      'FechaConsulta': DateFormat('yyyy-MM-dd HH:mm:ss').format(DateTime.now()),
-    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Botón Atrás
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: const Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  size: 15,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ),
+          ),
 
-    String deviceInfoJson = jsonEncode(deviceInfo);
-    debugPrint('Datos del dispositivo en formato JSON:');
-    debugPrint(deviceInfoJson);
+          const SizedBox(width: 10),
 
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-
-    final ignStatus = device['ignStatus'] ?? 0;
-    final BatStatus = device['BatStatus'] ?? 0;
-    int timOper = int.tryParse(device['timOper'].toString()) ?? 0;
-
-    showDialog(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          content: SingleChildScrollView(
+          // Título e Indicador En Vivo
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                _buildSection(
-                  context,
-                  title: 'Información del vehículo',
-                  children: [
-                    _buildInfoRow(Icons.car_rental, 'Placas', device['placas']),
-                    _buildInfoRow(
-                        Icons.directions_car, 'Marca', device['make']),
-                    _buildInfoRow(
-                        Icons.model_training, 'Modelo', device['model']),
-                    _buildInfoRow(
-                        Icons.calendar_today, 'Año', device['year'].toString()),
-                  ],
+                const Text(
+                  'Monitoreo en Vivo',
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.2,
+                  ),
                 ),
-                SizedBox(height: 15),
-                _buildSection(
-                  context,
-                  title: 'Batería',
+                const SizedBox(height: 2),
+                Row(
                   children: [
-                    _buildInfoRow(Icons.battery_charging_full, 'Nivel de carga',
-                        '${device['batc']} %'),
-                    _buildInfoRow(Icons.battery_std, 'Vida de la batería',
-                        '${device['bath']} %'),
-                  ],
-                ),
-                SizedBox(height: 15),
-                if (ignStatus == 0)
-                  _buildSection(
-                    context,
-                    title: 'Estado',
-                    children: [
-                      Text(
-                        'El vehículo está detenido hace ${deviceTimeElapsed[device['id'].toString()] ?? "calculando..."}',
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.031,
-                          color: Colors.black,
+                    // Punto pulsante verde
+                    FadeTransition(
+                      opacity: _pulseController,
+                      child: Container(
+                        width: 7,
+                        height: 7,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF10B981),
+                          shape: BoxShape.circle,
                         ),
                       ),
-                    ],
-                  ),
-                SizedBox(height: 15),
-                _buildSection(
-                  context,
-                  title: 'Fecha y Hora',
-                  children: [
-                    _buildInfoRow(
-                      Icons.access_time,
-                      'Fecha y Hora',
-                      DateFormat('yyyy-MM-dd HH:mm:ss').format(
-                        device['fechaHora'].add(Duration(hours: timOper)),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      totalCount == 0
+                          ? 'Buscando...'
+                          : '$totalCount Unidades ($activeCount en marcha)',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF64748B),
                       ),
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ],
                 ),
               ],
             ),
           ),
-          actions: <Widget>[
-            TextButton(
-              style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0886B5),
-                  foregroundColor: Colors.white,
-                  elevation: 6,
-                  shadowColor: Colors.grey.withOpacity(0.3),
-                  padding:
-                      const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10))),
-              onPressed: () {
-                Navigator.of(context).pop();
+
+          // Botón Recargar Flota Manual
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                notifier.loadDevices(widget.userId);
+                _showSnackBar('Actualizando lista de unidades...');
               },
-              child: Text(
-                'Cerrar',
-                style: TextStyle(
-                  fontSize: screenWidth * 0.030,
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: const Icon(
+                  Icons.refresh_rounded,
+                  size: 18,
+                  color: Color(0xFF0284C7),
                 ),
               ),
             ),
-          ],
-        );
-      },
-    );
-  }
+          ),
 
-  Widget _buildSection(BuildContext context,
-      {required String title, required List<Widget> children}) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-    return Container(
-      width: double.infinity,
-      padding: EdgeInsets.all(8),
-      decoration: BoxDecoration(
-        color: const ui.Color.fromARGB(255, 255, 255, 255),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: Colors.grey[300]!),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: screenWidth * 0.032,
-              color: const ui.Color.fromARGB(255, 0, 0, 0),
+          const SizedBox(width: 8),
+
+          // Botón Lista de Flota
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () => _showFleetModalSheet(context, state, notifier),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 7,
+                ),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF0284C7),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      Icons.directions_car_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      '$totalCount',
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
             ),
           ),
-          ...children,
         ],
       ),
     );
   }
 
-  Widget _buildInfoRow(IconData icon, String label, String value) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
+  // CONTROLES LATERALES FLOTANTES DEL MAPA
+  Widget _buildFloatingMapControls(
+    BuildContext context,
+    TrackingState state,
+    TrackingNotifier notifier,
+  ) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.08),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: Color(0xFF0886B5), size: 15),
-          SizedBox(width: 8),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+          // Cambiar tipo de mapa
+          _buildMapControlButton(
+            icon: Icons.layers_rounded,
+            tooltip: 'Tipo de Mapa',
+            isActive: state.mapType != MapType.normal,
+            onTap: () {
+              notifier.toggleMapType();
+              final label = switch (state.mapType) {
+                MapType.normal => 'Vista Híbrida / Satélite',
+                MapType.hybrid => 'Vista Terreno',
+                _ => 'Vista Estándar',
+              };
+              _showSnackBar(label);
+            },
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+          // Tráfico en vivo
+          _buildMapControlButton(
+            icon: Icons.traffic_rounded,
+            tooltip: 'Tráfico en tiempo real',
+            isActive: state.showTraffic,
+            onTap: () {
+              notifier.toggleTraffic();
+              _showSnackBar(
+                state.showTraffic
+                    ? 'Capa de tráfico desactivada'
+                    : 'Capa de tráfico activada',
+              );
+            },
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+          // Encuadrar toda la flota
+          _buildMapControlButton(
+            icon: Icons.zoom_out_map_rounded,
+            tooltip: 'Ver toda la flota',
+            isActive: false,
+            onTap: () {
+              _fitAllVehicles(state.devices);
+              _showSnackBar('Enfocando toda la flota');
+            },
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+          // Centrar en ubicación del usuario (GPS)
+          _buildMapControlButton(
+            icon: Icons.my_location_rounded,
+            tooltip: 'Mi ubicación GPS',
+            isActive: false,
+            onTap: _centerOnUserLocation,
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+          // Alertas de Telemetría GPS de toda la flota
+          _buildMapControlButton(
+            icon: Icons.notifications_active_rounded,
+            tooltip: 'Alertas GPS de la flota',
+            isActive: false,
+            onTap: () {
+              VehicleAlertsSheet.show(
+                context,
+                title: 'Alertas de Flota',
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMapControlButton({
+    required IconData icon,
+    required String tooltip,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onTap,
+          child: Container(
+            width: 42,
+            height: 42,
+            alignment: Alignment.center,
+            child: Icon(
+              icon,
+              size: 20,
+              color:
+                  isActive ? const Color(0xFF0284C7) : const Color(0xFF475569),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // TARJETA INFERIOR DE VEHÍCULO SELECCIONADO
+  Widget _buildSelectedVehicleCard(
+    BuildContext context,
+    Map<String, dynamic> device,
+    TrackingState state,
+    TrackingNotifier notifier,
+    bool isSmallScreen,
+  ) {
+    final bool isGreen = (device['ignStatus'] ??
+            (device['ignition'] == true ? 1 : 0)) ==
+        1;
+    final String economico = (device['economico'] ??
+            device['eco'] ??
+            device['name'] ??
+            'Sin nombre')
+        .toString();
+    final String placas = (device['placas'] ?? device['plates'] ?? '').toString();
+    final String make =
+        (device['make'] ?? device['marca'] ?? device['brand'] ?? '').toString();
+    final String model = (device['model'] ?? device['modelo'] ?? '').toString();
+    final rawBat = (device['bateria'] ?? device['batc'] ?? '').toString();
+    final String battery;
+    if (rawBat.isEmpty || rawBat == '0' || rawBat == '0.0') {
+      battery = '--';
+    } else if (rawBat.contains('.') ||
+        ((double.tryParse(rawBat) ?? 0) <= 24 &&
+            (double.tryParse(rawBat) ?? 0) >= 9)) {
+      battery = '${rawBat}V';
+    } else {
+      battery = '$rawBat%';
+    }
+    final String elapsed =
+        state.deviceTimeElapsed[device['id'].toString()] ?? 'En línea';
+
+    final lat = _parseCoordinate(device['lat']);
+    final lng = _parseCoordinate(device['lng']);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withOpacity(0.08),
+            blurRadius: 20,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Fila Superior: Icono de marca, Nombre, Placa, Estado y Cerrar
+          Row(
             children: [
-              Text(
-                label,
-                style: TextStyle(
-                  fontSize: screenWidth * 0.031,
-                  color: Colors.grey[600],
+              // Avatar de Vehículo
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: isGreen
+                      ? const Color(0xFFECFDF5)
+                      : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isGreen
+                        ? const Color(0xFF10B981).withOpacity(0.3)
+                        : const Color(0xFFCBD5E1),
+                  ),
+                ),
+                child: Icon(
+                  Icons.directions_car_rounded,
+                  color: isGreen
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFF64748B),
+                  size: 24,
                 ),
               ),
-              Text(
-                value,
-                style: TextStyle(
-                  fontSize: screenWidth * 0.030,
-                  color: Colors.black,
-                  fontWeight: FontWeight.bold,
+
+              const SizedBox(width: 12),
+
+              // Datos principales
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            economico,
+                            style: const TextStyle(
+                              fontSize: 15.5,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                              letterSpacing: -0.2,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (placas.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(6),
+                              border:
+                                  Border.all(color: const Color(0xFFCBD5E1)),
+                            ),
+                            child: Text(
+                              placas,
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF475569),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      make.isNotEmpty || model.isNotEmpty
+                          ? '$make $model'.trim()
+                          : 'Unidad de flota',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF64748B),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+
+              // Chip de Estado (En marcha / Detenido)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 9,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: isGreen
+                      ? const Color(0xFFECFDF5)
+                      : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isGreen
+                        ? const Color(0xFF10B981).withOpacity(0.3)
+                        : const Color(0xFFE2E8F0),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 6,
+                      height: 6,
+                      decoration: BoxDecoration(
+                        color: isGreen
+                            ? const Color(0xFF10B981)
+                            : const Color(0xFF94A3B8),
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      isGreen ? 'En marcha' : 'Detenido',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: isGreen
+                            ? const Color(0xFF047857)
+                            : const Color(0xFF475569),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+          const SizedBox(height: 12),
+
+          // Fila de Métricas Rápidas
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceAround,
+            children: [
+              _buildMetricPill(
+                icon: Icons.power_settings_new_rounded,
+                iconColor:
+                    isGreen ? const Color(0xFF10B981) : const Color(0xFF64748B),
+                label: 'Motor',
+                value: isGreen ? 'Encendido' : 'Apagado',
+              ),
+              Container(width: 1, height: 26, color: const Color(0xFFF1F5F9)),
+              _buildMetricPill(
+                icon: Icons.battery_charging_full_rounded,
+                iconColor: const Color(0xFF0284C7),
+                label: 'Batería',
+                value: battery,
+              ),
+              Container(width: 1, height: 26, color: const Color(0xFFF1F5F9)),
+              _buildMetricPill(
+                icon: Icons.access_time_rounded,
+                iconColor: const Color(0xFFF59E0B),
+                label: 'Tiempo',
+                value: elapsed,
+              ),
+            ],
+          ),
+
+          const SizedBox(height: 14),
+
+          // Botones de Acción
+          Row(
+            children: [
+              // Botón Ver Ficha Completa
+              Expanded(
+                child: SizedBox(
+                  height: 42,
+                  child: OutlinedButton.icon(
+                    onPressed: () => _showVehicleFullDetails(context, device),
+                    icon: const Icon(
+                      Icons.info_outline_rounded,
+                      size: 16,
+                      color: Color(0xFF0284C7),
+                    ),
+                    label: const Text(
+                      'Ficha Completa',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0284C7),
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(
+                          color: Color(0xFF0284C7), width: 1.2),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+
+              const SizedBox(width: 10),
+
+              // Botón Centrar en Mapa
+              Expanded(
+                child: SizedBox(
+                  height: 42,
+                  child: ElevatedButton.icon(
+                    onPressed: () {
+                      if (lat != 0.0 && lng != 0.0) {
+                        _animateCameraToPosition(LatLng(lat, lng), 17.0);
+                      }
+                    },
+                    icon: const Icon(
+                      Icons.navigation_rounded,
+                      size: 16,
+                      color: Colors.white,
+                    ),
+                    label: const Text(
+                      'Centrar en Mapa',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0284C7),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: SizedBox(
+                  height: 38,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      final idVehic = int.tryParse(device['id'].toString()) ?? 0;
+                      VehicleCommandsSheet.show(
+                        context,
+                        idVehic: idVehic,
+                        vehicleName: economico,
+                        plates: placas,
+                      );
+                    },
+                    icon: const Icon(
+                      Icons.power_settings_new_rounded,
+                      size: 15,
+                      color: Color(0xFFDC2626),
+                    ),
+                    label: const Text(
+                      'Comando',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFDC2626),
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFEF2F2),
+                      side: const BorderSide(color: Color(0xFFFECACA)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: SizedBox(
+                  height: 38,
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      final idVehic = int.tryParse(device['id'].toString()) ?? 0;
+                      VehicleAlertsSheet.show(
+                        context,
+                        idVehic: idVehic,
+                        title: 'Alertas · $economico',
+                      );
+                    },
+                    icon: const Icon(
+                      Icons.warning_amber_rounded,
+                      size: 15,
+                      color: Color(0xFFD97706),
+                    ),
+                    label: const Text(
+                      'Alertas',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFD97706),
+                      ),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFFFBEB),
+                      side: const BorderSide(color: Color(0xFFFDE68A)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ],
@@ -802,114 +1198,811 @@ class _TrackingPageState extends State<TrackingPage>
     );
   }
 
-  void _showVehicleMenu(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
+  Widget _buildMetricPill({
+    required IconData icon,
+    required Color iconColor,
+    required String label,
+    required String value,
+  }) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: iconColor),
+        const SizedBox(width: 6),
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: const TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+            Text(
+              value,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // MODAL BOTTOM SHEET: FLOTA DE VEHÍCULOS
+  void _showFleetModalSheet(
+    BuildContext context,
+    TrackingState state,
+    TrackingNotifier notifier,
+  ) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return DraggableScrollableSheet(
+          initialChildSize: 0.65,
+          minChildSize: 0.35,
+          maxChildSize: 0.90,
+          builder: (_, scrollController) {
+            return Consumer(
+              builder: (context, ref, _) {
+                final curState = ref.watch(trackingProvider);
+                final curNotifier = ref.read(trackingProvider.notifier);
+                final filtered = curState.filteredDevices;
+
+                return Container(
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    borderRadius:
+                        BorderRadius.vertical(top: Radius.circular(24)),
+                  ),
+                  child: Column(
+                    children: [
+                      // Handle bar
+                      const SizedBox(height: 12),
+                      Center(
+                        child: Container(
+                          width: 44,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE2E8F0),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 14),
+
+                      // Título del modal
+                      Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 20),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Row(
+                              children: [
+                                const Text(
+                                  'Flota de Unidades',
+                                  style: TextStyle(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF0F172A),
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 8,
+                                    vertical: 3,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF0284C7)
+                                        .withOpacity(0.1),
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  child: Text(
+                                    '${curState.devices.length}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF0284C7),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.close_rounded,
+                                color: Color(0xFF64748B),
+                              ),
+                              onPressed: () => Navigator.pop(ctx),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      // Buscador
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 6,
+                        ),
+                        child: TextFormField(
+                          initialValue: curState.searchQuery,
+                          onChanged: curNotifier.setSearchQuery,
+                          decoration: InputDecoration(
+                            hintText: 'Buscar por económico, placas o marca...',
+                            hintStyle: const TextStyle(
+                              fontSize: 12.5,
+                              color: Color(0xFF94A3B8),
+                            ),
+                            prefixIcon: const Icon(
+                              Icons.search_rounded,
+                              size: 20,
+                              color: Color(0xFF0284C7),
+                            ),
+                            suffixIcon: curState.searchQuery.isNotEmpty
+                                ? IconButton(
+                                    icon: const Icon(
+                                      Icons.clear_rounded,
+                                      size: 18,
+                                      color: Color(0xFF94A3B8),
+                                    ),
+                                    onPressed: () =>
+                                        curNotifier.setSearchQuery(''),
+                                  )
+                                : null,
+                            filled: true,
+                            fillColor: const Color(0xFFF8FAFC),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 14,
+                              vertical: 10,
+                            ),
+                            isDense: true,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide:
+                                  const BorderSide(color: Color(0xFFE2E8F0)),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide:
+                                  const BorderSide(color: Color(0xFFE2E8F0)),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: const BorderSide(
+                                color: Color(0xFF0284C7),
+                                width: 1.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                      // Filtros Rápidos (Todos / En Marcha / Detenidos)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 8,
+                        ),
+                        child: Row(
+                          children: [
+                            _buildFilterChip(
+                              label: 'Todos (${curState.devices.length})',
+                              isSelected: curState.statusFilter == 'all',
+                              onTap: () => curNotifier.setStatusFilter('all'),
+                            ),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              label: 'En marcha (${curState.movingCount})',
+                              isSelected: curState.statusFilter == 'moving',
+                              activeColor: const Color(0xFF10B981),
+                              onTap: () =>
+                                  curNotifier.setStatusFilter('moving'),
+                            ),
+                            const SizedBox(width: 8),
+                            _buildFilterChip(
+                              label: 'Detenidos (${curState.stoppedCount})',
+                              isSelected: curState.statusFilter == 'stopped',
+                              activeColor: const Color(0xFF64748B),
+                              onTap: () =>
+                                  curNotifier.setStatusFilter('stopped'),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                      const SizedBox(height: 6),
+                      const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+                      // Lista de Vehículos o Skeleton
+                      Expanded(
+                        child: curState.isLoading
+                            ? ListView.separated(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 20,
+                                  vertical: 12,
+                                ),
+                                itemCount: 5,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 10),
+                                itemBuilder: (_, __) =>
+                                    _buildFleetSkeletonTile(),
+                              )
+                            : filtered.isEmpty
+                                ? const Center(
+                                    child: Text(
+                                      'No se encontraron unidades coincidentes.',
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                        color: Color(0xFF94A3B8),
+                                      ),
+                                    ),
+                                  )
+                                : ListView.separated(
+                                    controller: scrollController,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 12,
+                                    ),
+                                    itemCount: filtered.length,
+                                    separatorBuilder: (_, __) =>
+                                        const SizedBox(height: 10),
+                                    itemBuilder: (context, index) {
+                                      final dev = filtered[index];
+                                      final bool isGreen =
+                                          (dev['ignStatus'] ?? 0) == 1;
+                                      final isSelected = dev['id'].toString() ==
+                                          curState.selectedVehicleId;
+
+                                      return _buildFleetVehicleTile(
+                                        device: dev,
+                                        isGreen: isGreen,
+                                        isSelected: isSelected,
+                                        elapsed: curState.deviceTimeElapsed[
+                                                dev['id'].toString()] ??
+                                            'En línea',
+                                        onTap: () {
+                                          Navigator.pop(ctx);
+                                          curNotifier.selectVehicle(
+                                              dev['id'].toString());
+
+                                          final lat =
+                                              _parseCoordinate(dev['lat']);
+                                          final lng =
+                                              _parseCoordinate(dev['lng']);
+                                          if (lat != 0.0 && lng != 0.0) {
+                                            _animateCameraToPosition(
+                                              LatLng(lat, lng),
+                                              16.5,
+                                            );
+                                          }
+                                        },
+                                      );
+                                    },
+                                  ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildFilterChip({
+    required String label,
+    required bool isSelected,
+    Color activeColor = const Color(0xFF0284C7),
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? activeColor.withOpacity(0.12)
+              : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: isSelected ? activeColor : const Color(0xFFE2E8F0),
+            width: isSelected ? 1.4 : 1.0,
+          ),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 11.5,
+            fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+            color: isSelected ? activeColor : const Color(0xFF64748B),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFleetSkeletonTile() {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: const [
+          AppShimmerBox(width: 38, height: 38, borderRadius: 10),
+          SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AppShimmerBox.text(width: 110, height: 13),
+                SizedBox(height: 5),
+                AppShimmerBox.text(width: 150, height: 10),
+              ],
+            ),
+          ),
+          AppShimmerBox(width: 44, height: 20, borderRadius: 10),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFleetVehicleTile({
+    required Map<String, dynamic> device,
+    required bool isGreen,
+    required bool isSelected,
+    required String elapsed,
+    required VoidCallback onTap,
+  }) {
+    final String economico = (device['economico'] ??
+            device['eco'] ??
+            device['name'] ??
+            'Sin nombre')
+        .toString();
+    final String placas = (device['placas'] ?? device['plates'] ?? '').toString();
+    final String make =
+        (device['make'] ?? device['marca'] ?? device['brand'] ?? '').toString();
+    final String model = (device['model'] ?? device['modelo'] ?? '').toString();
+    final String battery = '${device['batc'] ?? device['bateria'] ?? 0}%';
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(16),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: isSelected
+                ? const Color(0xFF0284C7).withOpacity(0.04)
+                : const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+              color: isSelected
+                  ? const Color(0xFF0284C7)
+                  : const Color(0xFFE2E8F0),
+              width: isSelected ? 1.5 : 1.0,
+            ),
+          ),
+          child: Row(
+            children: [
+              // Icono de estatus
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: isGreen
+                      ? const Color(0xFFECFDF5)
+                      : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(
+                  Icons.directions_car_rounded,
+                  color: isGreen
+                      ? const Color(0xFF10B981)
+                      : const Color(0xFF94A3B8),
+                  size: 20,
+                ),
+              ),
+
+              const SizedBox(width: 12),
+
+              // Nombre y detalles
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            economico,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF0F172A),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        if (placas.isNotEmpty) ...[
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1.5,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(5),
+                              border:
+                                  Border.all(color: const Color(0xFFE2E8F0)),
+                            ),
+                            child: Text(
+                              placas,
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$make $model'.trim().isNotEmpty
+                          ? '$make $model'.trim()
+                          : 'Unidad de flota',
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF64748B),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                ),
+              ),
+
+              // Batería y Estatus
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(
+                        Icons.battery_charging_full_rounded,
+                        size: 14,
+                        color: Color(0xFF0886B5),
+                      ),
+                      const SizedBox(width: 3),
+                      Text(
+                        battery,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: isGreen
+                          ? const Color(0xFFECFDF5)
+                          : const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      isGreen ? 'En marcha' : 'Detenido',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: isGreen
+                            ? const Color(0xFF059669)
+                            : const Color(0xFF64748B),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(width: 6),
+              const Icon(
+                Icons.arrow_forward_ios_rounded,
+                size: 13,
+                color: Color(0xFF94A3B8),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // MODAL BOTTOM SHEET: FICHA COMPLETA DEL VEHÍCULO
+  void _showVehicleFullDetails(
+    BuildContext context,
+    Map<String, dynamic> device,
+  ) {
+    final bool isGreen = (device['ignStatus'] ??
+            (device['ignition'] == true ? 1 : 0)) ==
+        1;
+    final String economico = (device['economico'] ??
+            device['eco'] ??
+            device['name'] ??
+            'Sin nombre')
+        .toString();
+    final String placas = (device['placas'] ?? device['plates'] ?? '').toString();
+    final String make =
+        (device['make'] ?? device['marca'] ?? device['brand'] ?? '').toString();
+    final String model = (device['model'] ?? device['modelo'] ?? '').toString();
+    final String year = (device['year'] ?? device['anio'] ?? '').toString();
+    final String battery = '${device['batc'] ?? device['bateria'] ?? 0}%';
+    final String batteryHealth =
+        '${device['bath'] ?? device['saludBateria'] ?? 0}%';
+    final String latStr = device['lat']?.toString() ?? 'N/A';
+    final String lngStr = device['lng']?.toString() ?? 'N/A';
+    final String dirStr =
+        '${device['dir'] ?? device['rumbo'] ?? device['course'] ?? 0}°';
+    final String subAccount = (device['idSubAccount'] ??
+            device['idEmpresa'] ??
+            device['subcuenta'] ??
+            'N/A')
+        .toString();
+
+    // Formatear Fecha y Hora
+    String fechaHoraStr = 'N/A';
+    final rawFecha =
+        device['fechaHora'] ?? device['fecha'] ?? device['lastUpdate'];
+    if (rawFecha != null && rawFecha.toString().isNotEmpty) {
+      try {
+        final parsed = DateTime.tryParse(rawFecha.toString());
+        if (parsed != null) {
+          fechaHoraStr = DateFormat('yyyy-MM-dd HH:mm:ss').format(parsed);
+        } else {
+          fechaHoraStr = rawFecha.toString();
+        }
+      } catch (_) {
+        fechaHoraStr = rawFecha.toString();
+      }
+    }
 
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      backgroundColor: Colors.white,
-      builder: (BuildContext context) {
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
         return DraggableScrollableSheet(
-          expand: false,
-          initialChildSize: 0.4,
-          minChildSize: 0.3,
-          maxChildSize: 0.5,
-          builder: (context, scrollController) {
+          initialChildSize: 0.70,
+          minChildSize: 0.40,
+          maxChildSize: 0.95,
+          builder: (_, scrollController) {
             return Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
               child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Handle
+                  const SizedBox(height: 12),
                   Center(
                     child: Container(
-                      width: 40,
-                      height: 7,
+                      width: 44,
+                      height: 5,
                       decoration: BoxDecoration(
-                        color: Colors.grey[300],
+                        color: const Color(0xFFE2E8F0),
                         borderRadius: BorderRadius.circular(10),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Vehículos disponibles (${devices.length})', // Muestra el total
-                    style: TextStyle(
-                        fontSize: screenWidth * 0.040,
-                        fontWeight: FontWeight.w500),
-                  ),
-                  const SizedBox(height: 15),
-                  Expanded(
-                    child: ListView.builder(
-                      // Más eficiente para listas largas
-                      controller: scrollController,
-                      itemCount: devices.length,
-                      itemBuilder: (context, index) {
-                        final device = devices[index];
-                        final driveStat = device['ignStatus'] ?? 0;
-                        final bool isGreen = driveStat == 1;
-                        final iconColor = isGreen ? Colors.green : Colors.grey;
-                        final String vehicleId = device['id'].toString();
+                  const SizedBox(height: 14),
 
-                        return Align(
-                          alignment: Alignment.centerLeft,
-                          child: Container(
-                            width: screenWidth * 0.79,
-                            margin: const EdgeInsets.symmetric(
-                                vertical: 1, horizontal: 1),
-                            child: Card(
+                  // Header Ficha
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Text(
+                                  economico,
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF0F172A),
+                                    letterSpacing: -0.2,
+                                  ),
+                                ),
+                                if (placas.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 7,
+                                      vertical: 2,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF1F5F9),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: const Color(0xFFCBD5E1),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      placas,
+                                      style: const TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                        color: Color(0xFF475569),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              '$make $model ($year)'.trim(),
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  const SizedBox(height: 10),
+                  const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+                  // Contenido con Scroll
+                  Expanded(
+                    child: ListView(
+                      controller: scrollController,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 16,
+                      ),
+                      children: [
+                        // Grupo 1: Identificación
+                        _buildDetailSectionCard(
+                          title: 'IDENTIFICACIÓN DEL VEHÍCULO',
+                          icon: Icons.badge_outlined,
+                          rows: [
+                            _DetailRowItem(
+                                label: 'Económico', value: economico),
+                            _DetailRowItem(label: 'Placas', value: placas),
+                            _DetailRowItem(label: 'Marca', value: make),
+                            _DetailRowItem(label: 'Modelo', value: model),
+                            _DetailRowItem(label: 'Año', value: year),
+                            _DetailRowItem(
+                                label: 'SubCuenta ID', value: subAccount),
+                          ],
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        // Grupo 2: Telemetría y Batería
+                        _buildDetailSectionCard(
+                          title: 'TELEMETRÍA Y SISTEMA ELÉCTRICO',
+                          icon: Icons.electric_car_outlined,
+                          rows: [
+                            _DetailRowItem(
+                              label: 'Estado del Motor',
+                              value: isGreen
+                                  ? 'Encendido / En marcha'
+                                  : 'Apagado / Detenido',
+                              customColor: isGreen
+                                  ? const Color(0xFF10B981)
+                                  : const Color(0xFF64748B),
+                            ),
+                            _DetailRowItem(
+                              label: 'Nivel de Batería',
+                              value: battery,
+                              customColor: const Color(0xFF0284C7),
+                            ),
+                            _DetailRowItem(
+                              label: 'Salud de Batería',
+                              value: batteryHealth,
+                            ),
+                            _DetailRowItem(
+                              label: 'Dirección Cardinal',
+                              value: dirStr,
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 14),
+
+                        // Grupo 3: Posicionamiento y Fecha
+                        _buildDetailSectionCard(
+                          title: 'LOCALIZACIÓN Y TIEMPO',
+                          icon: Icons.location_on_outlined,
+                          rows: [
+                            _DetailRowItem(label: 'Latitud', value: latStr),
+                            _DetailRowItem(label: 'Longitud', value: lngStr),
+                            _DetailRowItem(
+                              label: 'Última Transmisión',
+                              value: fechaHoraStr,
+                            ),
+                          ],
+                        ),
+
+                        const SizedBox(height: 20),
+
+                        // Botón de Centrar
+                        SizedBox(
+                          width: double.infinity,
+                          height: 46,
+                          child: ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(ctx);
+                              final lat = _parseCoordinate(device['lat']);
+                              final lng = _parseCoordinate(device['lng']);
+                              if (lat != 0.0 && lng != 0.0) {
+                                _animateCameraToPosition(
+                                  LatLng(lat, lng),
+                                  17.0,
+                                );
+                              }
+                            },
+                            icon: const Icon(
+                              Icons.my_location_rounded,
+                              size: 17,
                               color: Colors.white,
-                              elevation: 5,
+                            ),
+                            label: const Text(
+                              'Enfocar en Mapa',
+                              style: TextStyle(
+                                fontSize: 13.5,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0284C7),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: ListTile(
-                                dense: true,
-                                contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 2),
-                                leading: Icon(Icons.directions_car,
-                                    color: iconColor, size: 22),
-                                title: Text(
-                                  device['economico'] ?? 'Sin nombre',
-                                  style: TextStyle(
-                                    fontSize: screenWidth * 0.032,
-                                    fontWeight: FontWeight.w500,
-                                    color: Colors.black87,
-                                  ),
-                                ),
-                                trailing: Icon(
-                                  isGreen
-                                      ? Icons.check_circle
-                                      : Icons.cancel,
-                                  color: iconColor,
-                                  size: 22,
-                                ),
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  setState(() {
-                                    _selectedVehicleId = vehicleId;
-                                  });
-
-                                  LatLng newPos = LatLng(
-                                    double.tryParse(device['lat'].toString()) ??
-                                        19.4326,
-                                    double.tryParse(device['lng'].toString()) ??
-                                        -99.1332,
-                                  );
-
-                                  _mapController.animateCamera(
-                                    CameraUpdate.newLatLng(newPos),
-                                  );
-                                },
-                              ),
                             ),
                           ),
-                        );
-                      },
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -921,89 +2014,84 @@ class _TrackingPageState extends State<TrackingPage>
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    double appBarHeight = 30.0;
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-
-    return Scaffold(
-      appBar: PreferredSize(
-        preferredSize: Size.fromHeight(appBarHeight),
-        child: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(
-              Icons.arrow_back_ios,
-              color: ui.Color.fromARGB(255, 0, 0, 0),
-              size: 19,
-            ),
-            onPressed: () => Navigator.pop(context),
-          ),
-        ),
+  Widget _buildDetailSectionCard({
+    required String title,
+    required IconData icon,
+    required List<_DetailRowItem> rows,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      body: Stack(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (!_hasError && _hasData)
-            GoogleMap(
-              initialCameraPosition: CameraPosition(
-                target: mapCenter,
-                zoom: 15.0,
-              ),
-              markers: _selectedVehicleId == null
-                  ? {}
-                  : _markers
-                      .where((marker) =>
-                          marker.markerId.value == _selectedVehicleId)
-                      .toSet(),
-              onMapCreated: (GoogleMapController controller) {
-                _mapController = controller;
-                _moveCameraToUserLocation();
-              },
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
+            child: Row(
+              children: [
+                Icon(icon, size: 16, color: const Color(0xFF0284C7)),
+                const SizedBox(width: 8),
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF64748B),
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
             ),
-          if (_isLoading)
-            Center(
-              child: Lottie.asset(
-                'assets/loading.json',
-                width: screenWidth * 0.2,
-                height: screenWidth * 0.2,
-                repeat: true,
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+          ...rows.map((row) {
+            return Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: const BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFF8FAFC)),
+                ),
               ),
-            )
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    row.label,
+                    style: const TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                  Text(
+                    row.value,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w700,
+                      color: row.customColor ?? const Color(0xFF0F172A),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
         ],
-      ),
-      floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => _showVehicleMenu(context),
-        child: const Icon(Icons.menu),
-        backgroundColor: const Color(0xFF0886B5),
-        foregroundColor: Colors.white,
       ),
     );
   }
+}
 
-  Future<void> _moveCameraToUserLocation() async {
-    try {
-      Position position = await Geolocator.getCurrentPosition();
-      LatLng userLocation = LatLng(position.latitude, position.longitude);
+class _DetailRowItem {
+  final String label;
+  final String value;
+  final Color? customColor;
 
-      setState(() {
-        mapCenter = userLocation;
-      });
-
-      double zoomLevel = 15.0;
-
-      _mapController.animateCamera(
-        CameraUpdate.newLatLngZoom(userLocation, zoomLevel),
-      );
-    } catch (e) {
-      debugPrint("Error al obtener ubicación: $e");
-
-      double defaultZoomLevel = 10.0;
-      _mapController.animateCamera(
-        CameraUpdate.newLatLngZoom(mapCenter, defaultZoomLevel),
-      );
-    }
-  }
+  const _DetailRowItem({
+    required this.label,
+    required this.value,
+    this.customColor,
+  });
 }

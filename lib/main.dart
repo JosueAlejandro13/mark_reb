@@ -7,13 +7,16 @@ import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:firebase_performance/firebase_performance.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:get/get.dart';
 import 'package:mark_v3/pages/notifications_page.dart';
 import 'package:mark_v3/utils/SplashScreen.dart';
-import 'package:mark_v3/pages/forgot_password_page.dart';
+import 'package:mark_v3/pages/Auth_/forgot_password_page.dart';
+import 'package:mark_v3/pages/Auth_/login_page.dart';
+import 'package:mark_v3/pages/Auth_/verify_code_page.dart';
+import 'package:mark_v3/pages/Auth_/reset_password_page.dart';
 import 'package:mark_v3/pages/home_page.dart';
-import 'package:mark_v3/pages/login_page.dart';
 import 'package:mark_v3/pages/reports_page.dart';
 import 'package:mark_v3/pages/Routes_/routes_page.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -25,6 +28,7 @@ import 'package:uuid/uuid.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:responsive_framework/responsive_framework.dart';
+import 'package:mark_v3/services/local_notification_service.dart';
 
 //Autor: Josue Hernandez
 @pragma('vm:entry-point')
@@ -45,7 +49,12 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     );
 
     final prefs = await SharedPreferences.getInstance();
-    final String? notificationsJson = prefs.getString('notifications');
+    final String? currentUserId = prefs.getString('userId');
+    final String fcmKey = currentUserId != null && currentUserId.isNotEmpty
+        ? 'fcm_pending_$currentUserId'
+        : 'fcm_pending_notifications';
+
+    final String? notificationsJson = prefs.getString(fcmKey);
     List<dynamic> notificationsList = [];
 
     if (notificationsJson != null && notificationsJson.isNotEmpty) {
@@ -54,12 +63,17 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 
     notificationsList.insert(0, notification.toJson());
 
-    await prefs.setString('notifications', jsonEncode(notificationsList));
+    await prefs.setString(fcmKey, jsonEncode(notificationsList));
   }
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Bloquea toda la aplicación en orientación vertical por defecto
+  await SystemChrome.setPreferredOrientations([
+    DeviceOrientation.portraitUp,
+  ]);
 
   await Firebase.initializeApp();
 
@@ -75,6 +89,7 @@ void main() async {
   }
 
   tz.initializeTimeZones();
+  await LocalNotificationService.initialize();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   runApp(
@@ -155,67 +170,13 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _updateConnectionStatus(List<ConnectivityResult> results) {
-    // Evitamos mostrar el snackbar si la app (el Overlay) aún no ha terminado de cargar
     if (!_isAppReady) return;
-
-    final screenWidth = MediaQuery.of(context).size.width;
+    
     for (var result in results) {
       if (_lastConnectionStatus != result) {
         _lastConnectionStatus = result;
-
-        try {
-          if (result == ConnectivityResult.none) {
-            Get.snackbar(
-              '',
-              '',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.red,
-              colorText: Colors.white,
-              titleText: Text(
-                'Sin conexión',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: scaledFont(screenWidth, 0.010, min: 14, max: 16),
-                ),
-              ),
-              messageText: Text(
-                'No estás conectado a Internet',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: scaledFont(screenWidth, 0.0100, min: 14, max: 16),
-                ),
-              ),
-            );
-          } else if (result == ConnectivityResult.wifi) {
-            Get.snackbar(
-              '',
-              '',
-              snackPosition: SnackPosition.BOTTOM,
-              backgroundColor: Colors.green,
-              colorText: Colors.white,
-              titleText: Text(
-                'Conexión Establecida',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: scaledFont(screenWidth, 0.010, min: 14, max: 16),
-                ),
-              ),
-              messageText: Text(
-                'Conectado a Internet',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: scaledFont(screenWidth, 0.0100, min: 14, max: 16),
-                ),
-              ),
-            );
-          }
-        } catch (e) {
-          // Si GetX falla al intentar mostrar el snackbar porque el Overlay aún no está listo, 
-          // simplemente lo ignoramos para no crashear la app.
-          debugPrint("Snackbar overlay error suprimido: $e");
-        }
+        // Las alertas visuales (Snackbar) de conexión se eliminaron a petición
+        // del usuario, pero se mantiene el rastreo de _lastConnectionStatus.
       }
     }
   }
@@ -281,6 +242,24 @@ class _MyAppState extends State<MyApp> {
                 borderRadius: BorderRadius.circular(8),
               ),
             ),
+            checkboxTheme: CheckboxThemeData(
+              fillColor: WidgetStateProperty.resolveWith<Color>((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return const Color(0xFF1E293B);
+                }
+                return Colors.transparent;
+              }),
+              checkColor: WidgetStateProperty.all(Colors.white),
+              side: const BorderSide(color: Color(0xFF64748B), width: 1.5),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+            textSelectionTheme: const TextSelectionThemeData(
+              cursorColor: Color(0xFF027A9F),
+              selectionColor: Color(0x33027A9F),
+              selectionHandleColor: Color(0xFF027A9F),
+            ),
             inputDecorationTheme: InputDecorationTheme(
               border: const OutlineInputBorder(
                 borderSide: BorderSide(color: Colors.black),
@@ -290,7 +269,7 @@ class _MyAppState extends State<MyApp> {
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(6),
-                borderSide: BorderSide(color: Color(0xFF0886B5), width: 2),
+                borderSide: const BorderSide(color: Color(0xFF027A9F), width: 1.5),
               ),
               labelStyle: TextStyle(
                 color: Colors.black,
@@ -369,6 +348,16 @@ class _MyAppState extends State<MyApp> {
             '/splash': (context) => const SplashScreen(),
             '/login': (context) => const LoginPage(),
             '/forgot-password': (context) => const ForgotPasswordPage(),
+            '/verify-code': (context) {
+              final email =
+                  ModalRoute.of(context)?.settings.arguments as String?;
+              return VerifyCodePage(email: email);
+            },
+            '/reset-password': (context) {
+              final email =
+                  ModalRoute.of(context)?.settings.arguments as String?;
+              return ResetPasswordPage(email: email);
+            },
             '/home': (context) {
               final args = ModalRoute.of(context)?.settings.arguments as Map?;
               final userId = args?['id'] as String?;
@@ -465,18 +454,26 @@ class _MyAppState extends State<MyApp> {
               );
             },
           },
-          builder: (context, child) => ResponsiveBreakpoints.builder(
-            child: ResponsiveScaledBox(
-              width: 375,
-              child: child!,
-            ),
-            breakpoints: [
-              const Breakpoint(start: 0, end: 450, name: MOBILE),
-              const Breakpoint(start: 0, end: 450, name: TABLET),
-              const Breakpoint(start: 801, end: 1920, name: DESKTOP),
-              const Breakpoint(start: 1921, end: double.infinity, name: '4K'),
-            ],
-          ),
+          builder: (context, child) {
+            final width = MediaQuery.sizeOf(context).width;
+            final isTablet = width >= 600.0;
+            return ResponsiveBreakpoints.builder(
+              child: isTablet
+                  // En tablet/desktop: renderizado natural sin forzar escala
+                  ? child!
+                  // En móvil: escalar desde diseño base de 375px
+                  : ResponsiveScaledBox(
+                      width: 375,
+                      child: child!,
+                    ),
+              breakpoints: [
+                const Breakpoint(start: 0, end: 599, name: MOBILE),
+                const Breakpoint(start: 600, end: 1023, name: TABLET),
+                const Breakpoint(start: 1024, end: 1920, name: DESKTOP),
+                const Breakpoint(start: 1921, end: double.infinity, name: '4K'),
+              ],
+            );
+          },
         );
       },
     );

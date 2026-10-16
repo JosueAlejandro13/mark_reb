@@ -1,1557 +1,5144 @@
 import 'dart:async';
-import 'dart:math';
+import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
-import 'package:font_awesome_flutter/font_awesome_flutter.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:lottie/lottie.dart';
-import 'package:mark_v3/pages/Error_/RoutesErrorPage.dart';
-import 'package:mark_v3/pages/Routes_/MapPickerPage.dart';
-import 'package:mark_v3/pages/Routes_/check_visit_page.dart';
-import 'package:mark_v3/pages/Routes_/deliver_page.dart';
-import 'package:mark_v3/pages/Routes_/visit_record_page.dart';
-import 'package:mark_v3/services/ConnectionRoutes_/RoutesCon_service.dart';
-import 'package:mark_v3/pages/Error_/ConnectionErrorPage.dart';
-import 'package:mark_v3/pages/Error_/ServerErrorPage.dart';
-import 'package:top_snackbar_flutter/top_snack_bar.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:intl/intl.dart';
+import 'package:mark_v3/models/Routes_/driver_day_models.dart';
+import 'package:mark_v3/pages/Routes_/cedi_warehouse_page.dart';
+import 'package:mark_v3/pages/Routes_/order_delivery_page.dart';
+import 'package:mark_v3/pages/Routes_/client_visit_page.dart';
+import 'package:mark_v3/providers/Routes_/routes_provider.dart';
+import 'package:mark_v3/pages/Routes_/driver_sync_widgets.dart';
+import 'package:loading_animation_widget/loading_animation_widget.dart';
+import 'package:mark_v3/widgets/app_skeleton.dart';
+import 'package:mark_v3/widgets/loading_action_button.dart';
+import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 
-//Autor: Josue Hernandez
-class RoutesPage extends StatefulWidget {
-  final String idMainAccount;
+/// Pantalla Principal "Mi Día" — Integración completa con deliveryPHP/operacion/api.php (MarkV3.1)
+class RoutesPage extends ConsumerStatefulWidget {
   final String idCollaborator;
+  final String idMainAccount;
 
   const RoutesPage({
     super.key,
-    required this.idMainAccount,
     required this.idCollaborator,
+    required this.idMainAccount,
   });
 
   @override
-  _RoutesPageState createState() => _RoutesPageState();
+  ConsumerState<RoutesPage> createState() => _RoutesPageState();
 }
 
-class _RoutesPageState extends State<RoutesPage> {
-  final RoutesconService dbService = RoutesconService();
-  List<Map<String, dynamic>> activeRoutes = [];
-  Map<int, List<Map<String, dynamic>>> routeSteps = {};
-
-  List<Map<String, dynamic>> clientsList = [];
-  Map<String, dynamic>? confiClient;
-
-  bool showCheckButton = true;
-  bool showVisitButton = true;
-  bool isCancelled = false;
-
-  int? _selectedRouteId;
-  bool _isLoading = true;
-  String? idVehic;
-  bool _isDisposed = false;
+class _RoutesPageState extends ConsumerState<RoutesPage>
+    with SingleTickerProviderStateMixin {
+  late TabController _mainTabController;
 
   @override
   void initState() {
     super.initState();
-    _fetchActiveRouteData();
+    _mainTabController = TabController(length: 2, vsync: this);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(routesProvider.notifier).initializeModule();
+    });
   }
 
   @override
   void dispose() {
-    _isDisposed = true;
-    isCancelled = true;
+    _mainTabController.dispose();
     super.dispose();
   }
 
-  Future<void> _refreshData() async {
-    if (_isDisposed || !mounted) return;
-    await _fetchActiveRouteData();
-  }
-
-  Future<void> _withLoading(Future<void> Function() action) async {
-    if (_isDisposed || !mounted) return;
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _selectDayDate(String currentDateStr) async {
+    final now = DateTime.now();
+    DateTime initial = now;
     try {
-      await action();
-    } finally {
-      if (!_isDisposed && mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      initial = DateTime.parse(currentDateStr);
+    } catch (_) {}
+
+    // Regla: "Máximo 7 días antes o después"
+    final first = now.subtract(const Duration(days: 7));
+    final last = now.add(const Duration(days: 7));
+    if (initial.isBefore(first)) initial = first;
+    if (initial.isAfter(last)) initial = last;
+
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: first,
+      lastDate: last,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF0284C7),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF0F172A),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+    if (picked != null) {
+      final formatted = DateFormat('yyyy-MM-dd').format(picked);
+      await ref.read(routesProvider.notifier).changeDate(formatted);
     }
   }
 
-  Future<void> _fetchActiveRouteData() async {
-    if (_isDisposed || !mounted) return;
-    isCancelled = false;
-    await _withLoading(() async {
-      if (isCancelled || _isDisposed || !mounted) return;
-      try {
-        final vehiculos =
-            await dbService.obtenerIdVehicPorOperador(widget.idMainAccount);
-
-        if (isCancelled || _isDisposed || !mounted) return;
-
-        if (vehiculos.isNotEmpty) {
-          idVehic = vehiculos.first['idvehic'].toString();
-        } else {
-          idVehic = null;
-        }
-      } catch (vehiculoError) {
-        if (isCancelled || _isDisposed || !mounted) return;
-        _handleRouteStepError(vehiculoError);
-      }
-
-      if (idVehic == null) {
-        if (isCancelled || _isDisposed || !mounted) return;
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => RoutesErrorPage(
-              onRetry: () {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (context) => widget),
-                );
-              },
-            ),
-          ),
-        );
-        return;
-      }
-
-      try {
-        activeRoutes = await dbService.obtenerRutasActivasUser(
-          idVehic!,
-          widget.idMainAccount,
-        );
-        if (isCancelled || _isDisposed || !mounted) return;
-
-        int idMainAccount = int.parse(widget.idMainAccount);
-
-        debugPrint("Datos de las rutas activas: $activeRoutes");
-
-        if (activeRoutes.isEmpty) {
-          if (isCancelled || _isDisposed || !mounted) return;
-          debugPrint('No se encontraron rutas activas.');
-          Navigator.of(context).pushReplacement(
-            MaterialPageRoute(
-              builder: (context) => RoutesErrorPage(
-                onRetry: () {
-                  Navigator.of(context).pushReplacement(
-                    MaterialPageRoute(builder: (context) => widget),
-                  );
-                },
-              ),
-            ),
-          );
-          return;
-        } else {
-          debugPrint('Rutas activas encontradas: $activeRoutes');
-          for (var route in activeRoutes) {
-            if (isCancelled || _isDisposed || !mounted) return;
-            int idRut = route['id'];
-            String typeRoute = route['typeRoute']?.toString() ?? '';
-            String nClients = route['nClients']?.toString() ?? '';
-
-            try {
-              routeSteps[idRut] =
-                  await dbService.obtenerRutasPorIdRut(idRut, idMainAccount);
-              if (isCancelled || _isDisposed || !mounted) return;
-              if (routeSteps[idRut] != null && routeSteps[idRut]!.isNotEmpty) {
-                List<Map<String, dynamic>> steps = routeSteps[idRut]!;
-
-                List<Map<String, dynamic>> filteredSteps =
-                    steps.where((step) => step['typStep'] != 5).toList();
-
-                for (int i = 1; i < filteredSteps.length; i++) {
-                  var currentClient = filteredSteps[i];
-                  var previousClient = filteredSteps[i - 1];
-
-                  if (currentClient['lat'] != null &&
-                      currentClient['lng'] != null &&
-                      previousClient['lat'] != null &&
-                      previousClient['lng'] != null) {
-                    double lat1 =
-                        double.tryParse(previousClient['lat'].toString()) ??
-                            0.0;
-                    double lng1 =
-                        double.tryParse(previousClient['lng'].toString()) ??
-                            0.0;
-                    double lat2 =
-                        double.tryParse(currentClient['lat'].toString()) ?? 0.0;
-                    double lng2 =
-                        double.tryParse(currentClient['lng'].toString()) ?? 0.0;
-
-                    double distance = haversineDistance(lat1, lng1, lat2, lng2);
-                    int distanceMint = (distance * 1000).toInt();
-
-                    debugPrint(
-                        'Distancia entre el cliente ${currentClient['namClient']} y el cliente anterior ${previousClient['namClient']}: $distanceMint m');
-
-                    currentClient['distanceMint'] = distanceMint;
-                  } else {}
-
-                  for (var step in steps) {
-                    step['typeRoute'] = typeRoute;
-                  }
-
-                  for (var step in steps) {
-                    step['nClients'] = nClients;
-                  }
-                }
-
-                setState(() {
-                  _selectedRouteId = idRut;
-                });
-              }
-
-              debugPrint('Pasos para la ruta $idRut: ${routeSteps[idRut]}');
-            } catch (e) {
-              _handleRouteStepError(e);
-            }
-          }
-        }
-      } catch (e) {
-        _handleError(e);
-      }
-    });
+  void _openManualAuthModal() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const _DriverCredentialsSheet(),
+    );
   }
 
-  void _handleRouteStepError(Object e) {
-    if (e.toString().contains('SocketException')) {
-      debugPrint(
-          'SocketException: Error de conexión al obtener pasos de ruta.');
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => ConnectionErrorPage(
-              onRetry: () {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (context) => widget),
-                );
-              },
-            ),
-          ),
-        );
-      }
-    } else if (e.toString().contains('TimeoutException')) {
-      debugPrint(
-          'TimeoutException: Tiempo de espera excedido al obtener pasos de ruta.');
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => ServerErrorPage(
-              onRetry: () {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (context) => widget),
-                );
-              },
-            ),
-          ),
-        );
-      }
-    }
-  }
-
-  void _handleError(Object e) {
-    if (e.toString().contains('SocketException')) {
-      debugPrint('SocketException: Error de conexión.');
-      if (mounted) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => ConnectionErrorPage(
-              onRetry: () {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (context) => widget),
-                );
-              },
-            ),
-          ),
-        );
-      }
-    } else if (e.toString().contains('TimeoutException')) {
-      debugPrint('TimeoutException: Tiempo de espera excedido.');
-      if (mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (context) => ServerErrorPage(
-              onRetry: () {
-                Navigator.of(context).pushReplacement(
-                  MaterialPageRoute(builder: (context) => widget),
-                );
-              },
-            ),
-          ),
-        );
-      }
-    } else {
-      debugPrint('Error al obtener configuración de la ruta: $e');
-    }
-  }
-
-  void cancelProcess() {
-    if (_isDisposed || !mounted) return;
-    setState(() {
-      isCancelled = true;
-    });
-  }
-
-  double haversineDistance(double lat1, double lon1, double lat2, double lon2) {
-    const double R = 6371;
-    double dLat = _degToRad(lat2 - lat1);
-    double dLon = _degToRad(lon2 - lon1);
-
-    double a = sin(dLat / 2) * sin(dLat / 2) +
-        cos(_degToRad(lat1)) *
-            cos(_degToRad(lat2)) *
-            sin(dLon / 2) *
-            sin(dLon / 2);
-    double c = 2 * atan2(sqrt(a), sqrt(1 - a));
-
-    return R * c;
-  }
-
-  double _degToRad(double deg) {
-    return deg * (pi / 180);
+  void _openRejectedTray() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => const RejectedActionsSheet(),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-    return Scaffold(
-      appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(45.0),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF0886B5),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black26,
-                offset: Offset(0, 7),
-                blurRadius: 4,
+    final state = ref.watch(routesProvider);
+
+    // Mostrar avisos recientes del servidor cuando lleguen de una sincronización en segundo plano
+    ref.listen<RoutesState>(routesProvider, (prev, next) {
+      if (next.recentNotices.isNotEmpty &&
+          prev?.recentNotices != next.recentNotices) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            final notices = next.recentNotices;
+            ref.read(routesProvider.notifier).clearRecentNotices();
+
+            final hasCritical = notices.any((n) => n.isCriticalRedAlert);
+            final hasWarning = notices.any((n) => n.nivel == 'aviso');
+            final text = notices.map((n) => n.displayTexto).join('\n');
+
+            final isPositiveStatus = notices.any((n) {
+              final lower = n.texto.toLowerCase();
+              return lower.contains('iniciada') ||
+                  lower.contains('cerrada') ||
+                  lower.contains('finalizada') ||
+                  lower.contains('éxito') ||
+                  lower.contains('exito');
+            });
+
+            if (hasCritical) {
+              SnackbarTop.showError(context, text, title: 'Error');
+            } else if (isPositiveStatus) {
+              SnackbarTop.showSuccess(context, text, title: 'Correcto');
+            } else if (hasWarning) {
+              SnackbarTop.showWarning(context, text, title: 'Aviso');
+            } else {
+              SnackbarTop.showInfo(context, text, title: 'Información');
+            }
+          }
+        });
+      }
+    });
+
+    final session = state.session;
+    final isPreventa = session?.isPreventa == true;
+    final permisos = session?.permisos ?? const DriverPermissions();
+    final showRoutesTab = !isPreventa && permisos.rutas;
+    final showOrdersTab =
+        permisos.pedidos || permisos.clientesNuevos || isPreventa;
+
+    final mediaQuery = MediaQuery.of(context);
+    final clampedScaler = mediaQuery.textScaler.clamp(
+      minScaleFactor: 0.85,
+      maxScaleFactor: 1.15,
+    );
+    final isSmallScreen = mediaQuery.size.width < 360;
+
+    return MediaQuery(
+      data: mediaQuery.copyWith(textScaler: clampedScaler),
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        appBar: AppBar(
+          backgroundColor: const Color(0xFFF8FAFC),
+          surfaceTintColor: Colors.transparent,
+          foregroundColor: const Color(0xFF0F172A),
+          elevation: 0,
+          toolbarHeight: 62,
+          leadingWidth: Navigator.canPop(context) ? 54 : null,
+          titleSpacing: Navigator.canPop(context) ? 12 : 16,
+          leading: Navigator.canPop(context)
+              ? Padding(
+                  padding: const EdgeInsets.only(left: 16),
+                  child: Center(
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => Navigator.of(context).maybePop(),
+                        child: Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: const Color(0xFFE2E8F0)),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withOpacity(0.02),
+                                blurRadius: 8,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.arrow_back_ios_new_rounded,
+                              color: Color(0xFF0F172A),
+                              size: 15,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                )
+              : null,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                isPreventa ? 'Preventa' : 'Mi Día — Operación',
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0F172A),
+                  letterSpacing: -0.4,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                isPreventa
+                    ? 'Gestión de clientes, catálogo y pedidos'
+                    : 'Rutas asignadas y entregas del día',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: Color(0xFF64748B),
+                  fontWeight: FontWeight.w400,
+                ),
               ),
             ],
           ),
-          child: AppBar(
-            backgroundColor: Colors.transparent,
-            elevation: 0,
-            leading: IconButton(
-              icon: const Icon(
-                Icons.arrow_back_ios,
-                color: Colors.white,
-                size: 19,
-              ),
-              onPressed: () => Navigator.pop(context),
-            ),
-          ),
-        ),
-      ),
-      body: RefreshIndicator(
-        onRefresh: _refreshData,
-        color: Colors.black,
-        child: Stack(
-          children: [
-            AnimatedContainer(
-              duration: const Duration(seconds: 5),
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Color.fromARGB(255, 250, 250, 250),
-                    Color.fromARGB(255, 205, 240, 255),
+          actions: const [],
+          bottom: (showRoutesTab && showOrdersTab)
+              ? TabBar(
+                  controller: _mainTabController,
+                  indicatorColor: const Color(0xFF0284C7),
+                  indicatorWeight: 2.5,
+                  labelColor: const Color(0xFF0284C7),
+                  unselectedLabelColor: const Color(0xFF64748B),
+                  labelStyle: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12,
+                  ),
+                  unselectedLabelStyle: const TextStyle(
+                    fontWeight: FontWeight.w600,
+                    fontSize: 12,
+                  ),
+                  tabs: [
+                    Tab(
+                      height: 48,
+                      iconMargin: const EdgeInsets.only(bottom: 2),
+                      icon: const Icon(Icons.route_rounded, size: 19),
+                      text:
+                          'Mis Rutas (${state.dayPackage?.fecha == state.selectedDate ? (state.dayPackage?.rutas.length ?? 0) : 0})',
+                    ),
+                    const Tab(
+                      height: 48,
+                      iconMargin: EdgeInsets.only(bottom: 2),
+                      icon: Icon(Icons.storefront_rounded, size: 19),
+                      text: 'Pedidos y Clientes',
+                    ),
                   ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-              ),
+                )
+              : null,
+        ),
+        body: Column(
+          children: [
+            // BARRA SUPERIOR DE FECHA, CALENDARIO Y RECARGAR (DEBAJO DEL APPBAR)
+            _buildTopDateAndActionsBar(state),
+
+            // AVISO SI REQUIERE RENOVAR SESIÓN MANUALMENTE (HTTP 401)
+            if (state.requiresManualAuth) _buildAuthBanner(state),
+
+            Expanded(
+              child: (state.isLoading &&
+                      (state.dayPackage == null ||
+                          state.dayPackage?.fecha != state.selectedDate))
+                  ? _buildRoutesLoadingSkeleton()
+                  : (showRoutesTab && showOrdersTab)
+                      ? TabBarView(
+                          controller: _mainTabController,
+                          children: [
+                            _buildRoutesListTab(state),
+                            OrdersAndNewClientsView(
+                              visitRouteIdForOutOfRoute:
+                                  (state.dayPackage?.fecha ==
+                                          state.selectedDate)
+                                      ? state.dayPackage?.rutas
+                                          .where((r) => r.isVisitRoute)
+                                          .map((r) => r.idRuta)
+                                          .firstOrNull
+                                      : null,
+                            ),
+                          ],
+                        )
+                      : showRoutesTab
+                          ? _buildRoutesListTab(state)
+                          : const OrdersAndNewClientsView(),
             ),
-            Padding(
-              padding: const EdgeInsets.all(12.0),
-              child: Column(
-                children: [
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      'Rutas',
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.040,
-                        color: Colors.black,
-                      ),
-                      textAlign: TextAlign.left,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: ListView.builder(
-                      itemCount: activeRoutes.length,
-                      itemBuilder: (context, index) {
-                        final route = activeRoutes[index];
-                        return _buildRouteCard(route);
-                      },
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (_isLoading)
-              Center(
-                child: Lottie.asset(
-                  'assets/loading.json',
-                  width: screenWidth * 0.2,
-                  height: screenWidth * 0.2,
-                ),
-              ),
+
+            // BARRA DE ESTADO DE COLA SIN CONEXIÓN Y SINCRONIZACIÓN (FOOTER INFERIOR)
+            const DriverSyncStatusBar(),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildRouteCard(Map<String, dynamic> route) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-    int idRut = route['id'];
-
-    final totalTiempo = calcularTotalTiempo(route);
-
-    Set<String> habilidadesTotales = {};
-
-    return Card(
-      elevation: 6,
-      color: const Color.fromARGB(255, 255, 255, 255),
-      margin: const EdgeInsets.symmetric(
-        vertical: 15.0,
-        horizontal: 6.0,
+  /// Skeleton animado estilo Apple para la carga de rutas del día.
+  Widget _buildRoutesLoadingSkeleton() {
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Column(
+        children: List.generate(3, (index) {
+          return Container(
+            margin: const EdgeInsets.only(bottom: 14),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.02),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Cabecera skeleton
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                  child: Row(
+                    children: [
+                      const AppShimmerBox(
+                          width: 38, height: 38, borderRadius: 10),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: const [
+                            AppShimmerBox.text(width: 150, height: 14),
+                            SizedBox(height: 6),
+                            AppShimmerBox.text(width: 90, height: 11),
+                          ],
+                        ),
+                      ),
+                      const AppShimmerBox(
+                          width: 72, height: 22, borderRadius: 8),
+                    ],
+                  ),
+                ),
+                const Divider(height: 1, color: Color(0xFFF1F5F9)),
+                // Cuerpo skeleton
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 14, 14, 14),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Chips de info skeleton
+                      Row(
+                        children: const [
+                          AppShimmerBox(
+                              width: 120, height: 24, borderRadius: 7),
+                          SizedBox(width: 8),
+                          AppShimmerBox(width: 90, height: 24, borderRadius: 7),
+                        ],
+                      ),
+                      const SizedBox(height: 14),
+                      // Fila de progreso
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: const [
+                          AppShimmerBox.text(width: 160, height: 11),
+                          AppShimmerBox(width: 36, height: 16, borderRadius: 6),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      const AppShimmerBox(
+                          width: double.infinity, height: 7, borderRadius: 10),
+                      const SizedBox(height: 14),
+                      // Botones skeleton
+                      Row(
+                        children: const [
+                          Expanded(
+                            child: AppShimmerBox(
+                                width: double.infinity,
+                                height: 44,
+                                borderRadius: 12),
+                          ),
+                          SizedBox(width: 8),
+                          AppShimmerBox(
+                              width: 80, height: 44, borderRadius: 12),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }),
       ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12.0),
-      ),
-      child: ExpansionTile(
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+    );
+  }
+
+  Widget _buildTopDateAndActionsBar(RoutesState state) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          // Selector de fecha interactivo tipo chip/tarjeta ejecutiva
+          InkWell(
+            onTap: () => _selectDayDate(state.selectedDate),
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.02),
+                    blurRadius: 6,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  Row(children: [
-                    Expanded(
-                      child: Text(
-                        route['name'] ?? 'Nombre de Ruta',
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.037,
-                          fontWeight: FontWeight.bold,
-                          color: const Color.fromARGB(255, 0, 0, 0),
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 3,
-                        softWrap: true,
-                      ),
+                  const Icon(
+                    Icons.calendar_today_rounded,
+                    size: 15,
+                    color: Color(0xFF0284C7),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    state.selectedDate,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF0F172A),
+                      letterSpacing: -0.2,
                     ),
-                  ]),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      Icon(Icons.person,
-                          size: 18, color: const Color.fromARGB(255, 0, 0, 0)),
-                      SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'Clientes: ${route['nClients']}',
-                          style: TextStyle(fontSize: screenWidth * 0.032),
-                          softWrap: true,
-                        ),
-                      ),
-                    ],
                   ),
-                  Row(
-                    children: [
-                      Icon(Icons.build,
-                          size: 18, color: const Color.fromARGB(255, 0, 0, 0)),
-                      SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          'Proceso de configuración: ${route['setup'] != null ? _convertToHours(route['setup']) : 'N/A'}',
-                          style: TextStyle(fontSize: screenWidth * 0.032),
-                          softWrap: true,
-                        ),
-                      ),
-                    ],
+                  const SizedBox(width: 4),
+                  const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: Color(0xFF64748B),
                   ),
-                  Row(
-                    children: [
-                      Icon(Icons.route,
-                          size: 18, color: const Color.fromARGB(255, 0, 0, 0)),
-                      SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'Servicio: ${route['service'] != null ? _convertToHours(route['service']) : 'N/A'}',
-                          style: TextStyle(fontSize: screenWidth * 0.032),
-                          softWrap: true,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Icon(Icons.access_time,
-                          size: 18, color: const Color.fromARGB(255, 0, 0, 0)),
-                      SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'Duración: ${route['duration'] != null ? _convertToHours(route['duration']) : 'N/A'}',
-                          style: TextStyle(fontSize: screenWidth * 0.032),
-                          softWrap: true,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Icon(Icons.location_on,
-                          size: 18, color: const Color.fromARGB(255, 0, 0, 0)),
-                      SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'Distancia: ${route['distance'] != null ? _convertToKilometers(route['distance']) : 'N/A'} km',
-                          style: TextStyle(fontSize: screenWidth * 0.032),
-                          softWrap: true,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Icon(Icons.access_time,
-                          size: 18, color: const Color.fromARGB(255, 0, 0, 0)),
-                      SizedBox(width: 4),
-                      Expanded(
-                        child: Text(
-                          'Tiempo Total: ${_convertToHours(totalTiempo.toInt())}',
-                          style: TextStyle(fontSize: screenWidth * 0.032),
-                          softWrap: true,
-                        ),
-                      ),
-                    ],
-                  ),
-                  Row(
-                    children: [
-                      Expanded(
-                          child: Text(
-                        'Observaciones: ${route['obs'] ?? 'N/A'}',
-                        style: TextStyle(fontSize: screenWidth * 0.032),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 9,
-                        softWrap: true,
-                      ))
-                    ],
-                  ),
-                  const SizedBox(height: 4),
                 ],
               ),
             ),
-          ],
-        ),
-        children: [
-          Builder(builder: (context) {
-            List<String> habilidadesTotales = [];
+          ),
 
-            routeSteps[idRut]?.forEach((step) {
-              List<dynamic> habilidades = step['habilidades'] ?? [];
-
-              for (var hab in habilidades) {
-                if (!habilidadesTotales.contains(hab['nam'])) {
-                  habilidadesTotales.add(hab['nam']);
-                }
-              }
-            });
-
-            return Padding(
-              padding: const EdgeInsets.all(8.0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Habilidades Requeridas:',
-                    style: TextStyle(
-                      fontSize: screenWidth * 0.034,
-                      fontWeight: FontWeight.bold,
-                      color: Color.fromARGB(255, 0, 0, 0),
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    habilidadesTotales.isNotEmpty
-                        ? habilidadesTotales.map((hab) => '- $hab').join('\n')
-                        : 'No hay habilidades',
-                    style: TextStyle(fontSize: screenWidth * 0.033),
-                  ),
-                ],
+          // Botón de sincronización con margen independiente
+          IconButton(
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white,
+              foregroundColor: const Color(0xFF0F172A),
+              side: const BorderSide(color: Color(0xFFE2E8F0)),
+              padding: const EdgeInsets.all(9),
+              minimumSize: const Size(38, 38),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
               ),
-            );
-          }),
-          ...routeSteps[idRut]?.map<Widget>((step) {
-                return _buildStepCard(step);
-              }).toList() ??
-              [const Center(child: Text('No hay detalles adicionales.'))],
+            ),
+            onPressed: state.isSyncing
+                ? null
+                : () async {
+                    await ref
+                        .read(routesProvider.notifier)
+                        .syncPendingQueueAndRefreshDay(
+                          forceRefreshDay: true,
+                          isUserInitiated: true,
+                        );
+                  },
+            icon: state.isSyncing
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: Center(
+                      child: LoadingAnimationWidget.threeRotatingDots(
+                        color: const Color(0xFF0284C7),
+                        size: 16,
+                      ),
+                    ),
+                  )
+                : const Icon(Icons.sync_rounded, size: 18),
+            tooltip: 'Sincronizar cola y actualizar día',
+          ),
         ],
       ),
     );
   }
 
-  double calcularTotalTiempo(Map<String, dynamic> route) {
-    double setup = (route['setup'] ?? 0).toDouble();
-    double service = (route['service'] ?? 0).toDouble();
-    double duration = (route['duration'] ?? 0).toDouble();
-
-    return setup + service + duration;
+  Widget _buildAuthBanner(RoutesState state) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF3C7),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFFDE68A)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.lock_person_rounded,
+              color: Color(0xFFB45309), size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              state.authError ??
+                  'Sesión expirada en el servidor. Su cola local está segura.',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF92400E),
+              ),
+            ),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            onPressed: _openManualAuthModal,
+            child: const Text(
+              'Conectar',
+              style: TextStyle(
+                fontWeight: FontWeight.w800,
+                color: Color(0xFFB45309),
+                fontSize: 12.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
-  Widget _buildStepCard(Map<String, dynamic> step) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
-    int idClie = step['idClient'];
-    Color borderColor;
-    Color backgroundColor;
-    switch (step['typStep']) {
-      case 1:
-        borderColor = Colors.green;
-        backgroundColor = Colors.green[100]!;
-        break;
-      case 3:
-        borderColor = Colors.yellow;
-        backgroundColor = Colors.green[100]!;
+  Widget _buildRoutesListTab(RoutesState state) {
+    if (state.dayPackage != null &&
+        state.dayPackage!.fecha != state.selectedDate) {
+      return _buildRoutesLoadingSkeleton();
+    }
+    final pkg = state.dayPackage;
+    final rutas = pkg?.rutas ?? const [];
 
-        break;
-      case 4:
-        borderColor = Colors.red;
-        backgroundColor = Colors.green[100]!;
-
-        break;
-      case 5:
-        borderColor = Colors.purple;
-        backgroundColor = Colors.green[100]!;
-
-        break;
-      default:
-        borderColor = const Color(0xFF0886B5);
-        backgroundColor = Colors.green[100]!;
+    if (rutas.isEmpty) {
+      return RefreshIndicator(
+        color: const Color(0xFF0284C7),
+        onRefresh: () => ref
+            .read(routesProvider.notifier)
+            .syncPendingQueueAndRefreshDay(forceRefreshDay: true),
+        child: ListView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(28),
+          children: [
+            const SizedBox(height: 50),
+            Center(
+              child: Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: const Icon(
+                  Icons.alt_route_rounded,
+                  size: 36,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Sin rutas asignadas para ${state.selectedDate}',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(height: 8),
+            const Text(
+              'Deslice hacia abajo para consultar de nuevo el paquete del día o elija otra fecha en el calendario superior.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: Color(0xFF64748B),
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+      );
     }
 
-    return Card(
-      color: const Color.fromARGB(255, 255, 255, 255),
-      margin: const EdgeInsets.symmetric(vertical: 15.0, horizontal: 15.0),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(color: borderColor, width: 1),
+    return RefreshIndicator(
+      color: const Color(0xFF0284C7),
+      onRefresh: () => ref
+          .read(routesProvider.notifier)
+          .syncPendingQueueAndRefreshDay(forceRefreshDay: true),
+      child: ListView.builder(
+        padding: const EdgeInsets.all(16),
+        itemCount: rutas.length,
+        itemBuilder: (context, index) {
+          final route = rutas[index];
+          // En móvil: navegar a pantalla completa al tocar
+          return _buildRouteCard(
+            route,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => RouteDetailAndMapPage(idRuta: route.idRuta),
+              ),
+            ),
+          );
+        },
       ),
-      elevation: 4,
-      child: step['typStep'] == 0
-          ? Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    Colors.green.shade300,
-                    Colors.green.shade600,
-                  ],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(12),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.green.withOpacity(0.5),
-                    blurRadius: 10,
-                    offset: Offset(0, 4),
+    );
+  }
+
+  Widget _buildRouteCard(
+    DriverRoute route, {
+    VoidCallback? onTap,
+    bool isHighlighted = false,
+  }) {
+    final totalStops = route.totalClientStops;
+    final doneStops = route.visitedClientStops;
+    final progress = totalStops > 0 ? (doneStops / totalStops) : 0.0;
+    final distKm = route.geometria != null && route.geometria!.distanciaM > 0
+        ? (route.geometria!.distanciaM / 1000).toStringAsFixed(1)
+        : null;
+    final durMin = route.geometria != null && route.geometria!.duracionS > 0
+        ? (route.geometria!.duracionS / 60).round()
+        : null;
+
+    final isDone = progress >= 1.0;
+    final progressColor =
+        isDone ? const Color(0xFF10B981) : const Color(0xFF0284C7);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: isHighlighted ? const Color(0xFFF0F9FF) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isHighlighted
+              ? const Color(0xFF0284C7).withOpacity(0.5)
+              : const Color(0xFFE2E8F0),
+          width: isHighlighted ? 1.5 : 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isHighlighted
+                ? const Color(0xFF0284C7).withOpacity(0.08)
+                : Colors.black.withOpacity(0.02),
+            blurRadius: isHighlighted ? 12 : 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: onTap ??
+              () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          RouteDetailAndMapPage(idRuta: route.idRuta),
+                    ),
                   ),
-                ],
-              ),
-              child: Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // ── Cabecera ─────────────────────────────────────────────────
+              Container(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 11),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(16),
+                    topRight: Radius.circular(16),
+                  ),
+                  border: Border(
+                    bottom: BorderSide(color: Color(0xFFF1F5F9), width: 1),
+                  ),
+                ),
+                child: Row(
                   children: [
-                    const SizedBox(height: 10),
-                    Text(
-                      'Completado',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.04,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                    Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F9FF),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFFBAE6FD)),
+                      ),
+                      child: Center(
+                        child: Icon(
+                          route.isVisitRoute
+                              ? Icons.storefront_rounded
+                              : Icons.local_shipping_rounded,
+                          color: const Color(0xFF0284C7),
+                          size: 20,
+                        ),
                       ),
                     ),
-                    Icon(
-                      Icons.check_circle,
-                      color: Colors.white,
-                      size: screenWidth * 0.09,
-                    ),
-                  ],
-                ),
-              ),
-            )
-          : step['typStep'] == 0
-              ? Container(
-                  decoration: BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [
-                        Colors.red.shade300,
-                        Colors.red.shade600,
-                      ],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.red.withOpacity(0.5),
-                        blurRadius: 10,
-                        offset: Offset(0, 4),
-                      ),
-                    ],
-                  ),
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const SizedBox(height: 10),
-                        Text(
-                          'No Completado',
-                          textAlign: TextAlign.center,
-                          style: TextStyle(
-                            fontSize: screenWidth * 0.04,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        Icon(
-                          Icons.cancel,
-                          color: Colors.white,
-                          size: screenWidth * 0.09,
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              : ExpansionTile(
-                  title: Text(
-                    '${step['deliveryOrder'] ?? ''}',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: screenWidth * 0.034,
-                    ),
-                  ),
-                  subtitle: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Text(
-                              (() {
-                                switch (step['typStep']) {
-                                  case 1:
-                                    return 'Inicio';
-                                  case 2:
-                                    return 'En curso';
-                                  case 3:
-                                    return 'Descanso';
-                                  case 4:
-                                    return 'Fin';
-                                  case 5:
-                                    return 'Estación';
-                                  default:
-                                    return '${step['typStep'] ?? ''}';
-                                }
-                              })(),
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: screenWidth * 0.032,
-                              ),
+                          Text(
+                            route.nombre,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 1),
+                          Text(
+                            route.modalidadNombre,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF64748B),
+                              fontWeight: FontWeight.w500,
                             ),
                           ),
                         ],
                       ),
-                      const SizedBox(height: 10),
-                      if (step['typStep'] != 1 &&
-                          step['typStep'] != 4 &&
-                          step['typStep'] != 3 &&
-                          step['typStep'] != 5)
-                        Row(
-                          children: [
-                            const Icon(Icons.access_time,
-                                size: 16, color: Color.fromARGB(255, 0, 0, 0)),
-                            const SizedBox(width: 7),
-                            Text(
-                                'Horario de Atención: ${step['visitingIn'] != null ? _convertToHoursalone(step['visitingIn']) : ''} - '
-                                '${step['visitingOut'] != null ? _convertToHoursalone(step['visitingOut']) : ''}',
-                                style:
-                                    TextStyle(fontSize: screenWidth * 0.031)),
-                          ],
-                        ),
-                      if (step['typStep'] != 1 &&
-                          step['typStep'] != 4 &&
-                          step['typStep'] != 3 &&
-                          step['typStep'] != 5)
-                        Row(
-                          children: [
-                            const Icon(Icons.person,
-                                size: 16, color: Color.fromARGB(255, 0, 0, 0)),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                ' ${step['namClient'] ?? ''}',
-                                style: TextStyle(fontSize: screenWidth * 0.031),
-                                overflow: TextOverflow.ellipsis,
-                                maxLines: 3,
-                                softWrap: true,
-                              ),
+                    ),
+                    Builder(
+                      builder: (_) {
+                        Color bg;
+                        Color border;
+                        Color text;
+                        switch (route.operationalRoute) {
+                          case 1:
+                            bg = const Color(0xFFF0FDF4);
+                            border = const Color(0xFFBBF7D0);
+                            text = const Color(0xFF047857);
+                            break;
+                          case 2:
+                            bg = const Color(0xFFF1F5F9);
+                            border = const Color(0xFFCBD5E1);
+                            text = const Color(0xFF475569);
+                            break;
+                          case 3:
+                            bg = const Color(0xFFFEF3C7);
+                            border = const Color(0xFFFCD34D);
+                            text = const Color(0xFF92400E);
+                            break;
+                          case 0:
+                          default:
+                            if (route.operacional) {
+                              bg = const Color(0xFFF0FDF4);
+                              border = const Color(0xFFBBF7D0);
+                              text = const Color(0xFF047857);
+                            } else {
+                              bg = const Color(0xFFFFFBEB);
+                              border = const Color(0xFFFDE68A);
+                              text = const Color(0xFFB45309);
+                            }
+                        }
+                        return Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 9, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: bg,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: border),
+                          ),
+                          child: Text(
+                            route.operationalStatusText,
+                            style: TextStyle(
+                              color: text,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.5,
                             ),
-                          ],
-                        ),
-                      if (step['typStep'] != 1 &&
-                          step['typStep'] != 4 &&
-                          step['typStep'] != 3 &&
-                          step['typStep'] != 5)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(Icons.location_on,
-                                size: 16, color: Color.fromARGB(255, 0, 0, 0)),
-                            const SizedBox(width: 4),
-                            Expanded(
-                              child: Text(
-                                ' ${step['calle'] ?? ''}, ${step['streetNum'] ?? ''}, ${step['colonia'] ?? ''}, ${step['delegacion'] ?? ''}.',
-                                style: TextStyle(fontSize: screenWidth * 0.031),
-                                softWrap: true,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                          ],
-                        ),
-                      const SizedBox(height: 10),
-                      if (step['typStep'] != 5)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                '${step['typStep'] == 1 ? 'Inicio de la ruta:' : step['typStep'] == 4 ? 'Fin de la ruta' : 'Llegada'} ${step['arrival'] != null ? _convertToHours(step['arrival']) : ''}',
-                                style: TextStyle(
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: screenWidth * 0.032,
-                                ),
-                                softWrap: true,
-                              ),
-                            ),
-                          ],
-                        ),
-                      if (step['typStep'] != 1 &&
-                          step['typStep'] != 4 &&
-                          step['typStep'] != 3 &&
-                          step['typStep'] != 2)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Icon(Icons.person,
-                                size: 16, color: Color.fromARGB(255, 0, 0, 0)),
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                  '${step['cod'] ?? ''}, ${step['descrip'] ?? ''},',
-                                  style:
-                                      TextStyle(fontSize: screenWidth * 0.031),
-                                  softWrap: true),
-                            ),
-                          ],
-                        ),
-                      if (step['typStep'] != 1 &&
-                          step['typStep'] != 4 &&
-                          step['typStep'] != 3 &&
-                          step['typStep'] != 5)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                  'Distancia ${step['distance'] != null ? _convertToKilometers(step['distance']) : ''} km',
-                                  style:
-                                      TextStyle(fontSize: screenWidth * 0.031),
-                                  softWrap: true),
-                            ),
-                          ],
-                        ),
-                      if (step['typStep'] != 1 &&
-                          step['typStep'] != 4 &&
-                          step['typStep'] != 5)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                  'Duración ${step['duration'] != null ? _convertToHours(step['duration']) : ''}',
-                                  style:
-                                      TextStyle(fontSize: screenWidth * 0.031),
-                                  softWrap: true),
-                            ),
-                          ],
-                        ),
-                      if (step['typStep'] != 1 &&
-                          step['typStep'] != 4 &&
-                          step['typStep'] != 3 &&
-                          step['typStep'] != 5)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                  'Servicio ${step['service'] != null ? _convertToHours(step['service']) : ''}',
-                                  style:
-                                      TextStyle(fontSize: screenWidth * 0.031),
-                                  softWrap: true),
-                            ),
-                          ],
-                        ),
-                      if (step['typStep'] != 1 &&
-                          step['typStep'] != 4 &&
-                          step['typStep'] != 3 &&
-                          step['typStep'] != 5)
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const SizedBox(width: 7),
-                            Expanded(
-                              child: Text(
-                                  'Proceso de configuración ${step['service'] != null ? _convertToHours(step['setup']) : ''}',
-                                  style:
-                                      TextStyle(fontSize: screenWidth * 0.031),
-                                  softWrap: true),
-                            ),
-                          ],
-                        ),
-                    ],
-                  ),
-                  // ignore: sort_child_properties_last
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(8.0),
-                      child: SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.start,
-                          children: [
-                            if (step['typStep'] != 1 &&
-                                step['typStep'] != 4 &&
-                                step['typStep'] != 3)
-                              ElevatedButton.icon(
-                                onPressed: (step['typStep'] == 5
-                                        ? (step['lati'] != null &&
-                                            step['longi'] != null)
-                                        : (step['lat'] != null &&
-                                            step['lng'] != null))
-                                    ? () {
-                                        final double latitude = step[
-                                                    'typStep'] ==
-                                                5
-                                            ? double.tryParse(
-                                                    step['lati'].toString()) ??
-                                                0.0
-                                            : double.tryParse(
-                                                    step['lat'].toString()) ??
-                                                0.0;
-                                        final double longitude = step[
-                                                    'typStep'] ==
-                                                5
-                                            ? double.tryParse(
-                                                    step['longi'].toString()) ??
-                                                0.0
-                                            : double.tryParse(
-                                                    step['lng'].toString()) ??
-                                                0.0;
-
-                                        _showMapSelectionDialog(
-                                            latitude, longitude);
-                                      }
-                                    : null,
-                                icon: const Icon(Icons.navigation),
-                                label: const Text('Ir'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF0886B5),
-                                  foregroundColor: Colors.white,
-                                  textStyle:
-                                      TextStyle(fontSize: screenWidth * 0.030),
-                                ),
-                              ),
-                            const SizedBox(width: 5),
-                            if (step['typStep'] != 1 &&
-                                step['typStep'] != 4 &&
-                                step['typStep'] != 3 &&
-                                step['typStep'] != 5)
-                              ElevatedButton.icon(
-                                onPressed: () async {
-                                  LatLng? selectedLocation =
-                                      await Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                        builder: (context) =>
-                                            const MapPickerPage()),
-                                  );
-                                  if (selectedLocation != null) {
-                                    showTopSnackBar(
-                                      Overlay.of(context),
-                                      Material(
-                                        color: Colors.transparent,
-                                        child: Container(
-                                          margin: const EdgeInsets.symmetric(
-                                              horizontal: 20),
-                                          padding: const EdgeInsets.all(16),
-                                          decoration: BoxDecoration(
-                                            color: Color(0xFF0886B5),
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              const Icon(Icons.error,
-                                                  color: Colors.white,
-                                                  size: 24),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: Text(
-                                                  "Ubicación seleccionada: ${selectedLocation.latitude}, ${selectedLocation.longitude}",
-                                                  style: TextStyle(
-                                                    fontSize:
-                                                        screenWidth * 0.034,
-                                                    color: Colors.white,
-                                                    fontWeight:
-                                                        FontWeight.normal,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                },
-                                icon: const Icon(Icons.location_on),
-                                label: const Text('Ubicación'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF0886B5),
-                                  foregroundColor: Colors.white,
-                                  textStyle:
-                                      TextStyle(fontSize: screenWidth * 0.030),
-                                ),
-                              ),
-                            const SizedBox(width: 5),
-                            if (step['typStep'] != 1 &&
-                                step['typStep'] != 4 &&
-                                step['typStep'] != 3 &&
-                                step['typStep'] != 5)
-                              ElevatedButton.icon(
-                                onPressed: () {
-                                  final String? clientId =
-                                      step['idClient']?.toString();
-                                  final String? routeId =
-                                      step['id']?.toString();
-                                  if (clientId != null && routeId != null) {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => DeliverPage(
-                                          idMainAccount: widget.idMainAccount,
-                                          clientId: clientId,
-                                          idAssignClients: routeId,
-                                        ),
-                                      ),
-                                    );
-                                  } else {
-                                    showTopSnackBar(
-                                      Overlay.of(context),
-                                      Material(
-                                        color: Colors.transparent,
-                                        child: Container(
-                                          margin: const EdgeInsets.symmetric(
-                                              horizontal: 20),
-                                          padding: const EdgeInsets.all(16),
-                                          decoration: BoxDecoration(
-                                            color: Color(0xFF0886B5),
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              const Icon(Icons.error,
-                                                  color: Colors.white,
-                                                  size: 24),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: Text(
-                                                  "Cliente no encontrado para este paso.",
-                                                  style: TextStyle(
-                                                    fontSize:
-                                                        screenWidth * 0.034,
-                                                    color: Colors.white,
-                                                    fontWeight:
-                                                        FontWeight.normal,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                },
-                                icon: const Icon(Icons.directions_car),
-                                label: const Text('Entregar'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF0886B5),
-                                  foregroundColor: Colors.white,
-                                  textStyle:
-                                      TextStyle(fontSize: screenWidth * 0.030),
-                                ),
-                              ),
-                            const SizedBox(width: 5),
-                            if (step['typStep'] != 1 &&
-                                step['typStep'] != 4 &&
-                                step['typStep'] != 3 &&
-                                step['typStep'] != 2)
-                              ElevatedButton.icon(
-                                onPressed: () {
-                                  showDialog(
-                                    context: context,
-                                    builder: (BuildContext context) {
-                                      TextEditingController litersController =
-                                          TextEditingController();
-
-                                      String id =
-                                          (step['idEsta'] ?? '').toString();
-                                      String cod =
-                                          (step['cod'] ?? '').toString();
-                                      String descrip =
-                                          (step['descrip'] ?? '').toString();
-
-                                      debugPrint('Id: $id');
-                                      debugPrint("codigo: $cod");
-                                      debugPrint("Nombre: $descrip");
-
-                                      String selectedFuel = 'Gasolina';
-                                      List<String> fuelTypes = [
-                                        'Biodiesel',
-                                        'GNP',
-                                        'Diésel',
-                                        'Diésel/eléctrico',
-                                        'Eléctrico',
-                                        'Gasolina',
-                                        'Gasolina/Eléctrico'
-                                            'Gasolina Premium',
-                                        'Alcohol'
-                                      ];
-                                      return AlertDialog(
-                                        title: Text(
-                                          'Registrar Combustible',
-                                          style: TextStyle(
-                                              fontSize: screenWidth * 0.037),
-                                        ),
-                                        content: Column(
-                                          mainAxisSize: MainAxisSize.min,
-                                          children: [
-                                            const SizedBox(height: 10),
-                                            DropdownButtonFormField<String>(
-                                              value: selectedFuel,
-                                              onChanged: (String? newValue) {
-                                                if (newValue != null) {
-                                                  selectedFuel = newValue;
-                                                }
-                                              },
-                                              decoration: InputDecoration(
-                                                labelText: 'Combustible',
-                                                labelStyle: TextStyle(
-                                                  fontSize: screenWidth * 0.032,
-                                                ),
-                                                border: OutlineInputBorder(),
-                                              ),
-                                              isExpanded: true,
-                                              items:
-                                                  fuelTypes.map((String fuel) {
-                                                return DropdownMenuItem<String>(
-                                                  value: fuel,
-                                                  child: Text(
-                                                    fuel,
-                                                    style: TextStyle(
-                                                        fontSize: screenWidth *
-                                                            0.032),
-                                                  ),
-                                                );
-                                              }).toList(),
-                                            ),
-                                            const SizedBox(height: 10),
-                                            TextField(
-                                              controller: litersController,
-                                              keyboardType:
-                                                  TextInputType.number,
-                                              decoration: InputDecoration(
-                                                labelText: 'Cantidad',
-                                                labelStyle: TextStyle(
-                                                  fontSize: screenWidth * 0.032,
-                                                ),
-                                                border: OutlineInputBorder(),
-                                                suffixText: 'L',
-                                                suffixStyle: TextStyle(
-                                                  fontSize: screenWidth * 0.032,
-                                                ),
-                                              ),
-                                              style: TextStyle(
-                                                fontSize: screenWidth * 0.032,
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () {
-                                              Navigator.of(context).pop();
-                                            },
-                                            child: Text(
-                                              'Cancelar',
-                                              style: TextStyle(
-                                                  fontSize:
-                                                      screenWidth * 0.030),
-                                            ),
-                                          ),
-                                          ElevatedButton(
-                                            onPressed: () {
-                                              String liters =
-                                                  litersController.text;
-                                              debugPrint(
-                                                  "Tipo de combustible: $selectedFuel");
-                                              debugPrint(
-                                                  "Cantidad de litros: $liters L");
-                                              Navigator.of(context).pop();
-                                            },
-                                            style: ElevatedButton.styleFrom(
-                                              backgroundColor:
-                                                  const Color(0xFF0886B5),
-                                              foregroundColor: Colors.white,
-                                              padding:
-                                                  const EdgeInsets.symmetric(
-                                                      vertical: 8,
-                                                      horizontal: 10),
-                                            ),
-                                            child: Text(
-                                              'Guardar',
-                                              style: TextStyle(
-                                                  fontSize:
-                                                      screenWidth * 0.030),
-                                            ),
-                                          ),
-                                        ],
-                                      );
-                                    },
-                                  );
-                                },
-                                icon: const Icon(Icons.local_gas_station),
-                                label: const Text('Combustible'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF0886B5),
-                                  foregroundColor: Colors.white,
-                                  textStyle:
-                                      TextStyle(fontSize: screenWidth * 0.030),
-                                ),
-                              ),
-                            const SizedBox(width: 5),
-                            if (step['typStep'] != 1 &&
-                                step['typStep'] != 4 &&
-                                step['typStep'] != 3 &&
-                                step['typStep'] != 5)
-                              ElevatedButton.icon(
-                                onPressed: () {
-                                  final String? clientId =
-                                      step['idClient']?.toString();
-                                  if (clientId != null) {
-                                    setState(() {
-                                      showCheckButton = false;
-                                    });
-
-                                    final double latitude = step['typStep'] == 5
-                                        ? double.tryParse(
-                                                step['lati'].toString()) ??
-                                            0.0
-                                        : double.tryParse(
-                                                step['lat'].toString()) ??
-                                            0.0;
-
-                                    final double longitude =
-                                        step['typStep'] == 5
-                                            ? double.tryParse(
-                                                    step['longi'].toString()) ??
-                                                0.0
-                                            : double.tryParse(
-                                                    step['lng'].toString()) ??
-                                                0.0;
-
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => CheckVisitPage(
-                                          clientId: clientId,
-                                          idMainAccount: widget.idMainAccount,
-                                          latitude: latitude,
-                                          longitude: longitude,
-                                          idRoute: _selectedRouteId ?? 0,
-                                        ),
-                                      ),
-                                    );
-                                  } else {
-                                    showTopSnackBar(
-                                      Overlay.of(context),
-                                      Material(
-                                        color: Colors.transparent,
-                                        child: Container(
-                                          margin: const EdgeInsets.symmetric(
-                                              horizontal: 20),
-                                          padding: const EdgeInsets.all(16),
-                                          decoration: BoxDecoration(
-                                            color: Color(0xFF0886B5),
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                          child: Row(
-                                            children: [
-                                              const Icon(Icons.error,
-                                                  color: Colors.white,
-                                                  size: 24),
-                                              const SizedBox(width: 12),
-                                              Expanded(
-                                                child: Text(
-                                                  "Cliente no encontrado para este paso.",
-                                                  style: TextStyle(
-                                                    fontSize:
-                                                        screenWidth * 0.034,
-                                                    color: Colors.white,
-                                                    fontWeight:
-                                                        FontWeight.normal,
-                                                  ),
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                },
-                                icon: const Icon(Icons.verified),
-                                label: const Text('Comprobar'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF0886B5),
-                                  foregroundColor: Colors.white,
-                                  textStyle:
-                                      TextStyle(fontSize: screenWidth * 0.030),
-                                ),
-                              ),
-                            const SizedBox(width: 5),
-                            if (step['typStep'] != 1 &&
-                                step['typStep'] != 4 &&
-                                step['typStep'] != 3 &&
-                                step['typStep'] != 5)
-                              ElevatedButton.icon(
-                                onPressed: () {
-                                  setState(() {
-                                    showVisitButton = false;
-                                  });
-
-                                  final double latitude = step['typStep'] == 5
-                                      ? double.tryParse(
-                                              step['lati'].toString()) ??
-                                          0.0
-                                      : double.tryParse(
-                                              step['lat'].toString()) ??
-                                          0.0;
-
-                                  final double longitude = step['typStep'] == 5
-                                      ? double.tryParse(
-                                              step['longi'].toString()) ??
-                                          0.0
-                                      : double.tryParse(
-                                              step['lng'].toString()) ??
-                                          0.0;
-
-                                  final String? clientId =
-                                      step['idClient']?.toString();
-                                  final String? routeId =
-                                      step['id']?.toString();
-
-                                  final double distanceMint = double.tryParse(
-                                          step['distanceMint']?.toString() ??
-                                              '0') ??
-                                      0.0;
-
-                                  final String typeRoute =
-                                      step['typeRoute']?.toString() ?? '';
-
-                                  final String nClients =
-                                      step['nClients']?.toString() ?? '';
-
-                                  if (clientId != null && routeId != null) {
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) => VisitRecordPage(
-                                          idMainAccount: widget.idMainAccount,
-                                          latitude: latitude,
-                                          longitude: longitude,
-                                          idRoute: _selectedRouteId ?? 0,
-                                          idAssignClients: routeId,
-                                          clientId: clientId,
-                                          idVehic: idVehic,
-                                          distanceMint: distanceMint,
-                                          typeRoute: typeRoute,
-                                          nClients: nClients,
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                },
-                                icon: Icon(FontAwesomeIcons.book.data),
-                                label: const Text('Registrar visita'),
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF0886B5),
-                                  foregroundColor: Colors.white,
-                                  textStyle:
-                                      TextStyle(fontSize: screenWidth * 0.030),
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
+                          ),
+                        );
+                      },
                     ),
                   ],
-
-                  trailing: (step['typStep'] == 1)
-                      ? const Icon(Icons.home)
-                      : (step['typStep'] == 3)
-                          ? const Icon(Icons.fastfood)
-                          : (step['typStep'] == 4)
-                              ? const Icon(Icons.flag)
-                              : (step['typStep'] == 5)
-                                  ? const Icon(Icons.local_gas_station)
-                                  : (step['typStep'] == 2)
-                                      ? const Icon(Icons.route)
-                                      : null,
                 ),
+              ),
+
+              // ── Cuerpo ───────────────────────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.fromLTRB(15, 12, 15, 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Chips de info
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        if (route.vehiculo != null)
+                          _buildInfoChip(
+                            Icons.directions_car_filled_rounded,
+                            '${route.vehiculo!.economico} (${route.vehiculo!.placas})',
+                            iconColor: const Color(0xFF0284C7),
+                            bg: const Color(0xFFF0F9FF),
+                            borderColor: const Color(0xFFBAE6FD),
+                            textColor: const Color(0xFF0369A1),
+                          ),
+                        if (route.cedi != null && route.cedi!.nombre.isNotEmpty)
+                          _buildInfoChip(
+                            Icons.warehouse_rounded,
+                            route.cedi!.nombre,
+                            iconColor: const Color(0xFF475569),
+                            bg: const Color(0xFFF8FAFC),
+                            borderColor: const Color(0xFFE2E8F0),
+                            textColor: const Color(0xFF334155),
+                          ),
+                        if (distKm != null)
+                          _buildInfoChip(
+                            Icons.navigation_rounded,
+                            '$distKm km${durMin != null ? " · ~$durMin min" : ""}',
+                            iconColor: const Color(0xFFEA580C),
+                            bg: const Color(0xFFFFF7ED),
+                            borderColor: const Color(0xFFFFEDD5),
+                            textColor: const Color(0xFFC2410C),
+                          ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // Progreso
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          'Paradas de cliente: $doneStops de $totalStops completadas',
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF475569),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isDone
+                                ? const Color(0xFFF0FDF4)
+                                : const Color(0xFFEFF6FF),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '${(progress * 100).round()}%',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w800,
+                              color: progressColor,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 7),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: LinearProgressIndicator(
+                        value: progress,
+                        minHeight: 7,
+                        backgroundColor: const Color(0xFFF1F5F9),
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(progressColor),
+                      ),
+                    ),
+
+                    const SizedBox(height: 14),
+
+                    // Botones
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Container(
+                            height: 44,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [
+                                  Color(0xFF0284C7),
+                                  Color(0xFF0369A1),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(12),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: const Color(0xFF0284C7).withOpacity(0.28),
+                                  blurRadius: 10,
+                                  offset: const Offset(0, 3),
+                                ),
+                              ],
+                            ),
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.transparent,
+                                foregroundColor: Colors.white,
+                                shadowColor: Colors.transparent,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(horizontal: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                              ),
+                              onPressed: () {
+                                Navigator.of(context).push(
+                                  MaterialPageRoute(
+                                    builder: (_) => RouteDetailAndMapPage(
+                                        idRuta: route.idRuta),
+                                  ),
+                                );
+                              },
+                              icon: const Icon(Icons.map_rounded, size: 16),
+                              label: const Text(
+                                'Ver Recorrido y Paradas',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.1,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                        if (!route.isVisitRoute) ...[
+                          const SizedBox(width: 8),
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF0F172A),
+                              side: const BorderSide(color: Color(0xFFE2E8F0)),
+                              backgroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 10),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) =>
+                                      CediOperationsPage(idRuta: route.idRuta),
+                                ),
+                              );
+                            },
+                            icon: const Icon(Icons.qr_code_scanner_rounded,
+                                size: 15, color: Color(0xFF0284C7)),
+                            label: const Text('CEDI',
+                                style: TextStyle(
+                                    fontSize: 12, fontWeight: FontWeight.w700)),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 
-  String _convertToHours(int seconds) {
-    final hours = seconds ~/ 3600;
-    final minutes = (seconds % 3600) ~/ 60;
-    return '$hours : $minutes min';
+  Widget _buildInfoChip(
+    IconData icon,
+    String text, {
+    Color? iconColor,
+    Color? bg,
+    Color? borderColor,
+    Color? textColor,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: bg ?? const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: borderColor ?? const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: iconColor ?? const Color(0xFF0284C7)),
+          const SizedBox(width: 4),
+          Text(
+            text,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: textColor ?? const Color(0xFF334155),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// =============================================================================
+// PANTALLA DE DETALLE DE RUTA: MAPA CON POLILÍNEA (polyline5) + PARADAS EN ORDEN
+// =============================================================================
+
+class RouteDetailAndMapPage extends ConsumerStatefulWidget {
+  final int idRuta;
+
+  /// Si es `true`, la página está embebida en un layout de split view (tablet)
+  /// y no debe mostrar un botón de retroceso propio ni navegación push/pop.
+  final bool isEmbedded;
+
+  const RouteDetailAndMapPage({
+    super.key,
+    required this.idRuta,
+    this.isEmbedded = false,
+  });
+
+  @override
+  ConsumerState<RouteDetailAndMapPage> createState() =>
+      _RouteDetailAndMapPageState();
+}
+
+class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
+    with SingleTickerProviderStateMixin {
+  GoogleMapController? _mapController;
+  bool _mapExpanded = false;
+  bool _isExecutingRouteAction = false;
+  final Map<int, bool> _stopExpandedOverride = {};
+  MapType _mapType = MapType.normal;
+  bool _showTraffic = false;
+  late AnimationController _pulseController;
+
+  @override
+  void initState() {
+    super.initState();
+    // Esta pantalla (Detalle de Ruta y Mapa) sí soporta horizontal y vertical (ideal para tablet/split-view)
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.landscapeLeft,
+      DeviceOrientation.landscapeRight,
+    ]);
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 2),
+    )..repeat(reverse: true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(routesProvider.notifier).getFreshPositionNonBlocking();
+    });
   }
 
-  String _convertToHoursalone(int seconds) {
-    final hours = seconds ~/ 3600;
-    return '${hours}h ';
+  @override
+  void dispose() {
+    // Rebloquear toda la app en vertical al salir de la pantalla de ruta/mapa
+    SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
+    _pulseController.dispose();
+    _mapController?.dispose();
+    super.dispose();
   }
 
-  String _convertToKilometers(int meters) {
-    final kilometers = meters / 1000;
-    return kilometers.toStringAsFixed(2);
+  /// Abre pantallas secundarias bloqueadas estrictamente en vertical
+  /// y restaura la orientación horizontal/vertical al regresar al mapa/detalle.
+  Future<T?> _pushLockedPortrait<T>(Widget page) async {
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+    ]);
+    if (!mounted) return null;
+    final result = await Navigator.of(context).push<T>(
+      MaterialPageRoute(builder: (_) => page),
+    );
+    if (mounted) {
+      await SystemChrome.setPreferredOrientations([
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ]);
+    }
+    return result;
   }
 
-  void _showMapSelectionDialog(double lat, double lng) {
-    final screenHeight = MediaQuery.of(context).size.height;
-    final screenWidth = MediaQuery.of(context).size.width;
+  void _fitMapToRoute(DriverRoute route) {
+    final ctrl = _mapController;
+    if (ctrl == null) return;
+
+    final points = <LatLng>[];
+
+    // 1. Coordenadas de todas las paradas
+    for (final s in route.paradas) {
+      if (s.stopLat != null &&
+          s.stopLng != null &&
+          (s.stopLat != 0 || s.stopLng != 0)) {
+        points.add(LatLng(s.stopLat!, s.stopLng!));
+      }
+    }
+
+    // 2. Coordenadas de CEDI
+    if (route.cedi != null && (route.cedi!.lat != 0 || route.cedi!.lng != 0)) {
+      points.add(LatLng(route.cedi!.lat, route.cedi!.lng));
+    }
+
+    // 3. Límites de geometría
+    final geoBounds = route.geometria?.limites?.toLatLngBounds();
+    if (geoBounds != null) {
+      points.add(geoBounds.southwest);
+      points.add(geoBounds.northeast);
+    }
+
+    if (points.length >= 2) {
+      double minLat = points.first.latitude;
+      double maxLat = points.first.latitude;
+      double minLng = points.first.longitude;
+      double maxLng = points.first.longitude;
+      for (final p in points) {
+        if (p.latitude < minLat) minLat = p.latitude;
+        if (p.latitude > maxLat) maxLat = p.latitude;
+        if (p.longitude < minLng) minLng = p.longitude;
+        if (p.longitude > maxLng) maxLng = p.longitude;
+      }
+      ctrl.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+            southwest: LatLng(minLat, minLng),
+            northeast: LatLng(maxLat, maxLng),
+          ),
+          24,
+        ),
+      );
+    } else if (points.length == 1) {
+      ctrl.animateCamera(CameraUpdate.newLatLngZoom(points.first, 14.5));
+    }
+  }
+
+  /// Construye las polilíneas del mapa según la sugerencia de la Ronda 29:
+  /// "dibujar primero la línea completa en un color tenue y, conforme el chofer cierra paradas,
+  /// resaltar el tramo que falta. Para eso basta con cortar la polilínea decodificada en el punto más cercano a la última parada cerrada."
+  Set<Polyline> _buildPolylines(DriverRoute route) {
+    final decoded = route.geometria?.decodePolyline() ?? const [];
+    if (decoded.length < 2) return const {};
+
+    // Buscar la última parada visitada con coordenadas
+    LatLng? lastVisitedCoord;
+    for (final s in route.paradas) {
+      if (s.visitada &&
+          s.stopLat != null &&
+          s.stopLng != null &&
+          (s.stopLat != 0 || s.stopLng != 0)) {
+        lastVisitedCoord = LatLng(s.stopLat!, s.stopLng!);
+      }
+    }
+
+    int splitIndex = 0;
+    if (lastVisitedCoord != null) {
+      double bestDist = double.infinity;
+      for (int i = 0; i < decoded.length; i++) {
+        final dLat = decoded[i].latitude - lastVisitedCoord.latitude;
+        final dLng = decoded[i].longitude - lastVisitedCoord.longitude;
+        final d2 = (dLat * dLat) + (dLng * dLng);
+        if (d2 < bestDist) {
+          bestDist = d2;
+          splitIndex = i;
+        }
+      }
+    }
+
+    final Set<Polyline> polylines = {
+      Polyline(
+        polylineId: const PolylineId('full_route_dimmed'),
+        points: decoded,
+        width: 5,
+        color: const Color(0xFF94A3B8),
+      ),
+    };
+
+    final remainingPoints = decoded.sublist(splitIndex);
+    if (remainingPoints.length >= 2) {
+      polylines.add(
+        Polyline(
+          polylineId: const PolylineId('remaining_route_active'),
+          points: remainingPoints,
+          width: 6,
+          color: const Color(0xFF0284C7),
+        ),
+      );
+    }
+
+    return polylines;
+  }
+
+  static final Map<String, BitmapDescriptor> _numberedMarkerCache = {};
+  bool _isPreloadingMarkers = false;
+
+  static Future<BitmapDescriptor> _drawNumberedMarker({
+    required String text,
+    required Color color,
+  }) async {
+    const double width = 76.0;
+    const double height = 96.0;
+    final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
+    final Canvas canvas = Canvas(pictureRecorder);
+
+    final double cx = width / 2;
+    const double cy = 34.0;
+    const double r = 30.0;
+    const double tipY = 90.0;
+    const double dy = tipY - cy;
+    final double angle = math.asin((r / dy).clamp(-1.0, 1.0));
+
+    final Path pinPath = Path();
+    pinPath.addArc(
+      Rect.fromCircle(center: Offset(cx, cy), radius: r),
+      math.pi / 2 + angle,
+      2 * math.pi - 2 * angle,
+    );
+    pinPath.lineTo(cx, tipY);
+    pinPath.close();
+
+    // Sombra exterior suave del pin
+    canvas.drawShadow(pinPath, Colors.black.withOpacity(0.38), 5.0, true);
+
+    // Fondo del pin con el color correspondiente (Verde visitada / Azul pendiente)
+    final Paint pinPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(pinPath, pinPaint);
+
+    // Borde blanco exterior
+    final Paint borderPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 2.5;
+    canvas.drawPath(pinPath, borderPaint);
+
+    // Círculo blanco interior para el número
+    final Paint innerCirclePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(Offset(cx, cy), r * 0.72, innerCirclePaint);
+
+    // Texto con el número de parada (1, 2, 3...)
+    final double fontSize =
+        text.length >= 3 ? 14.0 : (text.length == 2 ? 18.0 : 22.0);
+
+    final TextPainter textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontSize: fontSize,
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      textDirection: ui.TextDirection.ltr,
+      textAlign: TextAlign.center,
+    );
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset(cx - textPainter.width / 2, cy - textPainter.height / 2),
+    );
+
+    final ui.Image image = await pictureRecorder.endRecording().toImage(
+          width.toInt(),
+          height.toInt(),
+        );
+    final ByteData? byteData =
+        await image.toByteData(format: ui.ImageByteFormat.png);
+
+    if (byteData == null) {
+      return BitmapDescriptor.defaultMarker;
+    }
+    return BitmapDescriptor.fromBytes(byteData.buffer.asUint8List());
+  }
+
+  Future<void> _preloadNumberedMarkers(DriverRoute route) async {
+    if (_isPreloadingMarkers) return;
+    _isPreloadingMarkers = true;
+    try {
+      final futures = <Future<void>>[];
+
+      // CEDI
+      if (route.cedi != null &&
+          (route.cedi!.lat != 0 || route.cedi!.lng != 0)) {
+        const cediKey = 'CEDI_${0xFF7C3AED}';
+        if (!_numberedMarkerCache.containsKey(cediKey)) {
+          futures.add(() async {
+            final icon = await _drawNumberedMarker(
+              text: 'C',
+              color: const Color(0xFF7C3AED),
+            );
+            _numberedMarkerCache[cediKey] = icon;
+          }());
+        }
+      }
+
+      // Paradas
+      for (final stop in route.paradas) {
+        Color color;
+        if (stop.isRecargaStop) {
+          color = const Color(0xFFEA580C);
+        } else if (stop.isCombustibleStop) {
+          color = const Color(0xFFD97706);
+        } else if (stop.visitada) {
+          color = const Color(0xFF059669);
+        } else {
+          color = const Color(0xFF0284C7);
+        }
+
+        final text = '${stop.orden}';
+        final key = '${text}_${color.value}';
+
+        if (!_numberedMarkerCache.containsKey(key)) {
+          futures.add(() async {
+            final icon = await _drawNumberedMarker(
+              text: text,
+              color: color,
+            );
+            _numberedMarkerCache[key] = icon;
+          }());
+        }
+      }
+
+      if (futures.isNotEmpty) {
+        await Future.wait(futures);
+        if (mounted) {
+          setState(() {});
+        }
+      }
+    } catch (e) {
+      debugPrint('Error generando marcadores numerados: $e');
+    } finally {
+      _isPreloadingMarkers = false;
+    }
+  }
+
+  Set<Marker> _buildMarkers(DriverRoute route) {
+    final Set<Marker> markers = {};
+    bool missingAny = false;
+
+    if (route.cedi != null && (route.cedi!.lat != 0 || route.cedi!.lng != 0)) {
+      const cediKey = 'CEDI_${0xFF7C3AED}';
+      final icon = _numberedMarkerCache[cediKey];
+      if (icon == null) missingAny = true;
+
+      markers.add(
+        Marker(
+          markerId: MarkerId('cedi_${route.cedi!.id}'),
+          position: LatLng(route.cedi!.lat, route.cedi!.lng),
+          icon: icon ??
+              BitmapDescriptor.defaultMarkerWithHue(
+                BitmapDescriptor.hueViolet,
+              ),
+          anchor: const Offset(0.5, 0.94),
+          infoWindow: InfoWindow(
+            title: 'CEDI: ${route.cedi!.nombre}',
+            snippet: 'Centro de distribución',
+          ),
+        ),
+      );
+    }
+
+    for (final stop in route.paradas) {
+      double? lat = stop.cliente?.lat;
+      double? lng = stop.cliente?.lng;
+      String title = stop.cliente != null
+          ? '#${stop.orden} · ${stop.cliente!.nombre}'
+          : '';
+      String snippet = stop.llegadaEstimada.isNotEmpty
+          ? 'Est: ${stop.llegadaEstimada} · ${stop.visitada ? "Visitada" : "Pendiente"}'
+          : (stop.visitada ? 'Visitada' : 'Pendiente');
+
+      Color color;
+      if (stop.isRecargaStop &&
+          stop.recarga != null &&
+          (stop.recarga!.lat != 0 || stop.recarga!.lng != 0)) {
+        lat = stop.recarga!.lat;
+        lng = stop.recarga!.lng;
+        title = '#${stop.orden} · Recarga: ${stop.recarga!.nombre}';
+        snippet = stop.llegadaEstimada.isNotEmpty
+            ? 'Est: ${stop.llegadaEstimada} · Carga de producto'
+            : 'Carga de producto';
+        color = const Color(0xFFEA580C);
+      } else if (stop.isCombustibleStop &&
+          stop.combustible != null &&
+          (stop.combustible!.lat != 0 || stop.combustible!.lng != 0)) {
+        lat = stop.combustible!.lat;
+        lng = stop.combustible!.lng;
+        title = '#${stop.orden} · Combustible: ${stop.combustible!.nombre}';
+        snippet = stop.llegadaEstimada.isNotEmpty
+            ? 'Est: ${stop.llegadaEstimada} · Estación de combustible'
+            : 'Estación de combustible';
+        color = const Color(0xFFD97706);
+      } else {
+        color =
+            stop.visitada ? const Color(0xFF059669) : const Color(0xFF0284C7);
+      }
+
+      if (lat == null || (lat == 0 && (lng == null || lng == 0))) continue;
+
+      final text = '${stop.orden}';
+      final key = '${text}_${color.value}';
+      final icon = _numberedMarkerCache[key];
+      if (icon == null) {
+        missingAny = true;
+      }
+
+      markers.add(
+        Marker(
+          markerId: MarkerId('stop_${stop.idParada}'),
+          position: LatLng(lat, lng!),
+          icon: icon ??
+              BitmapDescriptor.defaultMarkerWithHue(
+                stop.visitada
+                    ? BitmapDescriptor.hueGreen
+                    : BitmapDescriptor.hueAzure,
+              ),
+          anchor: const Offset(0.5, 0.94),
+          infoWindow: InfoWindow(
+            title: title,
+            snippet: snippet,
+          ),
+        ),
+      );
+    }
+
+    if (missingAny && !_isPreloadingMarkers) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _preloadNumberedMarkers(route);
+      });
+    }
+
+    return markers;
+  }
+
+  BuildContext? _loadingDialogContext;
+
+  void _showAppleLoadingDialog({
+    required String title,
+    required String subtitle,
+  }) {
+    if (!mounted) return;
     showDialog(
       context: context,
-      builder: (BuildContext context) {
+      barrierDismissible: false,
+      barrierColor: Colors.black.withOpacity(0.25),
+      builder: (ctx) {
+        _loadingDialogContext = ctx;
         return AlertDialog(
-          title: Text('Selecciona',
-              style: TextStyle(fontSize: screenWidth * 0.037)),
-          content: Text('¿Qué aplicación deseas usar para navegar?',
-              style: TextStyle(fontSize: screenWidth * 0.034)),
-          actions: [
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _openMap(lat, lng, useWaze: false);
-              },
-              child: Text('Google Maps',
-                  style: TextStyle(fontSize: screenWidth * 0.030)),
-            ),
-            TextButton(
-              onPressed: () {
-                Navigator.of(context).pop();
-                _openMap(lat, lng, useWaze: true);
-              },
-              child:
-                  Text('Waze', style: TextStyle(fontSize: screenWidth * 0.030)),
-            ),
-          ],
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xFFE2E8F0)),
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
+          content: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              LoadingAnimationWidget.threeRotatingDots(
+                color: const Color(0xFF0284C7),
+                size: 32,
+              ),
+              const SizedBox(width: 16),
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 14.5,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF0F172A),
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        color: Color(0xFF64748B),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         );
       },
     );
   }
 
-  void _preloadMapData({required bool useWaze}) async {
-    try {
-      String preloadUrl = useWaze ? 'waze://' : 'https://maps.google.com/';
-      await launch(preloadUrl);
-      // ignore: empty_catches
-    } catch (e) {}
+  void _dismissAppleLoadingDialog() {
+    if (_loadingDialogContext != null) {
+      if (Navigator.canPop(_loadingDialogContext!)) {
+        Navigator.pop(_loadingDialogContext!);
+      }
+      _loadingDialogContext = null;
+    }
   }
 
-  void _openMap(double lat, double lng, {required bool useWaze}) async {
-    _preloadMapData(useWaze: useWaze);
+  Future<void> _handleSalida(DriverRoute route) async {
+    setState(() => _isExecutingRouteAction = true);
+    _showAppleLoadingDialog(
+      title: 'Iniciando ruta...',
+      subtitle: 'Registrando salida y posición GPS con el servidor',
+    );
     try {
-      String url = useWaze
-          ? 'waze://?ll=$lat,$lng&navigate=yes'
-          : 'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving';
-
-      await launch(url);
+      final res =
+          await ref.read(routesProvider.notifier).registrarSalida(route.idRuta);
+      _dismissAppleLoadingDialog();
+      if (!mounted) return;
+      ref.read(routesProvider.notifier).clearRecentNotices();
+      final msg = res.avisos.isNotEmpty
+          ? res.avisos.map((a) => a.displayTexto).join('\n')
+          : 'Ruta iniciada correctamente.';
+      SnackbarTop.showSuccess(
+        context,
+        msg,
+        title: 'Correcto',
+      );
     } catch (e) {
-      String fallbackUrl =
-          useWaze ? 'https://www.waze.com/ul?ll=$lat,$lng&navigate=yes' : '';
+      _dismissAppleLoadingDialog();
+      if (!mounted) return;
+      SnackbarTop.showError(
+        context,
+        'No se pudo iniciar la ruta: $e',
+        title: 'Error de salida',
+        style: SnackbarTopStyle.appleCard,
+      );
+    } finally {
+      if (mounted) setState(() => _isExecutingRouteAction = false);
+    }
+  }
 
-      if (fallbackUrl.isNotEmpty) {
-        try {
-          await launch(fallbackUrl);
-        } catch (e) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(
-                    'No se puede abrir ${useWaze ? "Waze" : "Google Maps"} ni el navegador.')),
+  Future<void> _handleFinRuta(
+    DriverRoute route, {
+    bool confirmarDiferencia = false,
+  }) async {
+    // Si es la primera solicitud (no reintento por diferencia de paquetes),
+    // mostramos advertencia previa al chofer si aún tiene pendientes.
+    if (!confirmarDiferencia) {
+      int pendingStops = 0;
+      int pendingDeliveries = 0;
+      int pendingPickups = 0;
+
+      for (final stop in route.paradas) {
+        if (stop.tipo == 'inicio' || stop.tipo == 'fin') continue;
+        if (!stop.visitada) pendingStops++;
+        for (final g in stop.entregar) {
+          if (g.estado != 4 && g.estado != 8) pendingDeliveries++;
+        }
+        for (final g in stop.recoger) {
+          if (g.estado == 0) pendingPickups++;
+        }
+      }
+
+      final hasPendingWork =
+          pendingStops > 0 || pendingDeliveries > 0 || pendingPickups > 0;
+
+      final confirmEnd = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          title: Row(
+            children: [
+              Icon(
+                hasPendingWork
+                    ? Icons.warning_amber_rounded
+                    : Icons.check_circle_outline_rounded,
+                color: hasPendingWork
+                    ? const Color(0xFFD97706)
+                    : const Color(0xFF059669),
+                size: 26,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  hasPendingWork
+                      ? '¿Terminar ruta con pendientes?'
+                      : '¿Terminar ruta?',
+                  style: const TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (hasPendingWork) ...[
+                const Text(
+                  '¿Estás seguro de que deseas terminar la ruta? Aún tienes trabajo pendiente:',
+                  style: TextStyle(
+                    fontSize: 13.5,
+                    color: Color(0xFF334155),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFFFBEB),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: const Color(0xFFFDE68A)),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (pendingStops > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '• $pendingStops parada(s) sin visitar',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF92400E),
+                            ),
+                          ),
+                        ),
+                      if (pendingDeliveries > 0)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: Text(
+                            '• $pendingDeliveries paquete(s) por entregar',
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF92400E),
+                            ),
+                          ),
+                        ),
+                      if (pendingPickups > 0)
+                        Text(
+                          '• $pendingPickups paquete(s) por recoger',
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF92400E),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Las paradas que no hayas visitado quedarán registradas automáticamente como no atendidas.',
+                  style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
+                ),
+              ] else ...[
+                const Text(
+                  'Has completado todas las paradas de esta ruta. ¿Deseas dar por finalizada la jornada de esta ruta?',
+                  style: TextStyle(fontSize: 13.5, color: Color(0xFF334155)),
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+              ),
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text(
+                'Cancelar / Continuar en ruta',
+                style: TextStyle(
+                  fontWeight: FontWeight.w700,
+                  fontSize: 12.5,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: hasPendingWork
+                    ? const Color(0xFFD97706)
+                    : const Color(0xFF0F172A),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(
+                hasPendingWork ? 'Sí, Terminar Ruta' : 'Finalizar Ruta',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmEnd != true) {
+        return;
+      }
+    }
+
+    setState(() => _isExecutingRouteAction = true);
+    _showAppleLoadingDialog(
+      title: 'Finalizando ruta...',
+      subtitle: 'Comprobando paquetes y reportando al CEDI',
+    );
+    try {
+      final res = await ref.read(routesProvider.notifier).registrarFinRuta(
+            idRuta: route.idRuta,
+            confirmarDiferencia: confirmarDiferencia,
           );
-          final screenWidth = MediaQuery.of(context).size.width;
+      _dismissAppleLoadingDialog();
+      if (!mounted) return;
 
-          showTopSnackBar(
-            Overlay.of(context),
+      // Regla: "Fin de ruta: si el chofer aún trae paquetes el servidor contesta PENDIENTES con los folios.
+      // La app muestra la lista; si el chofer confirma, reenvía con confirmarDiferencia: true y uuid nuevo."
+      if (res.needsConfirmDifference && !confirmarDiferencia) {
+        final msg = res.avisos.map((a) => a.texto).join('\n');
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+            ),
+            title: const Text('Paquetes pendientes sin bajar en CEDI'),
+            content: Text(
+              msg.isNotEmpty
+                  ? '$msg\n\n¿Desea ir al CEDI a descargarlos o confirmar terminar la ruta con paquetes pendientes?'
+                  : 'Aún existen paquetes sin descargar en el CEDI. ¿Desea confirmar el fin de ruta?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text('Ir a CEDI / Revisar'),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFD97706),
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: const Text('Confirmar y Terminar'),
+              ),
+            ],
+          ),
+        );
+        if (confirm == true && mounted) {
+          await _handleFinRuta(route, confirmarDiferencia: true);
+        }
+        return;
+      }
+
+      ref.read(routesProvider.notifier).clearRecentNotices();
+      final msg = res.avisos.isNotEmpty
+          ? res.avisos.map((a) => a.displayTexto).join('\n')
+          : 'Ruta cerrada correctamente.';
+      SnackbarTop.showSuccess(
+        context,
+        msg,
+        title: 'Correcto',
+      );
+    } catch (e) {
+      _dismissAppleLoadingDialog();
+      if (!mounted) return;
+      SnackbarTop.showError(
+        context,
+        'No se pudo terminar la ruta: $e',
+        title: 'Error de fin de ruta',
+        style: SnackbarTopStyle.appleCard,
+      );
+    } finally {
+      if (mounted) setState(() => _isExecutingRouteAction = false);
+    }
+  }
+
+  Future<void> _launchPhoneCall(String phone) async {
+    final cleaned = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (cleaned.isEmpty) return;
+    final uri = Uri.parse('tel:$cleaned');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri);
+    }
+  }
+
+  static const String _kNavDefaultAppKey = 'nav_default_app';
+  static const String _kNavLastSelectedKey = 'nav_last_selected';
+  static const String _kNavCountKey = 'nav_consecutive_count';
+
+  Future<void> _launchNavigation(RouteClient client,
+      {bool forceChooser = false}) async {
+    await _handleNavigation(
+      lat: client.lat,
+      lng: client.lng,
+      label: client.nombre,
+      address: client.direccion,
+      forceChooser: forceChooser,
+    );
+  }
+
+  Future<void> _launchNavigationCoords(double lat, double lng,
+      [String label = '', bool forceChooser = false]) async {
+    await _handleNavigation(
+      lat: lat,
+      lng: lng,
+      label: label.isNotEmpty ? label : 'Punto de ruta',
+      forceChooser: forceChooser,
+    );
+  }
+
+  Future<void> _handleNavigation({
+    required double lat,
+    required double lng,
+    required String label,
+    String address = '',
+    bool forceChooser = false,
+  }) async {
+    if (!forceChooser) {
+      final prefs = await SharedPreferences.getInstance();
+      final defaultApp = prefs.getString(_kNavDefaultAppKey);
+      if (defaultApp != null && defaultApp.isNotEmpty) {
+        // App predeterminada activa: abrimos de inmediato sin mostrar el selector
+        await _executeNavigationApp(
+          app: defaultApp,
+          lat: lat,
+          lng: lng,
+          label: label,
+          address: address,
+        );
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    await _showNavigationChooser(
+      context: context,
+      lat: lat,
+      lng: lng,
+      label: label,
+      address: address,
+    );
+  }
+
+  Future<void> _onNavigationAppChosen({
+    required BuildContext context,
+    required String app,
+    required double lat,
+    required double lng,
+    required String label,
+    String address = '',
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (app == 'system') {
+      // Al elegir "Detectar con mi celular", se fija como predeterminado
+      // para que en las siguientes pulsaciones de "Ir" no vuelva a salir el modal.
+      await prefs.setString(_kNavDefaultAppKey, 'system');
+      if (context.mounted) {
+        SnackbarTop.showInfo(
+          context,
+          'Selector del dispositivo fijado como predeterminado.',
+          title: 'Navegación',
+        );
+      }
+    } else {
+      // Si es Google Maps o Waze:
+      final lastSelected = prefs.getString(_kNavLastSelectedKey);
+      final count = prefs.getInt(_kNavCountKey) ?? 0;
+
+      if (lastSelected == app) {
+        final newCount = count + 1;
+        await prefs.setInt(_kNavCountKey, newCount);
+        if (newCount >= 2) {
+          // Si se seleccionó 2 veces consecutivas, se establece como la app predeterminada!
+          await prefs.setString(_kNavDefaultAppKey, app);
+          final appName = app == 'waze' ? 'Waze' : 'Google Maps';
+          if (context.mounted) {
+            SnackbarTop.showSuccess(
+              context,
+              '¡$appName fijado como tu app predeterminada!',
+              title: 'Navegación predeterminada',
+            );
+          }
+        }
+      } else {
+        // Nueva selección: registrar como última seleccionada y reiniciar contador
+        await prefs.setString(_kNavLastSelectedKey, app);
+        await prefs.setInt(_kNavCountKey, 1);
+      }
+    }
+
+    await _executeNavigationApp(
+      app: app,
+      lat: lat,
+      lng: lng,
+      label: label,
+      address: address,
+    );
+  }
+
+  Future<void> _executeNavigationApp({
+    required String app,
+    required double lat,
+    required double lng,
+    required String label,
+    String address = '',
+  }) async {
+    if (app == 'maps') {
+      Uri uri;
+      if (lat != 0 || lng != 0) {
+        uri = Uri.parse(
+          'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
+        );
+      } else {
+        uri = Uri.parse(
+          'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address.isNotEmpty ? address : label)}',
+        );
+      }
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (app == 'waze') {
+      Uri wazeUri;
+      if (lat != 0 || lng != 0) {
+        wazeUri = Uri.parse('waze://?ll=$lat,$lng&navigate=yes');
+      } else {
+        wazeUri = Uri.parse(
+          'waze://?q=${Uri.encodeComponent(address.isNotEmpty ? address : label)}&navigate=yes',
+        );
+      }
+      if (await canLaunchUrl(wazeUri)) {
+        await launchUrl(wazeUri, mode: LaunchMode.externalApplication);
+      } else {
+        final wazeWeb = lat != 0 || lng != 0
+            ? Uri.parse('https://waze.com/ul?ll=$lat,$lng&navigate=yes')
+            : Uri.parse(
+                'https://waze.com/ul?q=${Uri.encodeComponent(address.isNotEmpty ? address : label)}&navigate=yes');
+        await launchUrl(wazeWeb, mode: LaunchMode.externalApplication);
+      }
+    } else {
+      // 'system'
+      Uri geoUri;
+      if (lat != 0 || lng != 0) {
+        geoUri = Uri.parse(
+          'geo:$lat,$lng?q=$lat,$lng(${Uri.encodeComponent(label)})',
+        );
+      } else {
+        geoUri = Uri.parse(
+          'geo:0,0?q=${Uri.encodeComponent(address.isNotEmpty ? address : label)}',
+        );
+      }
+      if (await canLaunchUrl(geoUri)) {
+        await launchUrl(geoUri, mode: LaunchMode.externalApplication);
+      } else {
+        final fallback = lat != 0 || lng != 0
+            ? Uri.parse(
+                'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
+              )
+            : Uri.parse(
+                'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address.isNotEmpty ? address : label)}',
+              );
+        await launchUrl(fallback, mode: LaunchMode.externalApplication);
+      }
+    }
+  }
+
+  Future<void> _showNavigationChooser({
+    required BuildContext context,
+    required double lat,
+    required double lng,
+    required String label,
+    String address = '',
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentDefault = prefs.getString(_kNavDefaultAppKey);
+
+    if (!context.mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final mediaQuery = MediaQuery.of(ctx);
+        final isLandscape = mediaQuery.orientation == Orientation.landscape;
+        final screenHeight = mediaQuery.size.height;
+
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 520,
+                maxHeight:
+                    isLandscape ? screenHeight * 0.90 : screenHeight * 0.85,
+              ),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+                ),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    18,
+                    isLandscape ? 10 : 16,
+                    18,
+                    isLandscape ? 16 : 24,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          margin:
+                              EdgeInsets.only(bottom: isLandscape ? 10 : 14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFCBD5E1),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          const Icon(Icons.navigation_rounded,
+                              size: 20, color: Color(0xFF0284C7)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Navegar a $label',
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (address.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          address,
+                          style: const TextStyle(
+                              fontSize: 11.5, color: Color(0xFF64748B)),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+
+                      // Indicador de app predeterminada actual si existe
+                      if (currentDefault != null &&
+                          currentDefault.isNotEmpty) ...[
+                        Container(
+                          margin: const EdgeInsets.only(top: 10, bottom: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDF4),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFBBF7D0)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.check_circle_rounded,
+                                  size: 15, color: Color(0xFF16A34A)),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Predeterminada: ${currentDefault == "waze" ? "Waze" : "Google Maps"}',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF15803D),
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: Size.zero,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () async {
+                                  await prefs.remove(_kNavDefaultAppKey);
+                                  await prefs.remove(_kNavLastSelectedKey);
+                                  await prefs.remove(_kNavCountKey);
+                                  if (context.mounted) {
+                                    Navigator.of(ctx).pop();
+                                    SnackbarTop.showInfo(
+                                      context,
+                                      'Se restableció la app de navegación.',
+                                      title: 'Navegación',
+                                    );
+                                  }
+                                },
+                                child: const Text(
+                                  'Restablecer',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFFDC2626),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Selecciona tu aplicación de navegación:',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF475569),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Si eliges la misma app 2 veces seguidas, se fijará como tu favorita automática.',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: Color(0xFF94A3B8),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          // Opción Google Maps
+                          Expanded(
+                            child: Material(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+                                  Navigator.of(ctx).pop();
+                                  _onNavigationAppChosen(
+                                    context: context,
+                                    app: 'maps',
+                                    lat: lat,
+                                    lng: lng,
+                                    label: label,
+                                    address: address,
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: currentDefault == 'maps'
+                                          ? const Color(0xFF0284C7)
+                                          : const Color(0xFFE2E8F0),
+                                      width: currentDefault == 'maps' ? 1.8 : 1,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 44,
+                                        height: 44,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black
+                                                  .withOpacity(0.08),
+                                              blurRadius: 6,
+                                              offset: const Offset(0, 2),
+                                            ),
+                                          ],
+                                          border: Border.all(
+                                              color: const Color(0xFFF1F5F9),
+                                              width: 1.5),
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: ShaderMask(
+                                          shaderCallback: (bounds) =>
+                                              const SweepGradient(
+                                            center: Alignment.center,
+                                            colors: [
+                                              Color(0xFF4285F4), // Azul Google
+                                              Color(0xFFEA4335), // Rojo Google
+                                              Color(
+                                                  0xFFFBBC05), // Amarillo Google
+                                              Color(0xFF34A853), // Verde Google
+                                              Color(
+                                                  0xFF4285F4), // Azul Google (cierre)
+                                            ],
+                                            stops: [0.0, 0.3, 0.6, 0.85, 1.0],
+                                          ).createShader(bounds),
+                                          child: const FaIcon(
+                                            FontAwesomeIcons.google,
+                                            size: 24,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                        'Google Maps',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+
+                          // Opción Waze
+                          Expanded(
+                            child: Material(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+                                  Navigator.of(ctx).pop();
+                                  _onNavigationAppChosen(
+                                    context: context,
+                                    app: 'waze',
+                                    lat: lat,
+                                    lng: lng,
+                                    label: label,
+                                    address: address,
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: currentDefault == 'waze'
+                                          ? const Color(0xFF0284C7)
+                                          : const Color(0xFFE2E8F0),
+                                      width: currentDefault == 'waze' ? 1.8 : 1,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 44,
+                                        height: 44,
+                                        decoration: BoxDecoration(
+                                          color: const Color(
+                                              0xFF33CCFF), // Celeste oficial Waze
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: const Color(0xFF33CCFF)
+                                                  .withOpacity(0.4),
+                                              blurRadius: 6,
+                                              offset: const Offset(0, 2),
+                                            ),
+                                          ],
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: const FaIcon(
+                                          FontAwesomeIcons.waze,
+                                          color: Colors.white,
+                                          size: 24,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                        'Waze',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildFloatingRouteTopBar({
+    required BuildContext context,
+    required DriverRoute route,
+    required bool isSmallScreen,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.04),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          // Botón Atrás: solo visible cuando no está embebido en split view de tablet
+          if (!widget.isEmbedded) ...[
             Material(
               color: Colors.transparent,
-              child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 20),
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Color(0xFF0886B5),
-                  borderRadius: BorderRadius.circular(12),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(11),
+                onTap: () => Navigator.pop(context),
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(11),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: const Icon(
+                    Icons.arrow_back_ios_new_rounded,
+                    size: 15,
+                    color: Color(0xFF0F172A),
+                  ),
                 ),
-                child: Row(
+              ),
+            ),
+            const SizedBox(width: 10),
+          ],
+
+          // Título y Estado de Ruta
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  route.nombre,
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.3,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Row(
                   children: [
-                    const Icon(Icons.error, color: Colors.white, size: 24),
-                    const SizedBox(width: 12),
+                    FadeTransition(
+                      opacity: _pulseController,
+                      child: Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: route.isTerminada
+                              ? const Color(0xFF64748B)
+                              : (route.isActiva
+                                  ? const Color(0xFF10B981)
+                                  : const Color(0xFFD97706)),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 5),
                     Expanded(
                       child: Text(
-                        "No se puede abrir ${useWaze ? "Waze" : "Google Maps"} ni el navegador.",
-                        style: TextStyle(
-                          fontSize: screenWidth * 0.034,
+                        '${route.modalidadNombre} · ${route.visitedClientStops}/${route.totalClientStops} paradas',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF64748B),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Chip flotante con la distancia y tiempo estimado del recorrido estilo Apple,
+  /// ubicado directamente debajo de la carta del título.
+  Widget _buildJourneyEstimatesChip(DriverRoute route) {
+    if (route.geometria == null || route.geometria!.distanciaM <= 0) {
+      return const SizedBox.shrink();
+    }
+
+    final distKm = (route.geometria!.distanciaM / 1000).toStringAsFixed(1);
+    final durMin = (route.geometria!.duracionS / 60).round();
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _fitMapToRoute(route),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.96),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 10,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0F9FF),
+                  borderRadius: BorderRadius.circular(7),
+                ),
+                child: const Icon(
+                  Icons.route_rounded,
+                  size: 13,
+                  color: Color(0xFF0284C7),
+                ),
+              ),
+              const SizedBox(width: 7),
+              Text(
+                '$distKm km',
+                style: const TextStyle(
+                  color: Color(0xFF0F172A),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
+                ),
+              ),
+              const Text(
+                ' · ',
+                style: TextStyle(
+                  color: Color(0xFF94A3B8),
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              Text(
+                '$durMin min est.',
+                style: const TextStyle(
+                  color: Color(0xFF64748B),
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingRouteMapControls({
+    required BuildContext context,
+    required DriverRoute route,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // 1. Tipo de mapa
+          _buildMapControlButton(
+            icon: Icons.layers_rounded,
+            tooltip: 'Tipo de mapa',
+            isActive: _mapType != MapType.normal,
+            onTap: () {
+              setState(() {
+                _mapType = _mapType == MapType.normal
+                    ? MapType.hybrid
+                    : MapType.normal;
+              });
+            },
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+          // 2. Tráfico
+          _buildMapControlButton(
+            icon: Icons.traffic_rounded,
+            tooltip: 'Tráfico en tiempo real',
+            isActive: _showTraffic,
+            onTap: () {
+              setState(() {
+                _showTraffic = !_showTraffic;
+              });
+            },
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+          // 3. Expandir / Reducir mapa
+          _buildMapControlButton(
+            icon: _mapExpanded
+                ? Icons.fullscreen_exit_rounded
+                : Icons.fullscreen_rounded,
+            tooltip: _mapExpanded ? 'Reducir mapa' : 'Ampliar mapa',
+            isActive: _mapExpanded,
+            onTap: () {
+              setState(() {
+                _mapExpanded = !_mapExpanded;
+              });
+            },
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+          // 4. Encuadrar recorrido completo
+          _buildMapControlButton(
+            icon: Icons.zoom_out_map_rounded,
+            tooltip: 'Encuadrar recorrido',
+            isActive: false,
+            onTap: () => _fitMapToRoute(route),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMapControlButton({
+    required IconData icon,
+    required String tooltip,
+    required bool isActive,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.transparent,
+      child: Tooltip(
+        message: tooltip,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            width: 32,
+            height: 32,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isActive
+                  ? const Color(0xFF0284C7).withOpacity(0.12)
+                  : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(
+              icon,
+              size: 16,
+              color:
+                  isActive ? const Color(0xFF0284C7) : const Color(0xFF334155),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFloatingBottomControls({
+    required BuildContext context,
+    required DriverRoute route,
+    required bool isSmallScreen,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 14,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          if (route.isFinalizada) ...[
+            Expanded(
+              child: Container(
+                height: 38,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color: route.isCerradaPorMotor
+                      ? const Color(0xFFFFFBEB)
+                      : const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(
+                    color: route.isCerradaPorMotor
+                        ? const Color(0xFFFDE68A)
+                        : const Color(0xFFBBF7D0),
+                  ),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(
+                      route.isCerradaPorMotor
+                          ? Icons.lock_clock_rounded
+                          : Icons.check_circle_rounded,
+                      size: 15,
+                      color: route.isCerradaPorMotor
+                          ? const Color(0xFFD97706)
+                          : const Color(0xFF10B981),
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      route.isCerradaPorMotor
+                          ? 'Cerrada por motor'
+                          : 'Ruta terminada',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        color: route.isCerradaPorMotor
+                            ? const Color(0xFF92400E)
+                            : const Color(0xFF15803D),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ] else if (!route.isActiva) ...[
+            Expanded(
+              child: SizedBox(
+                height: 38,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                  ),
+                  onPressed: _isExecutingRouteAction
+                      ? null
+                      : () => _handleSalida(route),
+                  child: _isExecutingRouteAction
+                      ? Center(
+                          child: LoadingAnimationWidget.threeRotatingDots(
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.play_arrow_rounded, size: 18),
+                            SizedBox(width: 5),
+                            Text(
+                              'Iniciar Ruta',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            ),
+          ] else ...[
+            Expanded(
+              child: SizedBox(
+                height: 38,
+                child: ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0284C7),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 14),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(11),
+                    ),
+                  ),
+                  onPressed: _isExecutingRouteAction
+                      ? null
+                      : () => _handleFinRuta(route),
+                  child: _isExecutingRouteAction
+                      ? Center(
+                          child: LoadingAnimationWidget.threeRotatingDots(
+                            color: Colors.white,
+                            size: 20,
+                          ),
+                        )
+                      : const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.flag_rounded, size: 16),
+                            SizedBox(width: 5),
+                            Text(
+                              'Terminar Ruta',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.2,
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ),
+            ),
+          ],
+
+          // Botón CEDI (rutas de reparto)
+          if (!route.isVisitRoute) ...[
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 38,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF0F9FF),
+                  foregroundColor: const Color(0xFF0284C7),
+                  elevation: 0,
+                  side: const BorderSide(color: Color(0xFFBAE6FD), width: 1),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                ),
+                onPressed: () {
+                  _pushLockedPortrait(
+                    CediOperationsPage(
+                      idRuta: route.idRuta,
+                      initialTab: route.cediCargar.isNotEmpty &&
+                              route.cediDescargar.isEmpty
+                          ? 1
+                          : 0,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.warehouse_rounded,
+                    size: 16, color: Color(0xFF0284C7)),
+                label: const Text(
+                  'CEDI',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+
+          // Botón Fuera de Ruta (rutas de visita)
+          if (route.isVisitRoute) ...[
+            const SizedBox(width: 8),
+            SizedBox(
+              height: 38,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF0F9FF),
+                  foregroundColor: const Color(0xFF0284C7),
+                  elevation: 0,
+                  side: const BorderSide(color: Color(0xFFBAE6FD), width: 1),
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(11),
+                  ),
+                ),
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (_) => Container(
+                      height: MediaQuery.of(context).size.height * 0.82,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.vertical(
+                          top: Radius.circular(24),
+                        ),
+                      ),
+                      child: Column(
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(18, 12, 18, 6),
+                            child: Column(
+                              children: [
+                                Center(
+                                  child: Container(
+                                    width: 38,
+                                    height: 4,
+                                    margin: const EdgeInsets.only(bottom: 12),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFCBD5E1),
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                ),
+                                const Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: Text(
+                                    'Seleccionar Cliente (Visita fuera de ruta)',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                      fontSize: 15,
+                                      color: Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Expanded(
+                            child: OrdersAndNewClientsView(
+                              visitRouteIdForOutOfRoute: route.idRuta,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.add_business_rounded,
+                    size: 15, color: Color(0xFF0284C7)),
+                label: const Text(
+                  'Fuera de Ruta',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  /// Layout horizontal / tablet: lista de paradas a la izquierda y mapa interactivo a la derecha.
+  Widget _buildLandscapeLayout({
+    required BuildContext context,
+    required DriverRoute route,
+    required DayConfig config,
+    required LatLng initialCenter,
+    required MediaQueryData mediaQuery,
+  }) {
+    return Column(
+      children: [
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // ── PANEL IZQUIERDO: Rutas, Inicio, Clientes, Paradas ──
+              SizedBox(
+                width: (mediaQuery.size.width * 0.46).clamp(340.0, 520.0),
+                child: Column(
+                  children: [
+                    // Barra superior con botón atrás, título y estado de conexión
+                    Padding(
+                      padding: EdgeInsets.fromLTRB(
+                        mediaQuery.padding.left + 10,
+                        mediaQuery.padding.top + 8,
+                        10,
+                        8,
+                      ),
+                      child: _buildFloatingRouteTopBar(
+                        context: context,
+                        route: route,
+                        isSmallScreen: false,
+                      ),
+                    ),
+
+                    // Lista de paradas de la ruta (Inicio, Clientes, Descanso, Fin)
+                    Expanded(
+                      child: RefreshIndicator(
+                        color: const Color(0xFF0284C7),
+                        onRefresh: () async {
+                          await ref
+                              .read(routesProvider.notifier)
+                              .syncPendingQueueAndRefreshDay(
+                                forceRefreshDay: true,
+                                isUserInitiated: true,
+                              );
+                        },
+                        child: ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: EdgeInsets.fromLTRB(
+                            mediaQuery.padding.left + 10,
+                            4,
+                            10,
+                            16,
+                          ),
+                          itemCount: route.paradas.length,
+                          itemBuilder: (context, index) {
+                            final stop = route.paradas[index];
+                            final isLast = index == route.paradas.length - 1;
+                            return Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                _buildStopCard(
+                                  route,
+                                  stop,
+                                  config,
+                                ),
+                                if (!isLast)
+                                  _buildTimelineConnectorBetweenCards(),
+                              ],
+                            );
+                          },
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              // Divisor vertical
+              Container(
+                width: 1,
+                color: const Color(0xFFE2E8F0),
+              ),
+
+              // ── PANEL DERECHO: Mapa interactivo a toda altura con controles ──
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned.fill(
+                      child: GoogleMap(
+                        initialCameraPosition: CameraPosition(
+                          target: initialCenter,
+                          zoom: 12,
+                        ),
+                        padding: EdgeInsets.only(
+                          top: mediaQuery.padding.top + 54,
+                          right: 56,
+                          bottom: 64,
+                          left: 14,
+                        ),
+                        mapType: _mapType,
+                        trafficEnabled: _showTraffic,
+                        myLocationEnabled: true,
+                        myLocationButtonEnabled: false,
+                        zoomControlsEnabled: false,
+                        polylines: _buildPolylines(route),
+                        markers: _buildMarkers(route),
+                        onMapCreated: (ctrl) {
+                          _mapController = ctrl;
+                          _preloadNumberedMarkers(route);
+                          Future.delayed(const Duration(milliseconds: 350), () {
+                            if (mounted) _fitMapToRoute(route);
+                          });
+                        },
+                      ),
+                    ),
+
+                    // Chip flotante de distancia y tiempo (esquina superior izquierda del mapa)
+                    if (route.geometria != null &&
+                        route.geometria!.distanciaM > 0)
+                      Positioned(
+                        top: mediaQuery.padding.top + 8,
+                        left: 12,
+                        child: _buildJourneyEstimatesChip(route),
+                      ),
+
+                    // Controles flotantes del mapa (capas, tráfico, centrar)
+                    Positioned(
+                      right: 12,
+                      top: mediaQuery.padding.top + 8,
+                      child: _buildFloatingRouteMapControls(
+                        context: context,
+                        route: route,
+                      ),
+                    ),
+
+                    // Controles inferiores flotantes (Iniciar / Terminar ruta, CEDI)
+                    Positioned(
+                      left: 12,
+                      right: 12,
+                      bottom: 10,
+                      child: _buildFloatingBottomControls(
+                        context: context,
+                        route: route,
+                        isSmallScreen: false,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Barra de estado de cola sin conexión y sincronización
+        const DriverSyncStatusBar(),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(routesProvider);
+    final route = state.findRoute(widget.idRuta);
+    final config = state.dayPackage?.config ?? const DayConfig();
+
+    if (route == null) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Ruta')),
+        body: const Center(child: Text('Ruta no disponible.')),
+      );
+    }
+
+    final initialCenter =
+        route.cedi != null && (route.cedi!.lat != 0 || route.cedi!.lng != 0)
+            ? LatLng(route.cedi!.lat, route.cedi!.lng)
+            : const LatLng(19.4326, -99.1332);
+
+    final mediaQuery = MediaQuery.of(context);
+    final clampedScaler = mediaQuery.textScaler.clamp(
+      minScaleFactor: 0.85,
+      maxScaleFactor: 1.15,
+    );
+    final isSmallScreen = mediaQuery.size.width < 360;
+    final isLandscape = mediaQuery.orientation == Orientation.landscape;
+    final isWide = isLandscape || mediaQuery.size.width >= 600;
+
+    return MediaQuery(
+      data: mediaQuery.copyWith(textScaler: clampedScaler),
+      child: Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: isWide
+            ? _buildLandscapeLayout(
+                context: context,
+                route: route,
+                config: config,
+                initialCenter: initialCenter,
+                mediaQuery: mediaQuery,
+              )
+            : Column(
+                children: [
+                  // 1. MAPA DEL RECORRIDO CON BARRA FLOTANTE Y CONTROLES (Estilo TrackingPage)
+                  AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    height: _mapExpanded
+                        ? MediaQuery.of(context).size.height * 0.74
+                        : (MediaQuery.of(context).size.height * 0.40)
+                            .clamp(280.0, 360.0),
+                    width: double.infinity,
+                    child: Stack(
+                      children: [
+                        Positioned.fill(
+                          child: GoogleMap(
+                            initialCameraPosition: CameraPosition(
+                              target: initialCenter,
+                              zoom: 12,
+                            ),
+                            padding: EdgeInsets.only(
+                              top: mediaQuery.padding.top + 60,
+                              right: 56,
+                              bottom: 82,
+                              left: 14,
+                            ),
+                            mapType: _mapType,
+                            trafficEnabled: _showTraffic,
+                            myLocationEnabled: true,
+                            myLocationButtonEnabled: false,
+                            zoomControlsEnabled: false,
+                            polylines: _buildPolylines(route),
+                            markers: _buildMarkers(route),
+                            onMapCreated: (ctrl) {
+                              _mapController = ctrl;
+                              _preloadNumberedMarkers(route);
+                              Future.delayed(const Duration(milliseconds: 350),
+                                  () {
+                                if (mounted) _fitMapToRoute(route);
+                              });
+                            },
+                          ),
+                        ),
+
+                        // Barra Superior Flotante y Estimación de Recorrido estilo Apple
+                        Positioned(
+                          top: mediaQuery.padding.top + 8,
+                          left: isSmallScreen ? 10 : 14,
+                          right: isSmallScreen ? 10 : 14,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildFloatingRouteTopBar(
+                                context: context,
+                                route: route,
+                                isSmallScreen: isSmallScreen,
+                              ),
+                              if (route.geometria != null &&
+                                  route.geometria!.distanciaM > 0) ...[
+                                const SizedBox(height: 6),
+                                Align(
+                                  alignment: Alignment.centerLeft,
+                                  child: _buildJourneyEstimatesChip(route),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+
+                        // Controles Laterales Flotantes
+                        Positioned(
+                          right: isSmallScreen ? 8 : 12,
+                          top: mediaQuery.padding.top + 68,
+                          child: _buildFloatingRouteMapControls(
+                            context: context,
+                            route: route,
+                          ),
+                        ),
+
+                        // Controles Inferiores Flotantes (Recorrido y Acciones Operativas)
+                        Positioned(
+                          left: isSmallScreen ? 10 : 14,
+                          right: isSmallScreen ? 10 : 14,
+                          bottom: 10,
+                          child: _buildFloatingBottomControls(
+                            context: context,
+                            route: route,
+                            isSmallScreen: isSmallScreen,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 2. LISTA DE PARADAS EN ORDEN (inicio, cliente, descanso, combustible, recarga, fin)
+                  Expanded(
+                    child: RefreshIndicator(
+                      color: const Color(0xFF0284C7),
+                      onRefresh: () async {
+                        await ref
+                            .read(routesProvider.notifier)
+                            .syncPendingQueueAndRefreshDay(
+                              forceRefreshDay: true,
+                              isUserInitiated: true,
+                            );
+                      },
+                      child: ListView.builder(
+                        physics: const AlwaysScrollableScrollPhysics(),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 10, vertical: 8),
+                        itemCount: route.paradas.length,
+                        itemBuilder: (context, index) {
+                          final stop = route.paradas[index];
+                          final isLast = index == route.paradas.length - 1;
+                          return Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              _buildStopCard(
+                                route,
+                                stop,
+                                config,
+                              ),
+                              if (!isLast)
+                                _buildTimelineConnectorBetweenCards(),
+                            ],
+                          );
+                        },
+                      ),
+                    ),
+                  ),
+                  // BARRA DE ESTADO DE COLA SIN CONEXIÓN Y SINCRONIZACIÓN (FOOTER INFERIOR DE RUTA)
+                  const DriverSyncStatusBar(),
+                ],
+              ),
+      ),
+    );
+  }
+
+  Future<void> _confirmAndRegisterLlegada({
+    required BuildContext context,
+    required DriverRoute route,
+    required RouteStop stop,
+    required RouteClient client,
+    required double? distMeters,
+    required bool isFar,
+    required String distanciaText,
+  }) async {
+    if (stop.visitada) return;
+
+    final confirmed = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final mediaQuery = MediaQuery.of(ctx);
+        final isLandscape = mediaQuery.orientation == Orientation.landscape;
+        final screenHeight = mediaQuery.size.height;
+
+        return SafeArea(
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 540,
+                maxHeight:
+                    isLandscape ? screenHeight * 0.92 : screenHeight * 0.85,
+              ),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+                ),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    20,
+                    isLandscape ? 10 : 16,
+                    20,
+                    isLandscape ? 14 : 24,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 38,
+                          height: 4,
+                          margin:
+                              EdgeInsets.only(bottom: isLandscape ? 10 : 16),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFCBD5E1),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          Container(
+                            width: isLandscape ? 36 : 42,
+                            height: isLandscape ? 36 : 42,
+                            decoration: BoxDecoration(
+                              color: isFar
+                                  ? const Color(0xFFFEF3C7)
+                                  : const Color(0xFFDCFCE7),
+                              shape: BoxShape.circle,
+                            ),
+                            child: Icon(
+                              isFar
+                                  ? Icons.warning_amber_rounded
+                                  : Icons.where_to_vote_rounded,
+                              color: isFar
+                                  ? const Color(0xFFD97706)
+                                  : const Color(0xFF166534),
+                              size: isLandscape ? 20 : 24,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  '¿Confirmar llegada?',
+                                  style: TextStyle(
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                                Text(
+                                  client.nombre,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: Color(0xFF64748B),
+                                  ),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: isLandscape ? 10 : 14),
+
+                      // Tarjeta de aviso de distancia
+                      Container(
+                        width: double.infinity,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: isLandscape ? 8 : 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: isFar
+                              ? const Color(0xFFFFFBEB)
+                              : const Color(0xFFF0FDF4),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isFar
+                                ? const Color(0xFFFCD34D)
+                                : const Color(0xFFBBF7D0),
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              isFar
+                                  ? Icons.info_outline_rounded
+                                  : Icons.check_circle_outline_rounded,
+                              size: 18,
+                              color: isFar
+                                  ? const Color(0xFFB45309)
+                                  : const Color(0xFF15803D),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                isFar
+                                    ? 'Aviso: Tu GPS indica que aún estás a $distanciaText del cliente. ¿Confirmas que ya llegaste al punto?'
+                                    : 'Confirmas que te encuentras en las instalaciones del cliente.',
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: isFar
+                                      ? const Color(0xFF92400E)
+                                      : const Color(0xFF166534),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      SizedBox(height: isLandscape ? 12 : 18),
+
+                      // Botón Deslizable para Confirmar Llegada (Estilo Swipe como en MyInspectVehiclePage)
+                      _SwipeToConfirmLlegadaButton(
+                        label: 'Desliza para confirmar llegada',
+                        themeColor: isFar
+                            ? const Color(0xFFD97706)
+                            : const Color(0xFF0F766E),
+                        onConfirmed: () async {
+                          Navigator.of(ctx).pop(true);
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    if (confirmed == true && mounted) {
+      _showAppleLoadingDialog(
+        title: 'Registrando llegada...',
+        subtitle: 'Validando ubicación con ${client.nombre}',
+      );
+      try {
+        final res = await ref.read(routesProvider.notifier).registrarLlegada(
+              idRuta: route.idRuta,
+              idParada: stop.idParada,
+            );
+        _dismissAppleLoadingDialog();
+        if (!mounted) return;
+        ref.read(routesProvider.notifier).clearRecentNotices();
+        final msg = res.avisos.isNotEmpty
+            ? res.avisos.map((a) => a.displayTexto).join('\n')
+            : 'Llegada a ${client.nombre} registrada.';
+        SnackbarTop.showSuccess(
+          context,
+          msg,
+          title: 'Correcto',
+        );
+      } catch (e) {
+        _dismissAppleLoadingDialog();
+        if (!mounted) return;
+        SnackbarTop.showError(
+          context,
+          'No se pudo registrar la llegada: $e',
+          title: 'Error de llegada',
+          style: SnackbarTopStyle.appleCard,
+        );
+      }
+    }
+  }
+
+  Widget _buildTimelineConnectorBetweenCards() {
+    return SizedBox(
+      height: 10,
+      child: CustomPaint(
+        painter: const _BetweenCardsConnectorPainter(
+          circleCenterX: 23.0,
+          lineColor: Color(0xFFCBD5E1),
+        ),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+
+  Widget _buildStopCard(
+    DriverRoute route,
+    RouteStop stop,
+    DayConfig config,
+  ) {
+    if (!stop.isClientStop) {
+      return _buildNonClientStopTile(
+        route,
+        stop,
+      );
+    }
+
+    final client =
+        stop.cliente ?? const RouteClient(id: 0, nombre: 'Cliente de parada');
+    String direccionText = client.direccion.trim();
+    if (direccionText.isEmpty &&
+        stop.recarga != null &&
+        stop.recarga!.nombre.isNotEmpty) {
+      direccionText = stop.recarga!.nombre;
+    }
+    if (direccionText.isEmpty &&
+        stop.combustible != null &&
+        stop.combustible!.nombre.isNotEmpty) {
+      direccionText = stop.combustible!.nombre;
+    }
+    final distMeters = ref
+        .read(routesProvider.notifier)
+        .calculateDistanceMeters(client.lat, client.lng);
+    final isFar = distMeters != null && distMeters > config.distAviso;
+    final String distanciaText = distMeters != null
+        ? (isFar
+            ? (distMeters >= 1000
+                ? '${(distMeters / 1000).toStringAsFixed(1)} km (> ${config.distAviso}m)'
+                : '${distMeters.round()} m (> ${config.distAviso}m)')
+            : 'En sitio (${distMeters.round()} m)')
+        : '';
+
+    final bool isCompleted = _isStopCompleted(stop);
+    final bool isExpanded =
+        _stopExpandedOverride[stop.idParada] ?? !isCompleted;
+
+    if (!isExpanded) {
+      return Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: const Color(0xFFE2E8F0),
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.02),
+              blurRadius: 6,
+              offset: const Offset(0, 1.5),
+            ),
+          ],
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: () {
+              setState(() {
+                _stopExpandedOverride[stop.idParada] = true;
+              });
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: Row(
+                children: [
+                  Container(
+                    width: 26,
+                    height: 26,
+                    decoration: BoxDecoration(
+                      color: isCompleted
+                          ? const Color(0xFF10B981)
+                          : const Color(0xFF0284C7),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Center(
+                      child: Text(
+                        '${stop.orden}',
+                        style: const TextStyle(
                           color: Colors.white,
-                          fontWeight: FontWeight.normal,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          client.nombre,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
+                        if (direccionText.isNotEmpty) ...[
+                          const SizedBox(height: 1),
+                          Text(
+                            direccionText,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 2),
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            if (isCompleted) ...[
+                              const Icon(
+                                Icons.check_circle_rounded,
+                                size: 12,
+                                color: Color(0xFF10B981),
+                              ),
+                              const SizedBox(width: 4),
+                            ],
+                            Text(
+                              isCompleted
+                                  ? (stop.entregar.isNotEmpty
+                                      ? '${stop.entregar.length} paquete(s) entregado(s)'
+                                      : (stop.recoger.isNotEmpty
+                                          ? '${stop.recoger.length} paquete(s) recogido(s)'
+                                          : 'Parada completada'))
+                                  : (stop.entregar.isNotEmpty
+                                      ? '${stop.entregar.length} paquete(s) por entregar'
+                                      : (stop.recoger.isNotEmpty
+                                          ? '${stop.recoger.length} paquete(s) por recoger'
+                                          : 'Pendiente de visita')),
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: isCompleted
+                                    ? const Color(0xFF10B981)
+                                    : const Color(0xFF64748B),
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (stop.unsyncedLocal) ...[
+                    const SizedBox(width: 4),
+                    const Tooltip(
+                      message: 'Pendiente de sincronizar con el servidor',
+                      child: Icon(
+                        Icons.cloud_upload_rounded,
+                        size: 14,
+                        color: Color(0xFFD97706),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(width: 2),
+                  const Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    color: Color(0xFF94A3B8),
+                    size: 20,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0),
+          width: 1,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Encabezado de Parada
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  width: 28,
+                  height: 28,
+                  decoration: BoxDecoration(
+                    color: isCompleted
+                        ? const Color(0xFF10B981)
+                        : const Color(0xFF0284C7),
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                  child: Center(
+                    child: Text(
+                      '${stop.orden}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11.5,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        client.nombre,
+                        style: const TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      if (direccionText.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Padding(
+                              padding: EdgeInsets.only(top: 1.5, right: 3),
+                              child: Icon(
+                                Icons.place_outlined,
+                                size: 12,
+                                color: Color(0xFF94A3B8),
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                direccionText,
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF64748B),
+                                  height: 1.25,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      if (client.contacto.isNotEmpty ||
+                          client.telefono.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          '${client.contacto} ${client.telefono}'.trim(),
+                          style: const TextStyle(
+                            fontSize: 10,
+                            color: Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (stop.unsyncedLocal) ...[
+                          const Tooltip(
+                            message: 'Pendiente de sincronizar con el servidor',
+                            child: Icon(
+                              Icons.cloud_upload_rounded,
+                              size: 14,
+                              color: Color(0xFFD97706),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        if (stop.llegadaEstimada.isNotEmpty)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 7, vertical: 2.5),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              stop.llegadaEstimada,
+                              style: const TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF334155),
+                              ),
+                            ),
+                          ),
+                        const SizedBox(width: 2),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.keyboard_arrow_up_rounded,
+                            color: Color(0xFF94A3B8),
+                            size: 20,
+                          ),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          tooltip: 'Colapsar tarjeta',
+                          onPressed: () {
+                            setState(() {
+                              _stopExpandedOverride[stop.idParada] = false;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ],
+            ),
+
+            // Fila de Estado y Acciones Rápidas
+            const SizedBox(height: 9),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Alerta de distancia arriba (con teléfono si aplica)
+                      Row(
+                        children: [
+                          if (distMeters != null)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3.5),
+                              decoration: BoxDecoration(
+                                color: isFar
+                                    ? const Color(0xFFFFF7ED)
+                                    : const Color(0xFFF0FDF4),
+                                borderRadius: BorderRadius.circular(7),
+                                border: Border.all(
+                                  color: isFar
+                                      ? const Color(0xFFFED7AA)
+                                      : const Color(0xFFBBF7D0),
+                                ),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    isFar
+                                        ? Icons.warning_amber_rounded
+                                        : Icons.near_me_rounded,
+                                    size: 13,
+                                    color: isFar
+                                        ? const Color(0xFFEA580C)
+                                        : const Color(0xFF16A34A),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    distanciaText,
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: isFar
+                                          ? const Color(0xFFC2410C)
+                                          : const Color(0xFF15803D),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          if (client.telefono.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            IconButton.filledTonal(
+                              style: IconButton.styleFrom(
+                                minimumSize: const Size(28, 28),
+                                padding: EdgeInsets.zero,
+                                backgroundColor: const Color(0xFFF1F5F9),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              ),
+                              onPressed: () =>
+                                  _launchPhoneCall(client.telefono),
+                              icon: const Icon(Icons.phone_rounded,
+                                  size: 14, color: Color(0xFF334155)),
+                              tooltip: 'Llamar a ${client.telefono}',
+                            ),
+                          ],
+                        ],
+                      ),
+
+                      const SizedBox(height: 6),
+
+                      // Botón Marcar Llegada estilo Apple
+                      if (!stop.visitada)
+                        SizedBox(
+                          width: double.infinity,
+                          height: 34,
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF0284C7),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 10),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(9),
+                              ),
+                            ),
+                            onPressed: () => _confirmAndRegisterLlegada(
+                              context: context,
+                              route: route,
+                              stop: stop,
+                              client: client,
+                              distMeters: distMeters,
+                              isFar: isFar,
+                              distanciaText: distanciaText,
+                            ),
+                            icon: const Icon(Icons.location_on_rounded,
+                                size: 15, color: Colors.white),
+                            label: const Text(
+                              'Marcar Llegada',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: -0.1,
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFECFDF5),
+                            borderRadius: BorderRadius.circular(7),
+                            border: Border.all(color: const Color(0xFFA7F3D0)),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.check_circle_rounded,
+                                  size: 13, color: Color(0xFF047857)),
+                              SizedBox(width: 4),
+                              Text(
+                                'Llegada registrada',
+                                style: TextStyle(
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF047857),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (!stop.visitada && !isCompleted) ...[
+                  const SizedBox(width: 10),
+
+                  // Botón Navegar ("IR") estilo Apple Squircle
+                  Tooltip(
+                    message:
+                        'Ir con Maps o Waze (Mantén presionado para cambiar app)',
+                    child: Material(
+                      color: const Color(0xFF0284C7),
+                      borderRadius: BorderRadius.circular(12),
+                      elevation: 0,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(12),
+                        onTap: () => _launchNavigation(client),
+                        onLongPress: () =>
+                            _launchNavigation(client, forceChooser: true),
+                        child: Container(
+                          width: 46,
+                          height: 46,
+                          alignment: Alignment.center,
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.navigation_rounded,
+                                  color: Colors.white, size: 18),
+                              SizedBox(height: 1),
+                              Text(
+                                'IR',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.5,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+
+            // SECCIÓN DE GUÍAS / RECOJOS / VISITAS
+            if (stop.recoger.isNotEmpty || stop.entregar.isNotEmpty) ...[
+              const SizedBox(height: 9),
+              if (stop.recoger.isNotEmpty) ...[
+                Row(
+                  children: [
+                    const Icon(Icons.download_rounded,
+                        size: 13, color: Color(0xFF0284C7)),
+                    const SizedBox(width: 5),
+                    const Text(
+                      'PAQUETES POR RECOGER',
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0284C7),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                ...stop.recoger.map(
+                  (g) => _buildGuiaActionRow(
+                    route: route,
+                    stop: stop,
+                    client: client,
+                    guia: g,
+                    isPickup: true,
+                  ),
+                ),
+              ],
+              if (stop.entregar.isNotEmpty) ...[
+                Row(
+                  children: [
+                    Icon(
+                      route.isVisitRoute
+                          ? Icons.storefront_rounded
+                          : Icons.upload_rounded,
+                      size: 13,
+                      color: const Color(0xFF059669),
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      route.isVisitRoute
+                          ? 'VISITA AL CLIENTE'
+                          : 'PAQUETES POR ENTREGAR',
+                      style: const TextStyle(
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF059669),
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                ...stop.entregar.map(
+                  (g) => _buildGuiaActionRow(
+                    route: route,
+                    stop: stop,
+                    client: client,
+                    guia: g,
+                    isPickup: false,
+                  ),
+                ),
+              ],
+            ],
+
+            // Si es ruta de visitas y el arreglo entregar[] viniera vacío, permitir atender visita igual
+            if (route.isVisitRoute && stop.entregar.isEmpty) ...[
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                height: 34,
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF059669),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(9),
+                    ),
+                  ),
+                  onPressed: () {
+                    _pushLockedPortrait(
+                      VisitRecordPage(
+                        idRuta: route.idRuta,
+                        idParada: stop.idParada,
+                        client: client,
+                      ),
+                    );
+                  },
+                  icon: const Icon(Icons.storefront_rounded, size: 15),
+                  label: const Text(
+                    'Atender Visita',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNonClientStopTile(
+    DriverRoute route,
+    RouteStop stop,
+  ) {
+    IconData icon = Icons.place_rounded;
+    Color iconColor = const Color(0xFF475569);
+    Color bgTint = const Color(0xFFF8FAFC);
+    String label = stop.tipo.toUpperCase();
+    String? subtitle;
+    bool allowLlegada = false;
+
+    switch (stop.tipo) {
+      case 'inicio':
+        icon = Icons.play_arrow_rounded;
+        iconColor = const Color(0xFF10B981);
+        bgTint = const Color(0xFFECFDF5);
+        label = 'Inicio de Ruta';
+        allowLlegada = true;
+        break;
+      case 'descanso':
+        icon = Icons.coffee_rounded;
+        iconColor = const Color(0xFFD97706);
+        bgTint = const Color(0xFFFFFBEB);
+        label = 'Parada de Descanso';
+        allowLlegada = true;
+        break;
+      case 'combustible':
+        icon = Icons.local_gas_station_rounded;
+        iconColor = const Color(0xFFEA580C);
+        bgTint = const Color(0xFFFFF7ED);
+        label = stop.combustible?.nombre.isNotEmpty == true
+            ? stop.combustible!.nombre
+            : 'Carga de Combustible';
+        subtitle = 'Estación de combustible';
+        break;
+      case 'recarga':
+        icon = Icons.sync_alt_rounded;
+        iconColor = const Color(0xFF0284C7);
+        bgTint = const Color(0xFFF0F9FF);
+        label = stop.recarga?.nombre.isNotEmpty == true
+            ? stop.recarga!.nombre
+            : 'Recarga de Producto';
+        subtitle = 'Recarga de inventario';
+        break;
+      case 'otro':
+        icon = Icons.place_outlined;
+        iconColor = const Color(0xFF64748B);
+        bgTint = const Color(0xFFF8FAFC);
+        label = 'Parada adicional';
+        subtitle = 'Sin acciones requeridas';
+        break;
+      case 'fin':
+        icon = Icons.flag_rounded;
+        iconColor = const Color(0xFF64748B);
+        bgTint = const Color(0xFFF1F5F9);
+        label = 'Fin de Ruta';
+        allowLlegada = true;
+        break;
+    }
+
+    final hasCoords = stop.stopLat != null &&
+        stop.stopLng != null &&
+        (stop.stopLat != 0 || stop.stopLng != 0);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.02),
+            blurRadius: 4,
+            offset: const Offset(0, 1.5),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: bgTint,
+              borderRadius: BorderRadius.circular(9),
+              border: Border.all(
+                color: iconColor.withOpacity(0.22),
+                width: 1,
+              ),
+            ),
+            child: Center(
+              child: Icon(icon, color: iconColor, size: 16),
+            ),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '#${stop.orden} · $label',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                    color: Color(0xFF1E293B),
+                  ),
+                ),
+                if (subtitle != null)
+                  Text(
+                    subtitle,
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          if (stop.llegadaEstimada.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 6),
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2.5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  stop.llegadaEstimada,
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF475569),
+                  ),
+                ),
+              ),
+            ),
+          if (hasCoords) ...[
+            const SizedBox(width: 4),
+            Tooltip(
+              message: 'Ir al punto (Mantén presionado para cambiar app)',
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFF0F9FF),
+                  foregroundColor: const Color(0xFF0284C7),
+                  elevation: 0,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    side: const BorderSide(color: Color(0xFFBAE6FD), width: 1),
+                  ),
+                ),
+                onPressed: () => _launchNavigationCoords(
+                  stop.stopLat!,
+                  stop.stopLng!,
+                  stop.stopName,
+                ),
+                onLongPress: () => _launchNavigationCoords(
+                  stop.stopLat!,
+                  stop.stopLng!,
+                  stop.stopName,
+                  true,
+                ),
+                icon: const Icon(Icons.navigation_rounded,
+                    size: 13, color: Color(0xFF0284C7)),
+                label: const Text(
+                  'Ir',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0284C7),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          if (allowLlegada && !stop.visitada && stop.idParada > 0) ...[
+            const SizedBox(width: 6),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFF0FDF4),
+                foregroundColor: const Color(0xFF15803D),
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  side: const BorderSide(color: Color(0xFFBBF7D0), width: 1),
+                ),
+              ),
+              onPressed: () async {
+                _showAppleLoadingDialog(
+                  title: 'Registrando llegada...',
+                  subtitle: 'Confirmando parada con el servidor',
+                );
+                try {
+                  final res =
+                      await ref.read(routesProvider.notifier).registrarLlegada(
+                            idRuta: route.idRuta,
+                            idParada: stop.idParada,
+                          );
+                  _dismissAppleLoadingDialog();
+                  if (!context.mounted) return;
+                  ref.read(routesProvider.notifier).clearRecentNotices();
+                  final msg = res.avisos.isNotEmpty
+                      ? res.avisos.map((a) => a.displayTexto).join('\n')
+                      : 'Llegada registrada con éxito.';
+                  SnackbarTop.showSuccess(
+                    context,
+                    msg,
+                    title: 'Correcto',
+                  );
+                } catch (e) {
+                  _dismissAppleLoadingDialog();
+                  if (!context.mounted) return;
+                  SnackbarTop.showError(
+                    context,
+                    'Error al registrar llegada: $e',
+                    style: SnackbarTopStyle.appleCard,
+                  );
+                }
+              },
+              child: const Text(
+                'Llegada',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF15803D),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  bool _isStopCompleted(RouteStop stop) {
+    final hasEntregar = stop.entregar.isNotEmpty;
+    final hasRecoger = stop.recoger.isNotEmpty;
+
+    if (hasEntregar || hasRecoger) {
+      final allEntregasDone = !hasEntregar ||
+          stop.entregar.every((g) => g.estado == 4 || g.estado == 8);
+      final allRecojosDone = !hasRecoger ||
+          stop.recoger.every((g) => g.estado >= 1 && g.estado != 0);
+      return allEntregasDone && allRecojosDone;
+    }
+
+    return stop.visitada;
+  }
+
+  Widget _buildGuiaActionRow({
+    required DriverRoute route,
+    required RouteStop stop,
+    required RouteClient client,
+    required GuiaItem guia,
+    required bool isPickup,
+  }) {
+    final isVisit = guia.isVisitGuia || route.isVisitRoute;
+
+    Color statusColor = const Color(0xFF475569);
+    if (guia.estado == 4 ||
+        (isPickup && guia.estado >= 1 && guia.estado != 8)) {
+      statusColor = const Color(0xFF059669);
+    } else if (guia.estado == 8) {
+      statusColor = const Color(0xFFDC2626);
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(11),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Text(
+                      guia.folio,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                        color: Color(0xFF0F172A),
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: statusColor.withOpacity(0.10),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(
+                          color: statusColor.withOpacity(0.20),
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Text(
+                        guia.estadoTexto,
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w800,
+                          color: statusColor,
+                        ),
+                      ),
+                    ),
+                    if (guia.unsyncedLocal) ...[
+                      const SizedBox(width: 4),
+                      const Text(
+                        '· Sin sinc.',
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFFD97706),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  isVisit
+                      ? (guia.items.isNotEmpty
+                          ? '${guia.items.length} producto(s) esperados en visita'
+                          : 'Guía de visita al cliente')
+                      : '${guia.bultos} bulto(s) · ${guia.pesoKg} kg'
+                          '${guia.destinatario != null ? " · Recibe: ${guia.destinatario!.nombre}" : ""}',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    color: Color(0xFF64748B),
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (guia.estado == 4 ||
+              (isPickup && guia.estado >= 1 && guia.estado != 8))
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFFECFDF5),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFA7F3D0)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.check_circle_rounded,
+                      size: 13, color: Color(0xFF047857)),
+                  const SizedBox(width: 4),
+                  Text(
+                    isVisit
+                        ? 'Visitado'
+                        : (isPickup ? 'Recogido' : 'Entregado'),
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF047857),
+                    ),
+                  ),
+                ],
+              ),
+            )
+          else if (isVisit)
+            SizedBox(
+              height: 34,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF059669),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                ),
+                onPressed: () {
+                  _pushLockedPortrait(
+                    VisitRecordPage(
+                      idRuta: route.idRuta,
+                      idParada: stop.idParada,
+                      visitGuia: guia,
+                      client: client,
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.storefront_rounded, size: 14),
+                label: const Text(
+                  'Visitar',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            )
+          else
+            SizedBox(
+              height: 34,
+              child: ElevatedButton.icon(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isPickup
+                      ? const Color(0xFF0284C7)
+                      : const Color(0xFF059669),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(9),
+                  ),
+                ),
+                onPressed: () {
+                  _pushLockedPortrait(
+                    DeliverPage(
+                      idRuta: route.idRuta,
+                      idParada: stop.idParada,
+                      guia: guia,
+                      isPickupGuia: isPickup,
+                      initialOperation: isPickup
+                          ? GuiaOperationType.recojo
+                          : GuiaOperationType.entrega,
+                    ),
+                  );
+                },
+                icon: Icon(
+                  isPickup
+                      ? Icons.inventory_2_rounded
+                      : Icons.check_circle_rounded,
+                  size: 14,
+                ),
+                label: Text(
+                  isPickup ? 'Recoger' : 'Entregar',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+// =========================================================================
+// WIDGET DESLIZABLE PARA CONFIRMAR LLEGADA (SWIPE TO CONFIRM)
+// =========================================================================
+class _SwipeToConfirmLlegadaButton extends StatefulWidget {
+  final Future<void> Function() onConfirmed;
+  final String label;
+  final Color themeColor;
+
+  const _SwipeToConfirmLlegadaButton({
+    required this.onConfirmed,
+    this.label = 'Desliza para confirmar llegada',
+    this.themeColor = const Color(0xFF0F766E),
+  });
+
+  @override
+  State<_SwipeToConfirmLlegadaButton> createState() =>
+      _SwipeToConfirmLlegadaButtonState();
+}
+
+class _SwipeToConfirmLlegadaButtonState
+    extends State<_SwipeToConfirmLlegadaButton>
+    with SingleTickerProviderStateMixin {
+  double _dragPosition = 0.0;
+  late AnimationController _animController;
+  late Animation<double> _resetAnimation;
+  bool _isFinished = false;
+  bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 260),
+    )..addListener(() {
+        setState(() {
+          _dragPosition = _resetAnimation.value;
+        });
+      });
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    super.dispose();
+  }
+
+  void _reset() {
+    if (!mounted) return;
+    _resetAnimation = Tween<double>(
+      begin: _dragPosition,
+      end: 0.0,
+    ).animate(CurvedAnimation(
+      parent: _animController,
+      curve: Curves.easeOutCubic,
+    ));
+    _animController.forward(from: 0.0);
+    _isFinished = false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    const double height = 50.0;
+    const double handlePadding = 4.0;
+    const double handleSize = height - (handlePadding * 2);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final double maxDrag =
+            constraints.maxWidth - handleSize - (handlePadding * 2);
+
+        return Container(
+          height: height,
+          width: constraints.maxWidth,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: const Color(0xFFCBD5E1)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.03),
+                blurRadius: 4,
+                offset: const Offset(0, 2),
+              ),
+            ],
+          ),
+          child: Stack(
+            children: [
+              // Barra de relleno con el color temático que sigue el arrastre
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: (_dragPosition + handleSize + handlePadding * 2)
+                    .clamp(0.0, constraints.maxWidth),
+                child: Container(
+                  decoration: BoxDecoration(
+                    color: widget.themeColor.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(26),
+                  ),
+                ),
+              ),
+
+              // Texto central con flecha indicativa
+              Center(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 44, right: 16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Flexible(
+                        child: Text(
+                          widget.label,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: widget.themeColor,
+                            letterSpacing: -0.2,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 4),
+                      Icon(
+                        Icons.keyboard_double_arrow_right_rounded,
+                        color: widget.themeColor,
+                        size: 20,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+
+              // Agarradera / Handle circular deslizable
+              Positioned(
+                left: handlePadding + _dragPosition,
+                top: handlePadding,
+                child: GestureDetector(
+                  onHorizontalDragUpdate: _isLoading || _isFinished
+                      ? null
+                      : (details) {
+                          if (_animController.isAnimating) return;
+                          setState(() {
+                            _dragPosition = (_dragPosition + details.delta.dx)
+                                .clamp(0.0, maxDrag);
+                          });
+                        },
+                  onHorizontalDragEnd: _isLoading || _isFinished
+                      ? null
+                      : (details) async {
+                          if (_animController.isAnimating) return;
+                          // Umbral de activación al 75%
+                          if (_dragPosition >= maxDrag * 0.75) {
+                            setState(() {
+                              _dragPosition = maxDrag;
+                              _isFinished = true;
+                              _isLoading = true;
+                            });
+                            try {
+                              await widget.onConfirmed();
+                            } finally {
+                              if (mounted) {
+                                setState(() => _isLoading = false);
+                                _reset();
+                              }
+                            }
+                          } else {
+                            _reset();
+                          }
+                        },
+                  child: Container(
+                    width: handleSize,
+                    height: handleSize,
+                    decoration: BoxDecoration(
+                      color: widget.themeColor,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: widget.themeColor.withOpacity(0.35),
+                          blurRadius: 8,
+                          offset: const Offset(0, 3),
+                        ),
+                      ],
+                    ),
+                    child: Center(
+                      child: _isLoading
+                          ? LoadingAnimationWidget.threeRotatingDots(
+                              color: Colors.white,
+                              size: 18,
+                            )
+                          : const Icon(
+                              Icons.arrow_forward_rounded,
+                              color: Colors.white,
+                              size: 20,
+                            ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+// =============================================================================
+// PINTOR DE LÍNEA CONECTORA ENTRE CARTAS (ENTRE PARADAS 0, 1, 2, 3...)
+// =============================================================================
+
+class _BetweenCardsConnectorPainter extends CustomPainter {
+  final double circleCenterX;
+  final Color lineColor;
+
+  const _BetweenCardsConnectorPainter({
+    this.circleCenterX = 23.0,
+    this.lineColor = const Color(0xFFCBD5E1),
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+
+    // Línea vertical sutil que une las cartas estilo Apple HIG
+    canvas.drawLine(
+      Offset(circleCenterX, 0),
+      Offset(circleCenterX, size.height),
+      paint,
+    );
+
+    // Pequeño nodo circular sutil en el punto medio del conector
+    final nodePaint = Paint()
+      ..color = lineColor
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+      Offset(circleCenterX, size.height / 2),
+      2.0,
+      nodePaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _BetweenCardsConnectorPainter oldDelegate) {
+    return oldDelegate.circleCenterX != circleCenterX ||
+        oldDelegate.lineColor != lineColor;
+  }
+}
+
+// =============================================================================
+// MODAL DE CONEXI�N / RENOVACI�N DE TOKEN (SIN BORRAR LA COLA PENDIENTE)
+// =============================================================================
+
+class _DriverCredentialsSheet extends ConsumerStatefulWidget {
+  const _DriverCredentialsSheet();
+
+  @override
+  ConsumerState<_DriverCredentialsSheet> createState() =>
+      _DriverCredentialsSheetState();
+}
+
+class _DriverCredentialsSheetState
+    extends ConsumerState<_DriverCredentialsSheet> {
+  final _userCtrl = TextEditingController();
+  final _passCtrl = TextEditingController();
+  bool _obscure = true;
+
+  @override
+  void dispose() {
+    _userCtrl.dispose();
+    _passCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = ref.watch(routesProvider);
+    final mediaQuery = MediaQuery.of(context);
+    final clampedScaler = mediaQuery.textScaler.clamp(
+      minScaleFactor: 0.85,
+      maxScaleFactor: 1.15,
+    );
+
+    return MediaQuery(
+      data: mediaQuery.copyWith(textScaler: clampedScaler),
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 520),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black12,
+                  blurRadius: 20,
+                  offset: Offset(0, -4),
+                ),
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.only(
+                  left: 20,
+                  right: 20,
+                  top: 12,
+                  bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+                ),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Tirador superior estilo iOS
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        margin: const EdgeInsets.only(bottom: 14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFCBD5E1),
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
+                    ),
+
+                    // Encabezado con avatar squircle y botón de cerrar 'X'
+                    Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0F9FF),
+                            borderRadius: BorderRadius.circular(11),
+                            border: Border.all(color: const Color(0xFFBAE6FD)),
+                          ),
+                          child: const Center(
+                            child: Icon(
+                              Icons.sync_lock_rounded,
+                              color: Color(0xFF0284C7),
+                              size: 22,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        const Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Conectar con Servidor',
+                                style: TextStyle(
+                                  fontSize: 16.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0F172A),
+                                  letterSpacing: -0.3,
+                                ),
+                              ),
+                              SizedBox(height: 1),
+                              Text(
+                                'Servidor de Operación',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Text(
+                      'Su cola de acciones locales se conserva intacta y se enviará al iniciar sesión:',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF64748B),
+                        height: 1.35,
+                      ),
+                    ),
+                    if (state.authError != null) ...[
+                      const SizedBox(height: 10),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 9),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(
+                            color: const Color(0xFFFECACA),
+                            width: 1.0,
+                          ),
+                        ),
+                        child: Row(
+                          children: [
+                            const Icon(
+                              Icons.error_outline_rounded,
+                              color: Color(0xFFDC2626),
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                state.authError!,
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  color: Color(0xFF991B1B),
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 14),
+                    TextField(
+                      controller: _userCtrl,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        color: Color(0xFF0F172A),
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Usuario de la plataforma',
+                        labelStyle: const TextStyle(
+                          fontSize: 12.5,
+                          color: Color(0xFF64748B),
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.person_outline_rounded,
+                          size: 20,
+                          color: Color(0xFF0284C7),
+                        ),
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF0284C7),
+                            width: 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: _passCtrl,
+                      obscureText: _obscure,
+                      style: const TextStyle(
+                        fontSize: 13.5,
+                        color: Color(0xFF0F172A),
+                        fontWeight: FontWeight.w600,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Contraseña',
+                        labelStyle: const TextStyle(
+                          fontSize: 12.5,
+                          color: Color(0xFF64748B),
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.lock_outline_rounded,
+                          size: 20,
+                          color: Color(0xFF0284C7),
+                        ),
+                        suffixIcon: IconButton(
+                          onPressed: () => setState(() => _obscure = !_obscure),
+                          icon: Icon(
+                            _obscure
+                                ? Icons.visibility_off_rounded
+                                : Icons.visibility_rounded,
+                            size: 18,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 12),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF0284C7),
+                            width: 1.5,
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    LoadingActionButton(
+                      text: 'Obtener Token y Sincronizar',
+                      icon: Icons.login_rounded,
+                      isLoading: state.isLoading,
+                      onPressed: () async {
+                        final ok = await ref
+                            .read(routesProvider.notifier)
+                            .loginWithCredentials(
+                              _userCtrl.text,
+                              _passCtrl.text,
+                            );
+                        if (ok && context.mounted) {
+                          Navigator.of(context).pop();
+                        }
+                      },
+                    ),
+                    const SizedBox(height: 10),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 46,
+                      child: OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF475569),
+                          backgroundColor: const Color(0xFFF8FAFC),
+                          side: const BorderSide(color: Color(0xFFE2E8F0)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(14),
+                          ),
+                        ),
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: const Text(
+                          'Cerrar',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 13.5,
+                          ),
                         ),
                       ),
                     ),
@@ -1559,97 +5146,9 @@ class _RoutesPageState extends State<RoutesPage> {
                 ),
               ),
             ),
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _checkAndOpenMap(double lat, double lng,
-      {required bool useWaze}) async {
-    String googleMapsUrl =
-        'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving';
-    String wazeUrl = 'waze://?ll=$lat,$lng&navigate=yes';
-    String wazeFallbackUrl =
-        'https://www.waze.com/ul?ll=$lat,$lng&navigate=yes';
-
-    if (useWaze) {
-      if (await canLaunch(wazeUrl)) {
-        await launch(wazeUrl);
-      } else if (await canLaunch(wazeFallbackUrl)) {
-        await launch(wazeFallbackUrl);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('No se puede abrir Waze ni el navegador.')),
-        );
-        final screenWidth = MediaQuery.of(context).size.width;
-        showTopSnackBar(
-          Overlay.of(context),
-          Material(
-            color: Colors.transparent,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 20),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Color(0xFF0886B5),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error, color: Colors.white, size: 24),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      "No se puede abrir Waze ni el navegador.",
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.034,
-                        color: Colors.white,
-                        fontWeight: FontWeight.normal,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ),
-        );
-      }
-    } else {
-      if (await canLaunch(googleMapsUrl)) {
-        await launch(googleMapsUrl);
-      } else {
-        final screenWidth = MediaQuery.of(context).size.width;
-        showTopSnackBar(
-          Overlay.of(context),
-          Material(
-            color: Colors.transparent,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 20),
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Color(0xFF0886B5),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Row(
-                children: [
-                  const Icon(Icons.error, color: Colors.white, size: 24),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      "No se puede abrir Google Maps ni el navegador.",
-                      style: TextStyle(
-                        fontSize: screenWidth * 0.034,
-                        color: Colors.white,
-                        fontWeight: FontWeight.normal,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        );
-      }
-    }
+        ),
+      ),
+    );
   }
 }

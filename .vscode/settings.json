@@ -1,5 +1,8 @@
 {
   "dart.flutterSdkPath": ".fvm/versions/3.24.0",
   "editor.inlineSuggest.syntaxHighlightingEnabled": true,
-  "editor.suggest.showConstants": false
+  "editor.suggest.showConstants": false,
+  "java.server.launchMode": "LightWeight",
+  "java.autobuild.enabled": false,
+  "java.configuration.updateBuildConfiguration": "disabled"
 }

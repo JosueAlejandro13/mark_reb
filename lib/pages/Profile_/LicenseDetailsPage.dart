@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'dart:io';
-import 'package:bottom_picker/bottom_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:lottie/lottie.dart';
-import 'package:mark_v3/services/ConnectionProfile_/ProfileCon_service.dart';
 import 'package:mark_v3/pages/Error_/ConnectionErrorPage.dart';
 import 'package:mark_v3/pages/Error_/ServerErrorPage.dart';
-import 'package:top_snackbar_flutter/top_snack_bar.dart';
+import 'package:mark_v3/services/ConnectionProfile_/ProfileCon_service.dart';
+import 'package:mark_v3/widgets/app_skeleton.dart';
+import 'package:mark_v3/widgets/loading_action_button.dart';
+import 'package:mark_v3/widgets/snackbar_top.dart';
 
 // Autor: Josue Hernandez
 class LicenseDetailsPage extends StatefulWidget {
@@ -45,8 +45,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
   Future<void> _refreshData() async {
     if (mounted) {
       setState(() {
-        licenseDataFuture = ProfileconService()
-            .obtenerLicenciaPorColaborador(widget.idCollaborator);
+        licenseDataFuture = fetchLicenseDataById(widget.idCollaborator);
       });
     }
   }
@@ -57,7 +56,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
       final licenseData = await ProfileconService()
           .obtenerLicenciaPorColaborador(idCollaborator);
 
-      if (licenseData == null || licenseData.isEmpty) {
+      if (licenseData.isEmpty) {
         return null;
       } else {
         return licenseData;
@@ -76,6 +75,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
           ),
         );
       }
+      throw Exception('Error de conexión');
     } on TimeoutException catch (_) {
       if (mounted) {
         Navigator.of(context).pushReplacement(
@@ -90,10 +90,15 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
           ),
         );
       }
-    } catch (e) {
+      throw Exception('Error de servidor (Timeout)');    } catch (e) {
+      final errStr = e.toString().toLowerCase();
+      if (errStr.contains('no encontrada') || errStr.contains('not found')) {
+        // No es error del servidor: el usuario simplemente no tiene licencia registrada
+        return null;
+      }
       debugPrint('Error fetching license: $e');
+      throw Exception('Error del servidor: $e');
     }
-    return null;
   }
 
   Future<void> _saveLicense({
@@ -103,42 +108,9 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
     required bool permanent,
   }) async {
     if (!permanent && date == null) {
-      showTopSnackBar(
-        Overlay.of(context),
-        Material(
-          color: Colors.transparent,
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEA580C),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.warning_amber_rounded, color: Colors.white, size: 20),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    "Por favor selecciona la fecha de vencimiento.",
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      SnackbarTop.showInfo(
+        context,
+        'Por favor selecciona la fecha de vencimiento de tu licencia.',
       );
       return;
     }
@@ -152,7 +124,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
     try {
       await ProfileconService().agregarNuevaLicencia({
         'idCollaborator': widget.idCollaborator,
-        'licNum': num.trim(),
+        'licNum': num.trim().toUpperCase(),
         'licClass': category.trim().toUpperCase(),
         'dueDate': permanent
             ? DateTime(1000, 1, 1).toIso8601String()
@@ -169,43 +141,9 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
           isLoading = false;
         });
 
-        showTopSnackBar(
-          Overlay.of(context),
-          Material(
-            color: Colors.transparent,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFF10B981),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.check_circle_rounded,
-                      color: Colors.white, size: 20),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      "Licencia registrada exitosamente.",
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        SnackbarTop.showSuccess(
+          context,
+          'Licencia guardada exitosamente.',
         );
       }
     } catch (e) {
@@ -214,84 +152,41 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
           isLoading = false;
         });
 
-        showTopSnackBar(
-          Overlay.of(context),
-          Material(
-            color: Colors.transparent,
-            child: Container(
-              margin: const EdgeInsets.symmetric(horizontal: 16),
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFEF4444),
-                borderRadius: BorderRadius.circular(14),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.08),
-                    blurRadius: 8,
-                    offset: const Offset(0, 3),
-                  ),
-                ],
-              ),
-              child: const Row(
-                children: [
-                  Icon(Icons.error_outline_rounded,
-                      color: Colors.white, size: 20),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Text(
-                      "Error al procesar la licencia. Intente nuevamente más tarde.",
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        SnackbarTop.showError(
+          context,
+          'Error al procesar la licencia. Intente nuevamente más tarde.',
         );
       }
     }
   }
 
-  void _selectDate(
+  Future<void> _selectDate(
     BuildContext context, {
     DateTime? initial,
     required ValueChanged<DateTime> onDateSelected,
-  }) {
-    BottomPicker.date(
-      pickerTitle: const Text(
-        "Fecha de Vencimiento",
-        style: TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF0F172A),
-        ),
-      ),
-      dismissable: true,
-      initialDateTime: initial ?? DateTime.now().add(const Duration(days: 365)),
-      minDateTime: DateTime(1990),
-      maxDateTime: DateTime(2100),
-      pickerTextStyle: const TextStyle(
-        fontSize: 16,
-        color: Color(0xFF0F172A),
-        fontWeight: FontWeight.w600,
-      ),
-      onSubmit: (selectedDate) {
-        onDateSelected(selectedDate as DateTime);
+  }) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initial ?? DateTime.now(),
+      firstDate: DateTime(1990),
+      lastDate: DateTime(2100),
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF0284C7),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF0F172A),
+            ),
+          ),
+          child: child!,
+        );
       },
-      displayCloseIcon: true,
-      buttonContent:
-          const Icon(Icons.check_rounded, color: Colors.white, size: 18),
-      buttonStyle: BoxDecoration(
-        color: const Color(0xFF0886B5),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      buttonWidth: 50,
-      buttonPadding: 8,
-    ).show(context);
+    );
+
+    if (picked != null) {
+      onDateSelected(picked);
+    }
   }
 
   int _calculateDaysRemaining(DateTime targetDate) {
@@ -336,90 +231,52 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Color.fromARGB(255, 250, 250, 250),
-            Color.fromARGB(255, 205, 240, 255),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
+    final mediaQuery = MediaQuery.of(context);
+    final clampedScaler = mediaQuery.textScaler.clamp(
+      minScaleFactor: 0.85,
+      maxScaleFactor: 1.15,
+    );
+    final isSmallScreen = mediaQuery.size.width < 360;
+
+    return MediaQuery(
+      data: mediaQuery.copyWith(textScaler: clampedScaler),
       child: Scaffold(
-        backgroundColor: Colors.transparent,
+        backgroundColor: const Color(0xFFF8FAFC),
         body: SafeArea(
           child: RefreshIndicator(
-            color: const Color(0xFF0886B5),
+            color: const Color(0xFF0284C7),
             onRefresh: _refreshData,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(
                 parent: BouncingScrollPhysics(),
               ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
+              padding: EdgeInsets.symmetric(
+                horizontal: isSmallScreen ? 12.0 : 16.0,
                 vertical: 8.0,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Header superior
+                  // Header superior estilo Apple
                   _buildHeader(context),
                   const SizedBox(height: 12),
 
-                  // Contenido dinámico
+                  // Contenido dinámico (Skeleton, Error, Vista Activa o Formulario)
                   FutureBuilder<Map<String, dynamic>?>(
                     future: licenseDataFuture,
                     builder: (context, snapshot) {
                       if (snapshot.connectionState ==
                           ConnectionState.waiting) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 80),
-                          child: Center(
-                            child: Lottie.asset(
-                              'assets/loading.json',
-                              width: 70,
-                              height: 70,
-                              repeat: true,
-                            ),
-                          ),
-                        );
+                        return _buildSkeleton(isSmallScreen);
                       } else if (snapshot.hasError) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 40),
-                          child: Center(
-                            child: Column(
-                              children: [
-                                const Icon(Icons.error_outline_rounded,
-                                    color: Colors.red, size: 36),
-                                const SizedBox(height: 8),
-                                const Text(
-                                  'Error al cargar información de licencia',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: Color(0xFF64748B),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                ElevatedButton(
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: const Color(0xFF0886B5),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(10),
-                                    ),
-                                  ),
-                                  onPressed: _refreshData,
-                                  child: const Text('Reintentar',
-                                      style: TextStyle(color: Colors.white)),
-                                ),
-                              ],
-                            ),
-                          ),
-                        );
-                      } else if (snapshot.hasData && snapshot.data != null) {
+                        return _buildErrorState();
+                      } else if (snapshot.hasData &&
+                          snapshot.data != null &&
+                          snapshot.data!.isNotEmpty) {
+                        // VISTA: Licencia Activa (SOLO LECTURA)
                         return _buildLicenseDetailsContent(snapshot.data!);
                       } else {
+                        // VISTA: Sin Licencia Registrada (Formulario de Registro)
                         return _buildAddLicenseSection();
                       }
                     },
@@ -433,7 +290,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
     );
   }
 
-  // --- HEADER SUPERIOR ---
+  // --- HEADER SUPERIOR ESTILO APPLE ---
   Widget _buildHeader(BuildContext context) {
     return Row(
       children: [
@@ -448,12 +305,15 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.black.withOpacity(0.04)),
+                border: Border.all(
+                  color: const Color(0xFFE2E8F0),
+                  width: 1.0,
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.02),
+                    color: const Color(0xFF0F172A).withOpacity(0.04),
                     blurRadius: 8,
-                    offset: const Offset(0, 3),
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
@@ -461,7 +321,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                 child: Icon(
                   Icons.arrow_back_ios_new_rounded,
                   color: Color(0xFF0F172A),
-                  size: 16,
+                  size: 15,
                 ),
               ),
             ),
@@ -475,15 +335,17 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
               Text(
                 'Licencia de Conducir',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 21,
                   fontWeight: FontWeight.w800,
                   color: Color(0xFF0F172A),
-                  letterSpacing: -0.4,
+                  letterSpacing: -0.5,
                 ),
               ),
               SizedBox(height: 1),
               Text(
-                'Consulta el estatus, vigencia y tipo de licencia',
+                'Consulta el estatus, vigencia y tipo de credencial',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 11.5,
                   color: Color(0xFF64748B),
@@ -497,7 +359,122 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
     );
   }
 
-  // --- CONTENIDO CUANDO EXISTE LICENCIA REGISTRADA ---
+  // --- SKELETON APPLE DE CARGA ---
+  Widget _buildSkeleton(bool isSmallScreen) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Tarjeta Digital Skeleton
+        const AppShimmerBox.card(
+          height: 195,
+          borderRadius: 20,
+        ),
+        const SizedBox(height: 16),
+        // Sección Estatus
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: AppShimmerBox.text(width: 140, height: 12),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: const [
+                  AppShimmerBox(width: 36, height: 36, borderRadius: 10),
+                  SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        AppShimmerBox.text(width: 130, height: 14),
+                        SizedBox(height: 6),
+                        AppShimmerBox.text(width: 200, height: 11),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const AppShimmerBox(
+                  width: double.infinity, height: 46, borderRadius: 12),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // --- ESTADO DE ERROR ESTILO APPLE ---
+  Widget _buildErrorState() {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 40),
+      child: Center(
+        child: Column(
+          children: [
+            Container(
+              width: 50,
+              height: 50,
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEE2E2),
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Icon(
+                Icons.error_outline_rounded,
+                color: Color(0xFFEF4444),
+                size: 26,
+              ),
+            ),
+            const SizedBox(height: 12),
+            const Text(
+              'Error al cargar información de licencia',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Comprueba tu conexión o intenta nuevamente.',
+              style: TextStyle(
+                fontSize: 12,
+                color: Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton.icon(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+              ),
+              onPressed: _refreshData,
+              icon: const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Reintentar',
+                  style: TextStyle(fontWeight: FontWeight.w700)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // =========================================================================
+  // VISTA: CUANDO TIENE LICENCIA ACTIVA (SOLO LECTURA / APPLE WALLET STYLE)
+  // =========================================================================
   Widget _buildLicenseDetailsContent(Map<String, dynamic> licenseData) {
     dynamic dueRaw = licenseData['dueDate'];
     DateTime? parsedDue;
@@ -570,26 +547,27 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ==========================================
-        // 1. HERO DIGITAL DRIVER'S LICENSE CARD
-        // ==========================================
+        // 1. HERO DIGITAL DRIVER'S LICENSE CARD (APPLE WALLET STYLE)
         Container(
           width: double.infinity,
-          height: 195,
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               colors: [
+                Color(0xFF0F172A),
                 Color(0xFF0F2B48),
-                Color(0xFF0886B5),
-                Color(0xFF0369A1),
+                Color(0xFF0284C7),
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: Colors.white.withOpacity(0.12),
+              width: 1.0,
+            ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF0886B5).withOpacity(0.32),
+                color: const Color(0xFF0F172A).withOpacity(0.18),
                 blurRadius: 18,
                 offset: const Offset(0, 8),
               ),
@@ -599,7 +577,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
             borderRadius: BorderRadius.circular(20),
             child: Stack(
               children: [
-                // Círculo decorativo superior derecho
+                // Destello decorativo superior derecho
                 Positioned(
                   top: -40,
                   right: -30,
@@ -612,7 +590,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                     ),
                   ),
                 ),
-                // Círculo decorativo inferior izquierdo
+                // Destello decorativo inferior izquierdo
                 Positioned(
                   bottom: -60,
                   left: -40,
@@ -626,22 +604,21 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                   ),
                 ),
 
-                // Contenido de la Tarjeta
+                // Contenido de la Tarjeta Apple Wallet
                 Padding(
                   padding: const EdgeInsets.all(18),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      // Fila Superior: Título Oficial + Escudo / Sello Oficial
+                      // Fila Superior: Título Oficial + Sello de Seguridad
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Row(
                             children: [
                               Container(
-                                width: 28,
-                                height: 28,
+                                width: 30,
+                                height: 30,
                                 decoration: BoxDecoration(
                                   color: Colors.white.withOpacity(0.14),
                                   borderRadius: BorderRadius.circular(8),
@@ -649,10 +626,10 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                                 child: const Icon(
                                   Icons.directions_car_rounded,
                                   color: Colors.white,
-                                  size: 16,
+                                  size: 17,
                                 ),
                               ),
-                              const SizedBox(width: 8),
+                              const SizedBox(width: 9),
                               Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -666,149 +643,171 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                                     ),
                                   ),
                                   Text(
-                                    'CREDENCIAL DIGITAL OFICIAL',
+                                    'CREDENCIAL DIGITAL · MARK FLEET',
                                     style: TextStyle(
                                       fontSize: 8.5,
-                                      fontWeight: FontWeight.w500,
+                                      fontWeight: FontWeight.w600,
                                       color: Colors.white.withOpacity(0.65),
-                                      letterSpacing: 0.5,
+                                      letterSpacing: 0.6,
                                     ),
                                   ),
                                 ],
                               ),
                             ],
                           ),
-
-                          // Sello de seguridad
                           Container(
-                            padding: const EdgeInsets.all(4.5),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 4),
                             decoration: BoxDecoration(
-                              shape: BoxShape.circle,
                               color: Colors.white.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(20),
                               border: Border.all(
                                 color: Colors.white.withOpacity(0.2),
                               ),
                             ),
-                            child: const Icon(
-                              Icons.verified_rounded,
-                              size: 15,
-                              color: Colors.white,
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.verified_rounded,
+                                    size: 12, color: Color(0xFF38BDF8)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'OFICIAL',
+                                  style: TextStyle(
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.w800,
+                                    color: Colors.white,
+                                    letterSpacing: 0.6,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 18),
 
-                      // Sección Central: Tipo / Categoría + Número Grande
+                      // Fila Central: Tipo de Licencia + Número Grande
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          // Badge elegante del TIPO de licencia
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 10, vertical: 5),
-                                decoration: BoxDecoration(
-                                  color: Colors.white.withOpacity(0.18),
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(
-                                    color: Colors.white.withOpacity(0.28),
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withOpacity(0.18),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: Colors.white.withOpacity(0.28),
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(
+                                        Icons.badge_rounded,
+                                        size: 13,
+                                        color: Colors.white,
+                                      ),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        'TIPO $category',
+                                        style: const TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                          color: Colors.white,
+                                          letterSpacing: 0.5,
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(
-                                      Icons.badge_rounded,
-                                      size: 13,
-                                      color: Colors.white,
-                                    ),
-                                    const SizedBox(width: 5),
-                                    Text(
-                                      'TIPO $category',
-                                      style: const TextStyle(
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.w800,
-                                        color: Colors.white,
-                                        letterSpacing: 0.5,
-                                      ),
-                                    ),
-                                  ],
+                                const SizedBox(height: 4),
+                                Text(
+                                  _getCategoryDescription(category),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w500,
+                                    color: Colors.white.withOpacity(0.75),
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                _getCategoryDescription(category),
-                                style: TextStyle(
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.w500,
-                                  color: Colors.white.withOpacity(0.75),
-                                ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-                          const Spacer(),
-
-                          // Número de licencia grande a la derecha
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                'NÚMERO DE LICENCIA',
-                                style: TextStyle(
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white.withOpacity(0.65),
-                                  letterSpacing: 1.0,
+                          const SizedBox(width: 12),
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  'NÚMERO DE LICENCIA',
+                                  style: TextStyle(
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white.withOpacity(0.65),
+                                    letterSpacing: 1.0,
+                                  ),
                                 ),
-                              ),
-                              Text(
-                                licNumStr,
-                                style: const TextStyle(
-                                  fontSize: 20,
-                                  fontWeight: FontWeight.w900,
-                                  color: Colors.white,
-                                  letterSpacing: 2.5,
+                                FittedBox(
+                                  fit: BoxFit.scaleDown,
+                                  child: Text(
+                                    licNumStr,
+                                    style: const TextStyle(
+                                      fontSize: 20,
+                                      fontWeight: FontWeight.w900,
+                                      color: Colors.white,
+                                      letterSpacing: 2.2,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
                         ],
                       ),
+                      const SizedBox(height: 18),
 
                       // Fila Inferior: Vigencia + Badge de Estatus Integrado
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         crossAxisAlignment: CrossAxisAlignment.end,
                         children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'VIGENCIA',
-                                style: TextStyle(
-                                  fontSize: 8.5,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white.withOpacity(0.65),
-                                  letterSpacing: 0.8,
+                          Flexible(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'VIGENCIA',
+                                  style: TextStyle(
+                                    fontSize: 8.5,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.white.withOpacity(0.65),
+                                    letterSpacing: 0.8,
+                                  ),
                                 ),
-                              ),
-                              const SizedBox(height: 2),
-                              Text(
-                                isPerm ? 'PERMANENTE' : _formatDueDate(dueRaw),
-                                style: const TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                  letterSpacing: 0.8,
+                                const SizedBox(height: 2),
+                                Text(
+                                  isPerm
+                                      ? 'PERMANENTE'
+                                      : _formatDueDate(dueRaw),
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: Colors.white,
+                                    letterSpacing: 0.8,
+                                  ),
                                 ),
-                              ),
-                            ],
+                              ],
+                            ),
                           ),
-
-                          // Estatus Badge en la tarjeta
+                          const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 5),
@@ -845,57 +844,96 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
             ),
           ),
         ),
-        const SizedBox(height: 14),
+        const SizedBox(height: 8),
 
-        // ==========================================
-        // 2. CARD DE ESTATUS Y CONDICIÓN DE VIGENCIA
-        // ==========================================
-        _buildSectionCard(
-          icon: isExpired
-              ? Icons.error_outline_rounded
-              : (isClose || isToday
-                  ? Icons.warning_amber_rounded
-                  : (isPerm
-                      ? Icons.all_inclusive_rounded
-                      : Icons.verified_rounded)),
-          iconColor: isExpired
-              ? const Color(0xFFEF4444)
-              : (isClose || isToday
-                  ? const Color(0xFFEA580C)
-                  : (isPerm
-                      ? const Color(0xFF0886B5)
-                      : const Color(0xFF10B981))),
-          iconBg: isExpired
-              ? const Color(0xFFFEE2E2)
-              : (isClose || isToday
-                  ? const Color(0xFFFFF7ED)
-                  : (isPerm
-                      ? const Color(0xFFE0F2FE)
-                      : const Color(0xFFDCFCE7))),
-          title: isPerm
-              ? 'Licencia Permanente'
-              : (isExpired
-                  ? 'Licencia Expirada'
-                  : (isToday
-                      ? 'Vence el Día de Hoy'
-                      : (isClose
-                          ? 'Próxima a Vencer'
-                          : 'Licencia Vigente'))),
-          subtitle: isPerm
-              ? 'No requiere renovación periódica de vigencia'
-              : (isExpired
-                  ? 'Venció hace ${-daysRemaining} días. Se recomienda renovar.'
-                  : (isToday
-                      ? 'Su validez expira hoy a las 23:59 hrs.'
-                      : 'Quedan $daysRemaining días de validez legal')),
+        // 2. SECCIÓN: ESTATUS DEL DOCUMENTO (INSET GROUPED)
+        _buildSectionTitle('ESTATUS DEL DOCUMENTO'),
+        _buildAppleGroupContainer(
           children: [
+            Row(
+              children: [
+                Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: isExpired
+                        ? const Color(0xFFFEE2E2)
+                        : (isClose || isToday
+                            ? const Color(0xFFFFF7ED)
+                            : (isPerm
+                                ? const Color(0xFFE0F2FE)
+                                : const Color(0xFFDCFCE7))),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Center(
+                    child: Icon(
+                      isExpired
+                          ? Icons.error_outline_rounded
+                          : (isClose || isToday
+                              ? Icons.warning_amber_rounded
+                              : (isPerm
+                                  ? Icons.all_inclusive_rounded
+                                  : Icons.verified_rounded)),
+                      color: isExpired
+                          ? const Color(0xFFEF4444)
+                          : (isClose || isToday
+                              ? const Color(0xFFEA580C)
+                              : (isPerm
+                                  ? const Color(0xFF0284C7)
+                                  : const Color(0xFF10B981))),
+                      size: 20,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isPerm
+                            ? 'Licencia Permanente'
+                            : (isExpired
+                                ? 'Licencia Expirada'
+                                : (isToday
+                                    ? 'Vence el Día de Hoy'
+                                    : (isClose
+                                        ? 'Próxima a Vencer'
+                                        : 'Licencia Vigente'))),
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        isPerm
+                            ? 'No requiere renovación periódica de vigencia'
+                            : (isExpired
+                                ? 'Venció hace ${-daysRemaining} días. Se requiere renovación.'
+                                : (isToday
+                                    ? 'Su validez expira hoy a las 23:59 hrs.'
+                                    : 'Quedan $daysRemaining días de validez legal')),
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
             Container(
               width: double.infinity,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
                 color: const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.black.withOpacity(0.04)),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
               child: Row(
                 children: [
@@ -923,7 +961,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                         const SizedBox(height: 2),
                         Text(
                           isPerm
-                              ? 'Tu documento no cuenta con fecha límite de caducidad.'
+                              ? 'Documento registrado apto para circulación permanente.'
                               : (isExpired
                                   ? 'Renueva tu licencia ante la autoridad correspondiente.'
                                   : 'Documento apto para circulación y operaciones de campo.'),
@@ -954,30 +992,32 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
             ),
           ],
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 32),
       ],
     );
   }
 
-  // --- SECCIÓN PARA AGREGAR NUEVA LICENCIA (CUANDO NO EXISTE) ---
+  // =========================================================================
+  // VISTA: REGISTRO DE LICENCIA (CUANDO NO EXISTE NINGUNA)
+  // =========================================================================
   Widget _buildAddLicenseSection() {
     return Form(
       key: _formKey,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Banner de ausencia de licencia
+          // Banner Inset de Estado Inicial
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.black.withOpacity(0.04)),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
-                  blurRadius: 8,
+                  color: const Color(0xFF0F172A).withOpacity(0.03),
+                  blurRadius: 10,
                   offset: const Offset(0, 3),
                 ),
               ],
@@ -985,21 +1025,36 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
             child: Row(
               children: [
                 Container(
-                  width: 42,
-                  height: 42,
+                  width: 44,
+                  height: 44,
                   decoration: BoxDecoration(
-                    color: const Color(0xFFE0F2FE),
-                    borderRadius: BorderRadius.circular(12),
+                    gradient: const LinearGradient(
+                      colors: [
+                        Color(0xFFE0F2FE),
+                        Color(0xFFBAE6FD),
+                      ],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: Colors.white, width: 2.0),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0284C7).withOpacity(0.12),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
                   child: const Center(
                     child: Icon(
                       Icons.badge_outlined,
-                      color: Color(0xFF0886B5),
+                      color: Color(0xFF0284C7),
                       size: 22,
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 14),
                 const Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -1027,15 +1082,11 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
               ],
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 8),
 
-          // Tarjeta de Formulario de Registro
-          _buildSectionCard(
-            icon: Icons.add_card_rounded,
-            iconColor: const Color(0xFF0886B5),
-            iconBg: const Color(0xFFE0F2FE),
-            title: 'Registrar Licencia',
-            subtitle: 'Ingresa los datos para registrar el documento',
+          // SECCIÓN: DATOS DE LA LICENCIA
+          _buildSectionTitle('DATOS DE LA CREDENCIAL'),
+          _buildAppleGroupContainer(
             children: [
               // Campo Número de Licencia
               _buildFormField(
@@ -1043,11 +1094,12 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                 label: 'Número de Licencia',
                 icon: Icons.credit_card_rounded,
                 maxLength: 12,
+                hintText: 'Ej. LIC-8923491',
                 validator: (val) => val == null || val.trim().isEmpty
                     ? 'Ingresa el número de licencia'
                     : null,
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
 
               // Campo Tipo / Categoría
               _buildFormField(
@@ -1055,25 +1107,26 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                 label: 'Tipo / Categoría (ej. A, B, C)',
                 icon: Icons.category_outlined,
                 maxLength: 2,
+                hintText: 'Ej. A, B, C',
                 validator: (val) => val == null || val.trim().isEmpty
                     ? 'Ingresa la categoría'
                     : null,
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 12),
 
-              // Opción de Licencia Permanente
+              // Switch Apple: Licencia Permanente
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   color: const Color(0xFFF8FAFC),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.black.withOpacity(0.04)),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
                 ),
                 child: Row(
                   children: [
                     const Icon(Icons.all_inclusive_rounded,
-                        size: 18, color: Color(0xFF0886B5)),
+                        size: 18, color: Color(0xFF0284C7)),
                     const SizedBox(width: 10),
                     const Expanded(
                       child: Column(
@@ -1088,7 +1141,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                             ),
                           ),
                           Text(
-                            'Activar si no tiene fecha de vencimiento',
+                            'Activar si no tiene fecha de caducidad',
                             style: TextStyle(
                               fontSize: 10.5,
                               color: Color(0xFF64748B),
@@ -1099,7 +1152,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                     ),
                     Switch.adaptive(
                       value: isPermanent,
-                      activeColor: const Color(0xFF0886B5),
+                      activeColor: const Color(0xFF0284C7),
                       onChanged: (val) {
                         setState(() {
                           isPermanent = val;
@@ -1115,279 +1168,255 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                 ),
               ),
 
-              // Fecha de Vencimiento (si no es permanente)
+              // Fecha de Vencimiento con BottomPicker (si no es permanente)
               if (!isPermanent) ...[
-                const SizedBox(height: 10),
-                TextFormField(
-                  readOnly: true,
-                  onTap: () => _selectDate(
-                    context,
-                    initial: dueDate,
-                    onDateSelected: (selected) {
-                      setState(() {
-                        dueDate = selected;
-                      });
-                    },
-                  ),
-                  style: const TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF0F172A),
-                  ),
-                  decoration: InputDecoration(
-                    labelText: 'Fecha de Vencimiento',
-                    labelStyle: TextStyle(
-                      fontSize: 12,
-                      color: Colors.grey[600],
-                      fontWeight: FontWeight.w500,
-                    ),
-                    prefixIcon: const Icon(
-                      Icons.calendar_month_rounded,
-                      size: 17,
-                      color: Color(0xFF7C3AED),
-                    ),
-                    suffixIcon: const Icon(
-                      Icons.keyboard_arrow_down_rounded,
-                      color: Colors.black54,
-                      size: 18,
-                    ),
-                    filled: true,
-                    fillColor: const Color(0xFFF8FAFC),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
-                    isDense: true,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide:
-                          BorderSide(color: Colors.black.withOpacity(0.05)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide:
-                          BorderSide(color: Colors.black.withOpacity(0.05)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: const BorderSide(
-                          color: Color(0xFF7C3AED), width: 1.5),
-                    ),
-                  ),
-                  controller: TextEditingController(
-                    text: dueDate != null
-                        ? DateFormat('dd/MM/yyyy').format(dueDate!)
-                        : '',
-                  ),
-                  validator: (val) {
-                    if (!isPermanent && dueDate == null) {
-                      return 'Por favor selecciona la fecha de vencimiento';
-                    }
-                    return null;
-                  },
-                ),
+                const SizedBox(height: 12),
+                _buildDateField(context),
               ],
             ],
           ),
-          const SizedBox(height: 18),
-
-          // Botón Guardar Licencia
-          Container(
-            width: double.infinity,
-            height: 46,
-            decoration: BoxDecoration(
-              gradient: const LinearGradient(
-                colors: [
-                  Color(0xFF0886B5),
-                  Color(0xFF0284C7),
-                ],
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-              ),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: const Color(0xFF0886B5).withOpacity(0.3),
-                  blurRadius: 10,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: isLoading
-                    ? null
-                    : () {
-                        if (_formKey.currentState!.validate()) {
-                          _saveLicense(
-                            num: _licNumController.text,
-                            category: _licClassController.text,
-                            date: dueDate,
-                            permanent: isPermanent,
-                          );
-                        }
-                      },
-                child: Center(
-                  child: isLoading
-                      ? const SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                            color: Colors.white,
-                            strokeWidth: 2,
-                          ),
-                        )
-                      : const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.save_rounded,
-                                color: Colors.white, size: 18),
-                            SizedBox(width: 8),
-                            Text(
-                              'Guardar Licencia',
-                              style: TextStyle(
-                                color: Colors.white,
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.2,
-                              ),
-                            ),
-                          ],
-                        ),
-                ),
-              ),
-            ),
-          ),
           const SizedBox(height: 24),
+
+          // BOTÓN DE ACCIÓN REUTILIZABLE CON LOADING INTEGRADO (ESTILO APPLE EDIT PROFILE)
+          LoadingActionButton(
+            text: 'Guardar Licencia',
+            isLoading: isLoading,
+            icon: Icons.check_circle_rounded,
+            height: 50,
+            borderRadius: 16,
+            onPressed: () {
+              if (_formKey.currentState!.validate()) {
+                _saveLicense(
+                  num: _licNumController.text,
+                  category: _licClassController.text,
+                  date: dueDate,
+                  permanent: isPermanent,
+                );
+              }
+            },
+          ),
+          const SizedBox(height: 28),
         ],
       ),
     );
   }
 
-  // --- CAMPO DE FORMULARIO ESTILIZADO ---
+  // --- SELECTOR DE FECHA ESTILO APPLE ---
+  Widget _buildDateField(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(left: 2, bottom: 5),
+          child: Text(
+            'Fecha de Vencimiento',
+            style: TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF475569),
+              letterSpacing: -0.1,
+            ),
+          ),
+        ),
+        TextFormField(
+          readOnly: true,
+          onTap: () => _selectDate(
+            context,
+            initial: dueDate,
+            onDateSelected: (selected) {
+              setState(() {
+                dueDate = selected;
+              });
+            },
+          ),
+          cursorColor: const Color(0xFF0284C7),
+          style: const TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF0F172A),
+          ),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: 'Seleccionar fecha',
+            hintStyle: const TextStyle(
+              fontSize: 12.5,
+              color: Color(0xFF94A3B8),
+              fontWeight: FontWeight.w400,
+            ),
+            prefixIcon: const Icon(
+              Icons.calendar_today_rounded,
+              size: 16,
+              color: Color(0xFF0284C7),
+            ),
+            suffixIcon: const Icon(
+              Icons.keyboard_arrow_down_rounded,
+              color: Color(0xFF64748B),
+              size: 18,
+            ),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  const BorderSide(color: Color(0xFF0284C7), width: 1.5),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFEF4444)),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+            ),
+          ),
+          controller: TextEditingController(
+            text: dueDate != null
+                ? DateFormat('dd / MM / yyyy').format(dueDate!)
+                : '',
+          ),
+          validator: (val) {
+            if (!isPermanent && dueDate == null) {
+              return 'Por favor selecciona la fecha de vencimiento';
+            }
+            return null;
+          },
+        ),
+      ],
+    );
+  }
+
+  // --- CAMPO DE TEXTO ESTILIZADO APPLE ---
   Widget _buildFormField({
     required TextEditingController controller,
     required String label,
     required IconData icon,
     int? maxLength,
+    TextCapitalization textCapitalization = TextCapitalization.characters,
+    String? hintText,
     String? Function(String?)? validator,
   }) {
-    return TextFormField(
-      controller: controller,
-      maxLength: maxLength,
-      validator: validator,
-      style: const TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-        color: Color(0xFF0F172A),
-      ),
-      decoration: InputDecoration(
-        labelText: label,
-        counterText: '',
-        labelStyle: TextStyle(
-          fontSize: 12,
-          color: Colors.grey[600],
-          fontWeight: FontWeight.w500,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 2, bottom: 5),
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF475569),
+              letterSpacing: -0.1,
+            ),
+          ),
         ),
-        prefixIcon: Icon(
-          icon,
-          size: 17,
-          color: const Color(0xFF0886B5),
+        TextFormField(
+          controller: controller,
+          maxLength: maxLength,
+          textCapitalization: textCapitalization,
+          validator: validator,
+          cursorColor: const Color(0xFF0284C7),
+          style: const TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF0F172A),
+          ),
+          decoration: InputDecoration(
+            isDense: true,
+            counterText: '',
+            hintText: hintText ?? label,
+            hintStyle: const TextStyle(
+              fontSize: 12.5,
+              color: Color(0xFF94A3B8),
+              fontWeight: FontWeight.w400,
+            ),
+            prefixIcon: Icon(
+              icon,
+              size: 17,
+              color: const Color(0xFF0284C7),
+            ),
+            filled: true,
+            fillColor: const Color(0xFFF8FAFC),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  const BorderSide(color: Color(0xFF0284C7), width: 1.5),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFEF4444)),
+            ),
+            focusedErrorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+            ),
+          ),
         ),
-        filled: true,
-        fillColor: const Color(0xFFF8FAFC),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        isDense: true,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.black.withOpacity(0.05)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.black.withOpacity(0.05)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF0886B5), width: 1.5),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFEF4444)),
+      ],
+    );
+  }
+
+  // --- TÍTULO DE SECCIÓN INSET GROUPED ---
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 8, top: 12),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF64748B),
+          letterSpacing: 0.8,
         ),
       ),
     );
   }
 
-  // --- CONTENEDOR DE SECCIÓN (CARD) ---
-  Widget _buildSectionCard({
-    required IconData icon,
-    required Color iconColor,
-    required Color iconBg,
-    required String title,
-    required String subtitle,
-    required List<Widget> children,
-  }) {
+  // --- CONTENEDOR INSET GROUPED ESTILO APPLE ---
+  Widget _buildAppleGroupContainer({required List<Widget> children}) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black.withOpacity(0.04)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0),
+          width: 1.0,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
+            color: const Color(0xFF0F172A).withOpacity(0.03),
+            blurRadius: 10,
             offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Center(
-                  child: Icon(icon, color: iconColor, size: 17),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F172A),
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF64748B),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ...children,
-        ],
+        children: children,
       ),
     );
   }

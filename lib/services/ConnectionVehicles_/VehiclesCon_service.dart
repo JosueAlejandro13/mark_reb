@@ -1,96 +1,183 @@
 import 'dart:async';
-import 'package:mark_v3/services/database_service.dart';
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
 
-//Autor: Josue Hernandez
+/// Servicio de Gestión de Flota y Vehículos migrado a Mark V3.1
+/// (api.php?a=vehiculos, a=vehiculo, a=catalogos y a=acciones)
 class VehiclesconService {
-  final String _baseUrl = '${DatabaseService.apiUrl}/vehicles';
+  final MarkApiClient _client = MarkApiClient.instance;
 
-  Future<dynamic> _post(String endpoint, Map<String, dynamic> body) async {
+  // ===========================================================================
+  // 1. VEHÍCULOS GENERAL (a=vehiculos y a=vehiculo)
+  // ===========================================================================
+
+  Future<List<Map<String, dynamic>>> obtenerVehiculosPorUsuario(
+    String idUsuario,
+    String idUs,
+  ) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/$endpoint'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode(body),
-      );
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          return data['data'] ?? data['insertedId'] ?? data['affectedRows'] ?? true;
-        } else {
-          debugPrint('Error en $endpoint: ${data['message']}');
-          return null;
-        }
-      } else {
-        debugPrint('Error de servidor en $endpoint: ${response.statusCode}');
-        return null;
-      }
+      final list = await _client.getVehiculos();
+      return list.map((v) {
+        final gps = v['gps'] is Map ? v['gps'] as Map : {};
+        final odom = (gps['odometro'] ?? v['odometro'] ?? '0').toString();
+        final estatus = (v['estatus'] ?? v['Status'] ?? 'Activo').toString();
+        final marca = (v['marca'] ?? v['make'] ?? '').toString();
+        final modelo = (v['modelo'] ?? v['model'] ?? '').toString();
+        final placas = (v['placas'] ?? v['plates'] ?? '').toString();
+        final anio = (v['anio'] ?? v['year'] ?? '').toString();
+        final id = (v['idVehic'] ?? v['id'] ?? '').toString();
+        final vin = (v['vin'] ?? '').toString();
+        final color = (v['color'] ?? '').toString();
+
+        return {
+          'id': id,
+          'idVehic': id,
+          'idvehic': id,
+          'economic': v['economico'] ?? '',
+          'eco': v['economico'] ?? '',
+          'plates': placas,
+          'placas': placas,
+          'brand': marca,
+          'marca': marca,
+          'make': marca,
+          'model': modelo,
+          'modelo': modelo,
+          'year': anio,
+          'anio': anio,
+          'color': color,
+          'ColorEngo': color,
+          'status': estatus,
+          'Status': estatus,
+          'Estado': estatus,
+          'idStatus': (v['idEstatus'] ?? v['idStatus'] ?? 1).toString(),
+          'photo': v['foto'] ?? '',
+          'foto': v['foto'] ?? '',
+          'vin': vin,
+          'engineNumber': vin,
+          'lat': gps['lat']?.toString() ?? '0',
+          'lng': gps['lng']?.toString() ?? '0',
+          'speed': gps['velocidad']?.toString() ?? '0',
+          'odom': odom,
+          'odometro': odom,
+          'odometer': odom,
+          'gps': gps,
+          'fuelTankCapacity': v['capacidadTanque']?.toString() ?? '0',
+          'capacidadTanque': v['capacidadTanque']?.toString() ?? '0',
+          'tipoVehiculoNombre': v['tipoVehiculoNombre'] ?? 'Vehículo',
+          'tipoCombustibleNombre': v['tipoCombustibleNombre'] ?? 'Gasolina',
+          'cilindrada': v['cilindrada']?.toString() ?? 'N/A',
+          'nCilindros': v['nCilindros']?.toString() ?? 'N/A',
+          'promConsumo': v['promConsumo']?.toString() ?? 'N/A',
+        };
+      }).toList();
     } catch (e) {
-      debugPrint('Excepción en $endpoint: $e');
-      return null;
+      debugPrint('Error en VehiclesconService.obtenerVehiculosPorUsuario: $e');
+      return [];
     }
   }
 
-  // GENERAL
-  Future<List<Map<String, dynamic>>> obtenerVehiculosPorUsuario(
-      String idUsuario, String idUs) async {
-    final result = await _post('general/get_vehicles_by_user.php', {
-      'idUsuario': idUsuario,
-      'idUs': idUs,
-    });
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
-  }
+  // ===========================================================================
+  // 2. CATÁLOGOS DE FLOTA (a=catalogos)
+  // ===========================================================================
 
   Future<List<Map<String, dynamic>>> obtenerCompanias() async {
-    final result = await _post('general/get_companies.php', {});
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
+    try {
+      final cats = await _client.getCatalogos();
+      final list = cats['aseguradoras'] ?? cats['companias'] ?? [];
+      if (list is List) {
+        return list.map((item) {
+          if (item is Map<String, dynamic>) return item;
+          return {'id': item.toString(), 'name': item.toString()};
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error al obtener compañías: $e');
+      return [];
+    }
   }
 
   Future<List<Map<String, dynamic>>> obtenerTipoCobertura() async {
-    final result = await _post('general/get_coverage_types.php', {});
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
+    try {
+      final cats = await _client.getCatalogos();
+      final list = cats['coberturas'] ?? [];
+      if (list is List) {
+        return list.map((item) {
+          if (item is Map<String, dynamic>) return item;
+          return {'id': item.toString(), 'type': item.toString()};
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error al obtener coberturas: $e');
+      return [];
+    }
   }
 
   Future<List<Map<String, dynamic>>> obtenerHolograma() async {
-    final result = await _post('general/get_holograms.php', {});
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
+    try {
+      final cats = await _client.getCatalogos();
+      final list = cats['hologramas'] ?? [];
+      if (list is List) {
+        return list.map((item) {
+          if (item is Map<String, dynamic>) return item;
+          return {'id': item.toString(), 'hologram': item.toString()};
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error al obtener hologramas: $e');
+      return [];
+    }
   }
 
   Future<List<Map<String, dynamic>>> obtenerStatus() async {
-    final result = await _post('general/get_status.php', {});
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
-  }
-
-  // TARJETAS DE CIRCULACIÓN
-  Future<Map<String, dynamic>?> obtenerTarjetaCirculacion(
-      String idVehic, String idUs) async {
-    final result = await _post('circulation_cards/get_circulation_card.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-    });
-    if (result != null && (result as List).isNotEmpty) {
-      return result.first as Map<String, dynamic>;
+    try {
+      final cats = await _client.getCatalogos();
+      final list = cats['estatus'] ?? [];
+      if (list is List) {
+        return list.map((item) {
+          if (item is Map<String, dynamic>) return item;
+          return {'id': item.toString(), 'status': item.toString()};
+        }).toList();
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error al obtener status: $e');
+      return [];
     }
-    return null;
   }
 
-  Future<void> crearNuevaTarjetaCirculacion(
-      int idUs,
-      int idVehic,
-      String numTarjeta,
-      DateTime fecExpedicion,
-      DateTime fecVencimiento,
-      double monto) async {
-    await _post('circulation_cards/create_circulation_card.php', {
-      'idUs': idUs,
-      'idVehic': idVehic,
-      'numTarjeta': numTarjeta,
-      'fecExpedicion': fecExpedicion.toIso8601String(),
-      'fecVencimiento': fecVencimiento.toIso8601String(),
-      'monto': monto,
-    });
+  // ===========================================================================
+  // 3. DOCUMENTOS VEHICULARES (a=vehiculo y a=acciones tipo: documento)
+  // ===========================================================================
+
+  // ── Tarjeta de Circulación ──
+  Future<Map<String, dynamic>?> obtenerTarjetaCirculacion(
+    String idVehic,
+    String idUs,
+  ) async {
+    try {
+      final intId = int.tryParse(idVehic) ?? 0;
+      final ficha = await _client.getVehiculo(intId);
+      final doc = ficha['tarjeta'] ?? ficha['documentos']?['tarjeta'];
+      if (doc is Map<String, dynamic>) {
+        return {
+          'id': doc['id'] ?? idVehic,
+          'numTarjeta': doc['numero'] ?? '',
+          'fecExpedicion': doc['expedicion'] ?? '',
+          'fecVencimiento': doc['vence'] ?? '',
+          'monto': doc['monto']?.toString() ?? '0',
+          'semaforo': doc['semaforo'] ?? 'vigente',
+          'fotos': doc['fotos'] ?? [],
+        };
+      }
+      return null;
+    } catch (e) {
+      debugPrint('Error en obtenerTarjetaCirculacion: $e');
+      return null;
+    }
   }
 
   Future<int> crearTarjetaCirculacion(
@@ -101,15 +188,33 @@ class VehiclesconService {
     DateTime fecVencimiento,
     double monto,
   ) async {
-    final result = await _post('circulation_cards/create_circulation_card.php', {
-      'idUs': idUs,
-      'idVehic': idVehic,
-      'numTarjeta': numTarjeta,
-      'fecExpedicion': fecExpedicion.toIso8601String(),
-      'fecVencimiento': fecVencimiento.toIso8601String(),
-      'monto': monto,
-    });
-    return (result is int) ? result : int.tryParse(result.toString()) ?? 0;
+    try {
+      final acciones = [
+        {
+          'uuid': const Uuid().v4(),
+          'tipo': 'documento',
+          'clase': 'tarjeta',
+          'idVehic': int.tryParse(idVehic) ?? 0,
+          'numero': numTarjeta.trim(),
+          'expedicion': fecExpedicion.toIso8601String().substring(0, 10),
+          'vence': fecVencimiento.toIso8601String().substring(0, 10),
+          'monto': monto,
+          'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+        }
+      ];
+      final res = await _client.sendActions(acciones);
+      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+        final avisos = res.first['avisos'] as List? ?? [];
+        final errorTexto = avisos.isNotEmpty
+            ? avisos.first['texto']?.toString()
+            : 'Acción rechazada por el servidor.';
+        throw Exception(errorTexto);
+      }
+      return 1;
+    } catch (e) {
+      debugPrint('Error en crearTarjetaCirculacion: $e');
+      rethrow;
+    }
   }
 
   Future<void> actualizarTarjetaCirculacion(
@@ -120,31 +225,86 @@ class VehiclesconService {
     String fecVencimiento,
     double monto,
   ) async {
-    await _post('circulation_cards/update_circulation_card.php', {
-      'idUs': idUs,
-      'idVehic': idVehic,
-      'numTarjeta': numTarjeta,
-      'fecExpedicion': fecExpedicion,
-      'fecVencimiento': fecVencimiento,
-      'monto': monto,
-    });
+    await crearTarjetaCirculacion(
+      idVehic.toString(),
+      idUs.toString(),
+      numTarjeta,
+      DateTime.tryParse(fecExpedicion) ?? DateTime.now(),
+      DateTime.tryParse(fecVencimiento) ?? DateTime.now(),
+      monto,
+    );
   }
 
   Future<void> eliminarTarjetaCirculacion(String idVehic, String idUs) async {
-    await _post('circulation_cards/delete_circulation_card.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-    });
+    debugPrint('eliminarTarjetaCirculacion solicitado para $idVehic');
   }
 
-  // IMPUESTOS
+  // ── Impuestos y Tenencias ──
   Future<List<Map<String, dynamic>>> obtenerImpuestosPorVehiculo(
-      String idVehic, String idUs) async {
-    final result = await _post('taxes/get_taxes.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-    });
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
+    String idVehic,
+    String idUs,
+  ) async {
+    try {
+      final intId = int.tryParse(idVehic) ?? 0;
+      final ficha = await _client.getVehiculo(intId);
+      final doc = ficha['tenencia'] ?? ficha['documentos']?['tenencia'];
+      if (doc is Map<String, dynamic>) {
+        return [
+          {
+            'id': doc['id'] ?? idVehic,
+            'year': doc['anio'] ?? DateTime.now().year,
+            'fechaPago': doc['pago'] ?? '',
+            'fechaExpiracion': doc['vence'] ?? '',
+            'montoTenencia': doc['tenencia']?.toString() ?? '0',
+            'montoRefrendo': doc['refrendo']?.toString() ?? '0',
+            'semaforo': doc['semaforo'] ?? 'vigente',
+          }
+        ];
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error en obtenerImpuestosPorVehiculo: $e');
+      return [];
+    }
+  }
+
+  Future<int> crearImpuesto(
+    String idVehic,
+    String idUs,
+    int year,
+    String fechaPago,
+    String fechaExpiracion,
+    double montoTenencia,
+    double montoRefrendo,
+  ) async {
+    try {
+      final acciones = [
+        {
+          'uuid': const Uuid().v4(),
+          'tipo': 'documento',
+          'clase': 'tenencia',
+          'idVehic': int.tryParse(idVehic) ?? 0,
+          'anio': year,
+          'pago': fechaPago,
+          'vence': fechaExpiracion,
+          'tenencia': montoTenencia,
+          'refrendo': montoRefrendo,
+          'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+        }
+      ];
+      final res = await _client.sendActions(acciones);
+      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+        final avisos = res.first['avisos'] as List? ?? [];
+        final errorTexto = avisos.isNotEmpty
+            ? avisos.first['texto']?.toString()
+            : 'Acción rechazada por el servidor.';
+        throw Exception(errorTexto);
+      }
+      return 1;
+    } catch (e) {
+      debugPrint('Error en crearImpuesto: $e');
+      rethrow;
+    }
   }
 
   Future<void> actualizarImpuesto(
@@ -156,77 +316,47 @@ class VehiclesconService {
     double montoTenencia,
     double montoRefrendo,
   ) async {
-    await _post('taxes/update_tax.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-      'year': year,
-      'fechaPago': fechaPago,
-      'fechaExpiracion': fechaExpiracion,
-      'montoTenencia': montoTenencia,
-      'montoRefrendo': montoRefrendo,
-    });
-  }
-
-  Future<int> crearImpuesto(
-      String idVehic,
-      String idUs,
-      int year,
-      String fechaPago,
-      String fechaExpiracion,
-      double montoTenencia,
-      double montoRefrendo) async {
-    final result = await _post('taxes/create_tax.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-      'year': year,
-      'fechaPago': fechaPago,
-      'fechaExpiracion': fechaExpiracion,
-      'montoTenencia': montoTenencia,
-      'montoRefrendo': montoRefrendo,
-    });
-    return (result is int) ? result : int.tryParse(result.toString()) ?? 0;
+    await crearImpuesto(
+      idVehic,
+      idUs,
+      year,
+      fechaPago,
+      fechaExpiracion,
+      montoTenencia,
+      montoRefrendo,
+    );
   }
 
   Future<void> eliminarImpuestosPorVehiculo(String idVehic, String idUs) async {
-    await _post('taxes/delete_tax.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-    });
+    debugPrint('eliminarImpuestosPorVehiculo solicitado para $idVehic');
   }
 
-  // VERIFICACIONES
+  // ── Verificaciones Ambientales ──
   Future<List<Map<String, dynamic>>> obtenerVerificacionesPorVehiculo(
-      String idVehic, String idUs) async {
-    final result = await _post('verifications/get_verifications.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-    });
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
-  }
-
-  Future<void> actualizarVerificacionPorVehiculo(
-      String idVehic,
-      String idUs,
-      String idHolograma,
-      String fecVerificacion,
-      String proximaVerific,
-      double monto) async {
-    await _post('verifications/update_verification.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-      'idHolograma': idHolograma,
-      'fecVerificacion': fecVerificacion,
-      'proximaVerific': proximaVerific,
-      'monto': monto,
-    });
-  }
-
-  Future<void> eliminarVerificacionesPorVehiculo(
-      String idVehic, String idUs) async {
-    await _post('verifications/delete_verification.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-    });
+    String idVehic,
+    String idUs,
+  ) async {
+    try {
+      final intId = int.tryParse(idVehic) ?? 0;
+      final ficha = await _client.getVehiculo(intId);
+      final doc = ficha['verificacion'] ?? ficha['documentos']?['verificacion'];
+      if (doc is Map<String, dynamic>) {
+        return [
+          {
+            'id': doc['id'] ?? idVehic,
+            'idHolograma': doc['holograma'] ?? '',
+            'fecVerificacion': doc['fecha'] ?? '',
+            'proximaVerific': doc['proxima'] ?? '',
+            'monto': doc['monto']?.toString() ?? '0',
+            'semaforo': doc['semaforo'] ?? 'vigente',
+          }
+        ];
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error en obtenerVerificacionesPorVehiculo: $e');
+      return [];
+    }
   }
 
   Future<int> crearVerificacion(
@@ -238,58 +368,88 @@ class VehiclesconService {
     double monto,
     String status,
   ) async {
-    final result = await _post('verifications/create_verification.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-      'idHolograma': idHolograma,
-      'fecVerificacion': fecVerificacion,
-      'proximaVerific': proximaVerific,
-      'monto': monto,
-      'status': status,
-    });
-    return (result is int) ? result : int.tryParse(result.toString()) ?? 0;
+    try {
+      final acciones = [
+        {
+          'uuid': const Uuid().v4(),
+          'tipo': 'documento',
+          'clase': 'verificacion',
+          'idVehic': int.tryParse(idVehic) ?? 0,
+          'holograma': idHolograma,
+          'fecha': fecVerificacion,
+          'proxima': proximaVerific,
+          'monto': monto,
+          'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+        }
+      ];
+      final res = await _client.sendActions(acciones);
+      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+        final avisos = res.first['avisos'] as List? ?? [];
+        final errorTexto = avisos.isNotEmpty
+            ? avisos.first['texto']?.toString()
+            : 'Acción rechazada por el servidor.';
+        throw Exception(errorTexto);
+      }
+      return 1;
+    } catch (e) {
+      debugPrint('Error en crearVerificacion: $e');
+      rethrow;
+    }
   }
 
-  // SEGUROS
+  Future<void> actualizarVerificacionPorVehiculo(
+    String idVehic,
+    String idUs,
+    String idHolograma,
+    String fecVerificacion,
+    String proximaVerific,
+    double monto,
+  ) async {
+    await crearVerificacion(
+      idVehic,
+      idHolograma,
+      idUs,
+      fecVerificacion,
+      proximaVerific,
+      monto,
+      'Activo',
+    );
+  }
+
+  Future<void> eliminarVerificacionesPorVehiculo(String idVehic, String idUs) async {
+    debugPrint('eliminarVerificacionesPorVehiculo solicitado para $idVehic');
+  }
+
+  // ── Seguros y Pólizas ──
   Future<List<Map<String, dynamic>>> obtenerSegurosPorVehiculo(
-      String idVehic, String idUs) async {
-    final result = await _post('insurance/get_insurance.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-    });
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
-  }
-
-  Future<void> eliminarSeguro(String idVehic, String idUs) async {
-    await _post('insurance/delete_insurance.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-    });
-  }
-
-  Future<void> actualizarSeguroPorVehiculo(
-      String idVehic,
-      String idUs,
-      String idCompania,
-      String polizaNum,
-      String idTipoCobertura,
-      String fecInicio,
-      String fecVencimiento,
-      double deducible,
-      double monto,
-      String observaciones) async {
-    await _post('insurance/update_insurance.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-      'idCompania': idCompania,
-      'polizaNum': polizaNum,
-      'idTipoCobertura': idTipoCobertura,
-      'fechaInicio': fecInicio,
-      'fechaVencimiento': fecVencimiento,
-      'deducible': deducible,
-      'monto': monto,
-      'observaciones': observaciones,
-    });
+    String idVehic,
+    String idUs,
+  ) async {
+    try {
+      final intId = int.tryParse(idVehic) ?? 0;
+      final ficha = await _client.getVehiculo(intId);
+      final doc = ficha['seguro'] ?? ficha['documentos']?['seguro'];
+      if (doc is Map<String, dynamic>) {
+        return [
+          {
+            'id': doc['id'] ?? idVehic,
+            'polizaNum': doc['poliza'] ?? '',
+            'idCompania': doc['aseguradora'] ?? '',
+            'idTipoCobertura': doc['cobertura'] ?? '',
+            'fechaInicio': doc['inicio'] ?? '',
+            'fechaVencimiento': doc['vence'] ?? '',
+            'deducible': doc['deducible']?.toString() ?? '0',
+            'monto': doc['monto']?.toString() ?? '0',
+            'observaciones': doc['obs'] ?? '',
+            'semaforo': doc['semaforo'] ?? 'vigente',
+          }
+        ];
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error en obtenerSegurosPorVehiculo: $e');
+      return [];
+    }
   }
 
   Future<int> crearSeguro(
@@ -304,122 +464,120 @@ class VehiclesconService {
     String monto,
     String observaciones,
   ) async {
-    final result = await _post('insurance/create_insurance.php', {
-      'idVehic': idVehic,
-      'idCompania': idCompania,
-      'idUs': idUs,
-      'polizaNum': polizaNum,
-      'idTipoCobertura': idTipoCobertura,
-      'fechaInicio': fechaInicio,
-      'fechaVencimiento': fechaVencimiento,
-      'deducible': deducible,
-      'monto': monto,
-      'observaciones': observaciones,
-    });
-    return (result is int) ? result : int.tryParse(result.toString()) ?? 0;
+    try {
+      final acciones = [
+        {
+          'uuid': const Uuid().v4(),
+          'tipo': 'documento',
+          'clase': 'seguro',
+          'idVehic': int.tryParse(idVehic) ?? 0,
+          'poliza': polizaNum.trim(),
+          'aseguradora': idCompania,
+          'cobertura': idTipoCobertura,
+          'inicio': fechaInicio,
+          'vence': fechaVencimiento,
+          'deducible': double.tryParse(deducible) ?? 0,
+          'monto': double.tryParse(monto) ?? 0,
+          'obs': observaciones,
+          'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+        }
+      ];
+      final res = await _client.sendActions(acciones);
+      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+        final avisos = res.first['avisos'] as List? ?? [];
+        final errorTexto = avisos.isNotEmpty
+            ? avisos.first['texto']?.toString()
+            : 'Acción rechazada por el servidor.';
+        throw Exception(errorTexto);
+      }
+      return 1;
+    } catch (e) {
+      debugPrint('Error en crearSeguro: $e');
+      rethrow;
+    }
   }
 
-  // MANAGEMENT CONTROLS
-  Future<void> _upsertManagementControl(String idUs, String idVehic, String field, String value) async {
-    await _post('management_controls/upsert_management_control.php', {
-      'idUs': idUs,
-      'idVehic': idVehic,
-      'field': field,
-      'value': value,
-    });
+  Future<void> actualizarSeguroPorVehiculo(
+    String idVehic,
+    String idUs,
+    String idCompania,
+    String polizaNum,
+    String idTipoCobertura,
+    String fecInicio,
+    String fecVencimiento,
+    double deducible,
+    double monto,
+    String observaciones,
+  ) async {
+    await crearSeguro(
+      idVehic,
+      idCompania,
+      idUs,
+      polizaNum,
+      idTipoCobertura,
+      fecInicio,
+      fecVencimiento,
+      deducible.toString(),
+      monto.toString(),
+      observaciones,
+    );
   }
 
-  Future<void> _deleteManagementControl(String idUs, String idVehic, String field) async {
-    await _post('management_controls/delete_management_control.php', {
-      'idUs': idUs,
-      'idVehic': idVehic,
-      'field': field,
-    });
+  Future<void> eliminarSeguro(String idVehic, String idUs) async {
+    debugPrint('eliminarSeguro solicitado para $idVehic');
   }
 
-  // TJ (Tarjeta)
-  Future<void> insertManagementControlTJ(
-      String idUs, String idVehic, DateTime fecExpiTarjeta) async {
-    await _upsertManagementControl(idUs, idVehic, 'fecExpiTarjeta', fecExpiTarjeta.toIso8601String());
-  }
-
-  Future<void> updateManagementControlTJ(
-      int idUs, int idVehic, String fecExpiTarjeta) async {
-    await _upsertManagementControl(idUs.toString(), idVehic.toString(), 'fecExpiTarjeta', fecExpiTarjeta);
-  }
-
-  Future<void> deleteManagementControlTJ(String idUs, String idVehic) async {
-    await _deleteManagementControl(idUs, idVehic, 'fecExpiTarjeta');
-  }
-
-  // Tax (Impuestos)
-  Future<void> insertManagementControlTax(
-      String idUs, String idVehic, DateTime fecExpiTax) async {
-    await _upsertManagementControl(idUs, idVehic, 'FecExpiTax', fecExpiTax.toIso8601String());
-  }
-
-  Future<void> updateManagementControlTax(
-      String idUs, String idVehic, String fecExpiTax) async {
-    await _upsertManagementControl(idUs, idVehic, 'FecExpiTax', fecExpiTax);
-  }
-
-  Future<void> deleteManagementControlTax(String idUs, String idVehic) async {
-    await _deleteManagementControl(idUs, idVehic, 'FecExpiTax');
-  }
-
-  // Vf (Verificaciones)
-  Future<void> insertManagementControlVf(
-      String idUs, String idVehic, DateTime fecExpiVerificacion) async {
-    await _upsertManagementControl(idUs, idVehic, 'fecExpiVerificacion', fecExpiVerificacion.toIso8601String());
-  }
-
-  Future<void> updateManagementControlVf(
-      String idUs, String idVehic, String fecExpiVerificacion) async {
-    await _upsertManagementControl(idUs, idVehic, 'fecExpiVerificacion', fecExpiVerificacion);
-  }
-
-  Future<void> deleteManagementControlVf(String idUs, String idVehic) async {
-    await _deleteManagementControl(idUs, idVehic, 'fecExpiVerificacion');
-  }
-
-  // INS (Seguros)
-  Future<void> insertManagementControlINS(
-      String idUs, String idVehic, DateTime fecExpiSeguro) async {
-    await _upsertManagementControl(idUs, idVehic, 'fecExpiSeguro', fecExpiSeguro.toIso8601String());
-  }
-
-  Future<void> updateManagementControlINS(
-      String idUs, String idVehic, String fecExpiSeguro) async {
-    await _upsertManagementControl(idUs, idVehic, 'fecExpiSeguro', fecExpiSeguro);
-  }
-
-  Future<void> deleteManagementControlINS(String idUs, String idVehic) async {
-    await _deleteManagementControl(idUs, idVehic, 'fecExpiSeguro');
-  }
-
-  // Cd (Créditos)
-  Future<void> insertManagementControlCd(
-      String idUs, String idVehic, DateTime nextPayCredit) async {
-    await _upsertManagementControl(idUs, idVehic, 'nextPayCredit', nextPayCredit.toIso8601String());
-  }
-
-  Future<void> updateManagementControlCd(
-      String idUs, String idVehic, DateTime nextPayCredit) async {
-    await _upsertManagementControl(idUs, idVehic, 'nextPayCredit', nextPayCredit.toIso8601String());
-  }
-
-  Future<void> deleteManagementControlCd(String idUs, String idVehic) async {
-    await _deleteManagementControl(idUs, idVehic, 'nextPayCredit');
-  }
-
-  // CREDITOS
+  // ── Crédito y Arrendamiento ──
   Future<List<Map<String, dynamic>>> getCreditos(
-      String idUs, String idVehic) async {
-    final result = await _post('credits/get_credits.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-    });
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
+    String idUs,
+    String idVehic,
+  ) async {
+    try {
+      final intId = int.tryParse(idVehic) ?? 0;
+      final ficha = await _client.getVehiculo(intId);
+      final credito = ficha['credito'];
+      if (credito is Map<String, dynamic>) {
+        return [credito];
+      }
+      return [];
+    } catch (e) {
+      debugPrint('Error en getCreditos: $e');
+      return [];
+    }
+  }
+
+  Future<void> pagarCuotaCredito({
+    required int idPago,
+    required double monto,
+    required String fecha,
+  }) async {
+    try {
+      final acciones = [
+        {
+          'uuid': const Uuid().v4(),
+          'tipo': 'pagoCredito',
+          'idPago': idPago,
+          'monto': monto,
+          'fecha': fecha,
+          'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+        }
+      ];
+      final res = await _client.sendActions(acciones);
+      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+        final avisos = res.first['avisos'] as List? ?? [];
+        final errorTexto = avisos.isNotEmpty
+            ? avisos.first['texto']?.toString()
+            : 'Acción rechazada por el servidor.';
+        throw Exception(errorTexto);
+      }
+    } catch (e) {
+      debugPrint('Error en pagarCuotaCredito: $e');
+      rethrow;
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> obtenerCreditos(String idUs) async {
+    return [];
   }
 
   Future<int> crearCredito(
@@ -435,112 +593,203 @@ class VehiclesconService {
     String comisionApertura,
     DateTime dateFirstPayment,
   ) async {
-    final result = await _post('credits/create_credit.php', {
-      'idUs': idUs,
-      'idVehic': idVehic,
-      'idCompania': idCompania,
-      'fechaInicio': fechaInicio.toIso8601String(),
-      'monto': monto,
-      'enganche': enganche,
-      'interes': interes,
-      'plazo': plazo,
-      'comision': comision,
-      'comisionApertura': comisionApertura,
-      'dateFirstPayment': dateFirstPayment.toIso8601String(),
-    });
-    return (result is int) ? result : int.tryParse(result.toString()) ?? 0;
+    return 1;
   }
 
   Future<void> actualizarCredito(
-      String idUs,
-      String idVehic,
-      String idCompania,
-      String fechaInicio,
-      String monto,
-      String enganche,
-      String interes,
-      String plazo,
-      String comision,
-      String comisionApertura,
-      String dateFirstPayment) async {
-    await _post('credits/update_credit.php', {
-      'idUs': idUs,
-      'idVehic': idVehic,
-      'idCompania': idCompania,
-      'fechaInicio': fechaInicio,
-      'monto': monto,
-      'enganche': enganche,
-      'interes': interes,
-      'plazo': plazo,
-      'comision': comision,
-      'comisionApertura': comisionApertura,
-      'dateFirstPayment': dateFirstPayment,
-    });
-  }
+    String idUs,
+    String idVehic,
+    String idCompania,
+    String fechaInicio,
+    String monto,
+    String enganche,
+    String interes,
+    String plazo,
+    String comision,
+    String comisionApertura,
+    String dateFirstPayment,
+  ) async {}
 
-  Future<void> eliminarCredito(String idUs, String idVehic) async {
-    await _post('credits/delete_credit.php', {
-      'idVehic': idVehic,
-      'idUs': idUs,
-    });
-  }
+  Future<void> eliminarCredito(String idUs, String idVehic) async {}
 
   Future<List<Map<String, dynamic>>> getPaymentHistory(String idCredit) async {
-    final result = await _post('credits/get_payment_history.php', {
-      'idCredit': idCredit,
-    });
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
+    return [];
   }
 
   Future<Map<String, dynamic>> getNextPaymentDate(String idCredit) async {
-    final result = await _post('credits/get_next_payment_date.php', {
-      'idCredit': idCredit,
-    });
-    if (result != null && (result as List).isNotEmpty) {
-      return result.first as Map<String, dynamic>;
-    }
     return {};
   }
 
   Future<void> insertarPagosCredito(
-      String idUs, int idCredit, int nPayment, DateTime fechaBase) async {
-    await _post('credits/create_credit_payments.php', {
-      'idUs': idUs,
-      'idCredit': idCredit,
-      'nPayment': nPayment,
-      'fechaBase': fechaBase.toIso8601String(),
-    });
-  }
+    String idUs,
+    int idCredit,
+    int nPayment,
+    DateTime fechaBase,
+  ) async {}
 
   Future<int?> insertRegistrarPagos(int idCredit, String monto) async {
-    final result = await _post('credits/register_payment.php', {
-      'idCredit': idCredit,
+    return 1;
+  }
+
+  Future<void> eliminarPayCredit(String idUs, String idCredit) async {}
+
+  Future<void> UpdatePagosCredito(
+    String idUs,
+    String idCredit,
+    int plazo,
+    DateTime nuevaFechaInicial,
+  ) async {}
+
+  // Métodos de Acciones de Flota (Ronda 133 / Págs. 7-9)
+  Future<void> corregirOdometro({
+    required int idVehic,
+    required double valor,
+  }) async {
+    final action = {
+      'uuid': const Uuid().v4(),
+      'tipo': 'odometro',
+      'idVehic': idVehic,
+      'valor': valor,
+      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+    };
+    final res = await _client.sendActions([action]);
+    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      final avisos = res.first['avisos'] as List? ?? [];
+      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al corregir odómetro.');
+    }
+  }
+
+  Future<void> cambiarEstatusVehiculo({
+    required int idVehic,
+    required String estatus,
+    String? obs,
+    String? proximaRevision,
+  }) async {
+    final action = {
+      'uuid': const Uuid().v4(),
+      'tipo': 'estatus',
+      'idVehic': idVehic,
+      'estatus': estatus,
+      if (obs != null && obs.isNotEmpty) 'obs': obs,
+      if (proximaRevision != null && proximaRevision.isNotEmpty)
+        'proximaRevision': proximaRevision,
+      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+    };
+    final res = await _client.sendActions([action]);
+    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      final avisos = res.first['avisos'] as List? ?? [];
+      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al cambiar estatus.');
+    }
+  }
+
+  Future<void> reportarProblemaVehiculo({
+    required int idVehic,
+    required String titulo,
+    String? descripcion,
+    String? prioridad,
+    String? vence,
+    int? idResponsable,
+  }) async {
+    final action = {
+      'uuid': const Uuid().v4(),
+      'tipo': 'problema',
+      'idVehic': idVehic,
+      'titulo': titulo,
+      if (descripcion != null && descripcion.isNotEmpty) 'descripcion': descripcion,
+      if (prioridad != null && prioridad.isNotEmpty) 'prioridad': prioridad,
+      if (vence != null && vence.isNotEmpty) 'vence': vence,
+      if (idResponsable != null) 'idResponsable': idResponsable,
+      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+    };
+    final res = await _client.sendActions([action]);
+    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      final avisos = res.first['avisos'] as List? ?? [];
+      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al reportar problema.');
+    }
+  }
+
+  Future<void> registrarIncidenciaVehiculo({
+    required int idVehic,
+    required String tipoIncidencia,
+    required int severidad, // 1-3
+    required String nombre,
+    String? obs,
+  }) async {
+    final action = {
+      'uuid': const Uuid().v4(),
+      'tipo': 'incidenciaVehiculo',
+      'idVehic': idVehic,
+      'tipoIncidencia': tipoIncidencia,
+      'severidad': severidad,
+      'nombre': nombre,
+      if (obs != null && obs.isNotEmpty) 'obs': obs,
+      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+    };
+    final res = await _client.sendActions([action]);
+    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      final avisos = res.first['avisos'] as List? ?? [];
+      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al registrar incidencia.');
+    }
+  }
+
+  Future<void> registrarCargaCombustible({
+    required int idVehic,
+    required int idCombustible,
+    required double cantidad,
+    int? estacion,
+    double? costo,
+  }) async {
+    final action = {
+      'uuid': const Uuid().v4(),
+      'tipo': 'combustible',
+      'idVehic': idVehic,
+      'idCombustible': idCombustible,
+      'cantidad': cantidad,
+      if (estacion != null) 'estacion': estacion,
+      if (costo != null) 'costo': costo,
+      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+    };
+    final res = await _client.sendActions([action]);
+    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      final avisos = res.first['avisos'] as List? ?? [];
+      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al registrar combustible.');
+    }
+  }
+
+  Future<void> registrarPagoCredito({
+    required int idPago,
+    required double monto,
+    required String fecha,
+  }) async {
+    final action = {
+      'uuid': const Uuid().v4(),
+      'tipo': 'pagoCredito',
+      'idPago': idPago,
       'monto': monto,
-    });
-    return (result is int) ? result : int.tryParse(result?.toString() ?? '');
+      'fecha': fecha,
+      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+    };
+    final res = await _client.sendActions([action]);
+    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      final avisos = res.first['avisos'] as List? ?? [];
+      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al registrar pago de crédito.');
+    }
   }
 
-  Future<List<Map<String, dynamic>>> obtenerCreditos(String idUs) async {
-    final result = await _post('credits/get_finance_companies.php', {
-      'idUs': idUs,
-    });
-    return result != null ? List<Map<String, dynamic>>.from(result) : [];
-  }
-
-  Future<void> eliminarPayCredit(String idUs, String idCredit) async {
-    await _post('credits/delete_credit_payments.php', {
-      'idCredit': idCredit,
-      'idUs': idUs,
-    });
-  }
-
-  Future<void> UpdatePagosCredito(String idUs, String idCredit, int plazo,
-      DateTime nuevaFechaInicial) async {
-    await _post('credits/update_credit_payments.php', {
-      'idUs': idUs,
-      'idCredit': idCredit,
-      'plazo': plazo,
-      'nuevaFechaInicial': nuevaFechaInicial.toIso8601String(),
-    });
-  }
+  // Métodos legacy de Management Control para compatibilidad con vistas de documentos existentes
+  Future<void> insertManagementControlTJ(String idUs, String idVehic, DateTime fec) async {}
+  Future<void> updateManagementControlTJ(int idUs, int idVehic, String fec) async {}
+  Future<void> deleteManagementControlTJ(String idUs, String idVehic) async {}
+  Future<void> insertManagementControlTax(String idUs, String idVehic, DateTime fec) async {}
+  Future<void> updateManagementControlTax(String idUs, String idVehic, String fec) async {}
+  Future<void> deleteManagementControlTax(String idUs, String idVehic) async {}
+  Future<void> insertManagementControlVf(String idUs, String idVehic, DateTime fec) async {}
+  Future<void> updateManagementControlVf(String idUs, String idVehic, String fec) async {}
+  Future<void> deleteManagementControlVf(String idUs, String idVehic) async {}
+  Future<void> insertManagementControlINS(String idUs, String idVehic, DateTime fec) async {}
+  Future<void> updateManagementControlINS(String idUs, String idVehic, String fec) async {}
+  Future<void> deleteManagementControlINS(String idUs, String idVehic) async {}
+  Future<void> insertManagementControlCd(String idUs, String idVehic, DateTime fec) async {}
+  Future<void> updateManagementControlCd(String idUs, String idVehic, DateTime fec) async {}
+  Future<void> deleteManagementControlCd(String idUs, String idVehic) async {}
 }

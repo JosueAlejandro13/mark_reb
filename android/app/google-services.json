@@ -1,21 +1,21 @@
 {
   "project_info": {
-    "project_number": "721419935186",
-    "project_id": "noti-f369f",
-    "storage_bucket": "noti-f369f.firebasestorage.app"
+    "project_number": "131251648859",
+    "project_id": "caleni",
+    "storage_bucket": "caleni.firebasestorage.app"
   },
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:721419935186:android:96ddcd3048a055f7fdfc0b",
+        "mobilesdk_app_id": "1:131251648859:android:566eee28b3da11ce5ec27e",
         "android_client_info": {
-          "package_name": "com.example.mark_v3"
+          "package_name": "com.caleni.appMarkV3"
         }
       },
       "oauth_client": [],
       "api_key": [
         {
-          "current_key": "AIzaSyAwLR9PnRP2FExqKSs2HXvESjiX7NgykFA"
+          "current_key": "AIzaSyBWv3ThrK-9sZxZsoheTW_BLrs2anzMM4U"
         }
       ],
       "services": {

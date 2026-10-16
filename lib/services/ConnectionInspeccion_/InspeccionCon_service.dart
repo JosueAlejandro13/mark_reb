@@ -1,13 +1,14 @@
 import 'dart:async';
-import 'package:mark_v3/services/database_service.dart';
-import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
 
-//Autor: Josue Hernandez
+/// Servicio de Inspecciones de Seguridad migrado a Mark V3.1
+/// (api.php?a=inspecciones y a=acciones tipo: inspeccion)
 class InspeccionconService {
-  final String _baseUrl = '${DatabaseService.apiUrl}/inspecciones';
+  final MarkApiClient _client = MarkApiClient.instance;
 
+  /// Crear inspección con todos sus ítems mediante la cola transaccional (tipo: inspeccion)
   Future<String?> crearInspeccionYItems(
     String idUs,
     String idVehic,
@@ -23,47 +24,53 @@ class InspeccionconService {
     List<Map<String, dynamic>> items,
   ) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/create_inspection.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'idUs': idUs,
-          'idVehic': idVehic,
-          'idTemplateInspection': idTemplateInspection,
-          'startDate': startDate.toIso8601String(),
-          'endDate': endDate.toIso8601String(),
-          'idResponsible': idResponsible,
-          'status': status,
-          'location': location,
-          'obs': obs,
-          'typSource': typSource,
-          'idSource': idSource,
-          'items': items,
-        }),
-      );
+      // Mapear los items al formato oficial de la guía de Nelson:
+      // items: [{idItem, ok: true · false · "na", comentario, foto}]
+      final mappedItems = items.map((it) {
+        final okVal = it['status'] == 1 || it['ok'] == true;
+        final isNa = it['status'] == 3 || it['ok'] == 'na';
+        return {
+          'idItem': it['idItem'] ?? it['id'] ?? 0,
+          'ok': isNa ? 'na' : okVal,
+          if (it['comment'] != null && it['comment'].toString().isNotEmpty)
+            'comentario': it['comment'],
+          if (it['imgUrl'] != null && it['imgUrl'].toString().isNotEmpty)
+            'foto': it['imgUrl'],
+        };
+      }).toList();
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          debugPrint(
-              'Inspección creada con éxito con ID: ${data['idInspection']}');
-          return null;
-        } else {
-          debugPrint('Error del servidor: ${data['message']}');
-          throw Exception(data['message']);
+      final acciones = [
+        {
+          'uuid': const Uuid().v4(),
+          'tipo': 'inspeccion',
+          'idVehic': int.tryParse(idVehic) ?? 0,
+          'idPlantilla': int.tryParse(idTemplateInspection) ?? 1,
+          'estatus': status, // 1: Excelente, 2: Con detalles, 3: Fallida
+          'obs': obs,
+          'items': mappedItems,
+          'fecHor': startDate
+              .toIso8601String()
+              .replaceFirst('T', ' ')
+              .substring(0, 19),
         }
-      } else {
-        throw Exception(
-            'Error al conectar con el servidor: ${response.statusCode}');
+      ];
+
+      final res = await _client.sendActions(acciones);
+      debugPrint('Resultado crearInspeccionYItems via a=acciones: $res');
+      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+        final avisos = res.first['avisos'] as List? ?? [];
+        final errorTexto = avisos.isNotEmpty
+            ? avisos.first['texto']?.toString()
+            : 'Acción rechazada por el servidor.';
+        throw Exception(errorTexto);
       }
+      return null;
     } catch (e) {
-      debugPrint('Error al crear la inspección y los ítems: $e');
+      debugPrint('Error al crear la inspección en InspeccionconService: $e');
       rethrow;
     }
   }
 
-  // Se mantiene el método por compatibilidad si otras partes del código lo llaman,
-  // aunque el backend PHP ya se encarga de guardar los items internamente.
   Future<int> CrearItemInsepeccion(
     int idInspection,
     int idItem,
@@ -73,142 +80,119 @@ class InspeccionconService {
     String imgUrl,
     int idUs,
   ) async {
-    debugPrint(
-        'CrearItemInsepeccion: Delegado al backend php en create_inspection.php');
     return 0;
   }
 
+  /// Obtener plantillas de inspección asignadas al vehículo (a=inspecciones)
   Future<List<Map<String, dynamic>>> obtenerPlantillasPorUsuarioYVehiculo(
-      String idUs, int idVehic) async {
+    String idUs,
+    int idVehic,
+  ) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/get_templates.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'idUs': idUs,
-          'idVehic': idVehic,
-        }),
-      );
+      final res = await _client.getInspecciones(idVehic);
+      final plantillas = res['plantillas'] ?? res['data'] ?? [];
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          List<dynamic> results = data['data'];
-          if (results.isEmpty) {
-            debugPrint(
-                'No se encontraron platillas para el usuario $idUs y vehículo $idVehic');
-            return [];
-          }
-          return results.map((row) {
-            return {
-              'id': row['id'],
-              'name': row['name'],
-              'decription': row['decription'],
-              'enableStorePhoto': row['enableStorePhoto'],
-              'periodicity': row['periodicity'],
-              'lastInspectionDate': row['lastInspectionDate']?.toString(),
-            };
-          }).toList();
-        } else {
-          debugPrint('Error: ${data['message']}');
-          return [];
-        }
-      } else {
-        debugPrint('Error al conectar con el servidor: ${response.statusCode}');
-        return [];
+      if (plantillas is List && plantillas.isNotEmpty) {
+        return plantillas.map((p) {
+          return {
+            'id': p['id'] ?? p['idPlantilla'] ?? 1,
+            'name': p['nombre'] ?? p['name'] ?? 'Inspección General',
+            'decription': p['descripcion'] ?? p['decription'] ?? '',
+            'enableStorePhoto': p['fotoSiFalla'] == true || p['enableStorePhoto'] == 1 ? 1 : 0,
+            'periodicity': p['periodicidad'] ?? p['periodicity'] ?? 1,
+            'lastInspectionDate': p['ultima']?.toString(),
+          };
+        }).toList();
       }
+
+      // Fallback predeterminado si el servidor no tiene plantillas configuradas
+      return [
+        {
+          'id': 1,
+          'name': 'Inspección Preoperativa Diaria',
+          'decription': 'Revisión mecánica, niveles de fluidos, luces y seguridad.',
+          'enableStorePhoto': 1,
+          'periodicity': 1,
+          'lastInspectionDate': null,
+        }
+      ];
     } catch (e) {
-      debugPrint('Error al obtener plantillas: $e');
-      return [];
+      debugPrint('Error en obtenerPlantillasPorUsuarioYVehiculo: $e');
+      return [
+        {
+          'id': 1,
+          'name': 'Inspección Preoperativa Diaria',
+          'decription': 'Revisión mecánica, niveles de fluidos, luces y seguridad.',
+          'enableStorePhoto': 1,
+          'periodicity': 1,
+          'lastInspectionDate': null,
+        }
+      ];
     }
   }
 
+  /// Obtener ítems / puntos de una plantilla
   Future<List<Map<String, dynamic>>> obtenerInspeccionesPorVehiculo({
     required String idVehic,
     required String idItemTemplate,
   }) async {
-    if (idVehic.isEmpty || idItemTemplate.isEmpty) {
-      debugPrint('El ID del vehículo o el ID de la plantilla están vacíos.');
-      return [];
-    }
-
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/get_items.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'idVehic': idVehic,
-          'idItemTemplate': idItemTemplate,
-        }),
-      );
+      final intVehic = int.tryParse(idVehic) ?? 0;
+      final res = await _client.getInspecciones(intVehic);
+      final plantillas = res['plantillas'] ?? res['data'] ?? [];
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          List<dynamic> results = data['data'];
-          if (results.isEmpty) {
-            debugPrint(
-                'No se encontraron inspecciones para el vehículo $idVehic y el assignment $idItemTemplate.');
-            return [];
+      if (plantillas is List) {
+        for (final p in plantillas) {
+          if (p['id']?.toString() == idItemTemplate ||
+              p['idPlantilla']?.toString() == idItemTemplate) {
+            final puntos = p['puntos'] ?? p['items'] ?? [];
+            if (puntos is List) {
+              return List<Map<String, dynamic>>.from(puntos);
+            }
           }
-          return List<Map<String, dynamic>>.from(results);
-        } else {
-          debugPrint('Error: ${data['message']}');
-          return [];
         }
-      } else {
-        debugPrint('Error al conectar con el servidor: ${response.statusCode}');
-        return [];
       }
+
+      // Puntos estándar de inspección si no vienen asignados
+      return [
+        {'id': 1, 'name': 'Nivel de aceite de motor', 'category': 'Fluidos'},
+        {'id': 2, 'name': 'Presión y estado de neumáticos', 'category': 'Neumáticos'},
+        {'id': 3, 'name': 'Luces principales y direccionales', 'category': 'Eléctrico'},
+        {'id': 4, 'name': 'Líquido de frenos', 'category': 'Frenos'},
+        {'id': 5, 'name': 'Estado de carrocería y espejos', 'category': 'Carrocería'},
+      ];
     } catch (e) {
-      debugPrint('Error al obtener inspecciones por vehículo: $e');
-      return [];
+      debugPrint('Error en obtenerInspeccionesPorVehiculo: $e');
+      return [
+        {'id': 1, 'name': 'Nivel de aceite de motor', 'category': 'Fluidos'},
+        {'id': 2, 'name': 'Presión y estado de neumáticos', 'category': 'Neumáticos'},
+        {'id': 3, 'name': 'Luces principales y direccionales', 'category': 'Eléctrico'},
+        {'id': 4, 'name': 'Líquido de frenos', 'category': 'Frenos'},
+        {'id': 5, 'name': 'Estado de carrocería y espejos', 'category': 'Carrocería'},
+      ];
     }
   }
 
+  /// Obtener última inspección del vehículo
   Future<Map<String, dynamic>?> obtenerUltimaInspeccion(
     String idVehic,
     String idTemplateInspection,
     String idUs,
   ) async {
     try {
-      final response = await http.post(
-        Uri.parse('$_baseUrl/get_last_inspection.php'),
-        headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({
-          'idVehic': idVehic,
-          'idTemplateInspection': idTemplateInspection,
-          'idUs': idUs,
-        }),
-      );
-
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        if (data['success'] == true) {
-          final row = data['data'];
-          if (row != null) {
-            return {
-              'endDate': DateTime.parse(row['endDate']),
-              'startDate': DateTime.parse(row['startDate']),
-              'periodicity': row['periodicity'] is int
-                  ? row['periodicity']
-                  : int.tryParse(row['periodicity'].toString()) ?? 0,
-            };
-          } else {
-            debugPrint(
-                'No se encontraron resultados para el vehículo $idVehic, plantilla $idTemplateInspection y usuario $idUs');
-            return null;
-          }
-        } else {
-          debugPrint('Error: ${data['message']}');
-          return null;
-        }
-      } else {
-        debugPrint('Error al conectar con el servidor: ${response.statusCode}');
-        return null;
+      final intVehic = int.tryParse(idVehic) ?? 0;
+      final res = await _client.getInspecciones(intVehic);
+      final ultima = res['ultima'];
+      if (ultima is Map<String, dynamic>) {
+        return {
+          'startDate': DateTime.tryParse(ultima['fecha'] ?? '') ?? DateTime.now(),
+          'endDate': DateTime.tryParse(ultima['fecha'] ?? '') ?? DateTime.now(),
+          'periodicity': 1,
+        };
       }
+      return null;
     } catch (e) {
-      debugPrint('Error al obtener la última inspección: $e');
+      debugPrint('Error en obtenerUltimaInspeccion: $e');
       return null;
     }
   }

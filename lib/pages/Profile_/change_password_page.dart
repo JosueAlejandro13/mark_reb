@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:lottie/lottie.dart';
 import 'package:mark_v3/services/ConnectionProfile_/ProfileCon_service.dart';
+import 'package:mark_v3/widgets/loading_action_button.dart';
+import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:top_snackbar_flutter/top_snack_bar.dart';
 
 // Autor: Josue Hernandez
 class ChangePasswordPage extends StatefulWidget {
@@ -28,7 +28,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
   final _confirmPasswordController = TextEditingController();
 
   String _passwordStrengthMessage = '';
-  Color _passwordStrengthColor = Colors.grey;
+  Color _passwordStrengthColor = const Color(0xFF94A3B8);
   bool _passwordsMatch = false;
   double _passwordStrength = 0.0;
   bool _isSaving = false;
@@ -64,7 +64,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
       setState(() {
         _passwordStrength = 0.0;
         _passwordStrengthMessage = '';
-        _passwordStrengthColor = Colors.grey;
+        _passwordStrengthColor = const Color(0xFF94A3B8);
       });
       return;
     }
@@ -100,7 +100,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
     });
   }
 
-  // Función para cambiar la contraseña
+  // Función para cambiar la contraseña usando ProfileConService
   Future<void> _changePassword() async {
     FocusScope.of(context).unfocus();
 
@@ -108,57 +108,13 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
       _isSaving = true;
     });
 
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        child: Center(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(16),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 16,
-                  offset: const Offset(0, 4),
-                ),
-              ],
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Lottie.asset(
-                  'assets/loading.json',
-                  height: 44,
-                  width: 44,
-                  repeat: true,
-                ),
-                const SizedBox(width: 14),
-                const Text(
-                  "Guardando cambios...",
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF0F172A),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-
     bool isSuccess = false;
     String? errorMessage;
 
     try {
       final result = await ProfileconService().updatePassword(
         usuario: widget.usuario,
+        userId: widget.userId,
         idMainAccount: widget.idMainAccount,
         currentPassword: _currentPasswordController.text,
         newPassword: _newPasswordController.text,
@@ -171,13 +127,12 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
         await prefs.setString('password', _newPasswordController.text);
         await prefs.setBool('isPasswordSet', true);
       } else {
-        errorMessage = "Error. La contraseña actual es incorrecta.";
+        errorMessage = "La contraseña actual es incorrecta.";
       }
     } catch (e) {
-      errorMessage = "Error al guardar cambios. Intente nuevamente más tarde.";
+      errorMessage = "Error al guardar cambios. Intenta nuevamente más tarde.";
     } finally {
       if (mounted) {
-        Navigator.of(context, rootNavigator: true).pop(); // Cierra el modal de carga
         setState(() {
           _isSaving = false;
         });
@@ -187,504 +142,195 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
     if (!mounted) return;
 
     if (isSuccess) {
-      showTopSnackBar(
-        Overlay.of(context),
-        Material(
-          color: Colors.transparent,
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF10B981),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    "Contraseña actualizada con éxito.",
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      SnackbarTop.showSuccess(
+        context,
+        "Contraseña actualizada con éxito.",
       );
-
       Navigator.pop(context);
     } else {
-      showTopSnackBar(
-        Overlay.of(context),
-        Material(
-          color: Colors.transparent,
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEF4444),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.error_outline_rounded,
-                    color: Colors.white, size: 20),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    errorMessage ?? "Error inesperado al guardar.",
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      SnackbarTop.showError(
+        context,
+        errorMessage ?? "Error inesperado al actualizar la contraseña.",
       );
     }
   }
 
-  // Validación y diálogo de confirmación
+  // Validación previa al envío
   void _handleSubmit() {
+    FocusScope.of(context).unfocus();
+
+    if (_isSaving) return;
+
     if (_currentPasswordController.text.trim().isEmpty) {
-      showTopSnackBar(
-        Overlay.of(context),
-        Material(
-          color: Colors.transparent,
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFF0886B5),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.info_outline_rounded, color: Colors.white, size: 20),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    "La contraseña actual no puede estar vacía.",
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      SnackbarTop.showInfo(
+        context,
+        "Ingresa tu contraseña actual.",
       );
       return;
     }
 
     if (_newPasswordController.text.trim().length < 8 ||
         _passwordStrength < 0.4) {
-      showTopSnackBar(
-        Overlay.of(context),
-        Material(
-          color: Colors.transparent,
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEA580C),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.warning_amber_rounded,
-                    color: Colors.white, size: 20),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    "La contraseña es débil. Asegúrate de incluir al menos 8 caracteres.",
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      SnackbarTop.showInfo(
+        context,
+        "La contraseña es débil. Asegúrate de incluir al menos 8 caracteres y variedad de caracteres.",
       );
       return;
     }
 
     if (!_passwordsMatch) {
-      showTopSnackBar(
-        Overlay.of(context),
-        Material(
-          color: Colors.transparent,
-          child: Container(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEF4444),
-              borderRadius: BorderRadius.circular(14),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.08),
-                  blurRadius: 8,
-                  offset: const Offset(0, 3),
-                ),
-              ],
-            ),
-            child: const Row(
-              children: [
-                Icon(Icons.error_outline_rounded,
-                    color: Colors.white, size: 20),
-                SizedBox(width: 10),
-                Expanded(
-                  child: Text(
-                    "Las contraseñas no coinciden.",
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.white,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
+      SnackbarTop.showError(
+        context,
+        "Las contraseñas no coinciden.",
       );
       return;
     }
 
-    _showConfirmChangeDialog();
-  }
-
-  Future<void> _showConfirmChangeDialog() async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (BuildContext context) {
-        return AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-          contentPadding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: 44,
-                height: 44,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFE0F2FE),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Center(
-                  child: Icon(
-                    Icons.lock_reset_rounded,
-                    color: Color(0xFF0886B5),
-                    size: 24,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 14),
-              const Text(
-                'Confirmar Cambio',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                  letterSpacing: -0.3,
-                ),
-              ),
-              const SizedBox(height: 6),
-              const Text(
-                '¿Estás seguro de que deseas cambiar tu contraseña de acceso?',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 12.5,
-                  color: Color(0xFF64748B),
-                  height: 1.3,
-                ),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: TextButton(
-                      style: TextButton.styleFrom(
-                        backgroundColor: const Color(0xFFF1F5F9),
-                        padding: const EdgeInsets.symmetric(vertical: 11),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: () => Navigator.of(context).pop(false),
-                      child: const Text(
-                        'Cancelar',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF64748B),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0886B5),
-                        padding: const EdgeInsets.symmetric(vertical: 11),
-                        elevation: 0,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                      ),
-                      onPressed: () => Navigator.of(context).pop(true),
-                      child: const Text(
-                        'Confirmar',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ],
-          ),
-        );
-      },
-    );
-
-    if (confirmed == true) {
-      _changePassword();
-    }
+    _changePassword();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            Color.fromARGB(255, 250, 250, 250),
-            Color.fromARGB(255, 205, 240, 255),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
+    final mediaQuery = MediaQuery.of(context);
+    final clampedScaler = mediaQuery.textScaler.clamp(
+      minScaleFactor: 0.85,
+      maxScaleFactor: 1.15,
+    );
+    final isSmallScreen = mediaQuery.size.width < 360;
+
+    return MediaQuery(
+      data: mediaQuery.copyWith(textScaler: clampedScaler),
       child: Scaffold(
-        backgroundColor: Colors.transparent,
+        // Fondo gris suave estilo iOS System Grouped Background
+        backgroundColor: const Color(0xFFF8FAFC),
         body: SafeArea(
           child: GestureDetector(
             onTap: () => FocusScope.of(context).unfocus(),
             behavior: HitTestBehavior.translucent,
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 8.0,
+              padding: EdgeInsets.symmetric(
+                horizontal: isSmallScreen ? 14.0 : 18.0,
+                vertical: 10.0,
               ),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // Header superior
-                    _buildHeader(context),
-                    const SizedBox(height: 12),
+              child: AbsorbPointer(
+                absorbing: _isSaving,
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // ── 1. Encabezado Apple ─────────────────────────────
+                      _buildAnimatedItem(_buildAppleHeader(context), 0),
+                      const SizedBox(height: 16),
 
-                    // CARD 1: CONTRASEÑA ACTUAL
-                    _buildSectionCard(
-                      icon: Icons.lock_outline_rounded,
-                      iconColor: const Color(0xFF0886B5),
-                      iconBg: const Color(0xFFE0F2FE),
-                      title: 'Contraseña Actual',
-                      subtitle: 'Ingresa tu clave de acceso vigente',
-                      children: [
-                        _buildPasswordField(
-                          controller: _currentPasswordController,
-                          label: 'Contraseña Actual',
-                          icon: Icons.key_rounded,
-                          isVisible: _isCurrentPasswordVisible,
-                          onToggleVisibility: () {
-                            setState(() {
-                              _isCurrentPasswordVisible =
-                                  !_isCurrentPasswordVisible;
-                            });
-                          },
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 11),
-
-                    // CARD 2: NUEVA CONTRASEÑA
-                    _buildSectionCard(
-                      icon: Icons.shield_outlined,
-                      iconColor: const Color(0xFF7C3AED),
-                      iconBg: const Color(0xFFF3E8FF),
-                      title: 'Nueva Contraseña',
-                      subtitle: 'Define y confirma tu nueva clave de seguridad',
-                      children: [
-                        // Guía rápida de requisitos
-                        _buildRequirementsBadge(),
-                        const SizedBox(height: 12),
-
-                        // Campo nueva contraseña
-                        _buildPasswordField(
-                          controller: _newPasswordController,
-                          label: 'Nueva Contraseña',
-                          icon: Icons.lock_reset_rounded,
-                          isVisible: _isNewPasswordVisible,
-                          onToggleVisibility: () {
-                            setState(() {
-                              _isNewPasswordVisible = !_isNewPasswordVisible;
-                            });
-                          },
-                        ),
-                        const SizedBox(height: 8),
-
-                        // Indicador de fuerza de contraseña
-                        if (_newPasswordController.text.isNotEmpty) ...[
-                          ClipRRect(
-                            borderRadius: BorderRadius.circular(4),
-                            child: LinearProgressIndicator(
-                              value: _passwordStrength,
-                              backgroundColor: Colors.grey[200],
-                              color: _passwordStrengthColor,
-                              minHeight: 5,
+                      // ── 2. Sección: Contraseña Actual ───────────────────
+                      _buildAnimatedItem(
+                        _buildSectionTitle('CONTRASEÑA VIGENTE'),
+                        1,
+                      ),
+                      _buildAnimatedItem(
+                        _buildAppleGroupContainer(
+                          children: [
+                            _buildPasswordField(
+                              controller: _currentPasswordController,
+                              label: 'Contraseña Actual',
+                              hintText: 'Ingresa tu clave actual',
+                              icon: Icons.key_rounded,
+                              isVisible: _isCurrentPasswordVisible,
+                              enabled: !_isSaving,
+                              onToggleVisibility: () {
+                                setState(() {
+                                  _isCurrentPasswordVisible =
+                                      !_isCurrentPasswordVisible;
+                                });
+                              },
                             ),
-                          ),
-                          const SizedBox(height: 5),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              const Text(
-                                'Nivel de seguridad:',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  color: Color(0xFF64748B),
-                                ),
-                              ),
-                              Text(
-                                _passwordStrengthMessage,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w700,
-                                  color: _passwordStrengthColor,
-                                ),
-                              ),
+                          ],
+                        ),
+                        2,
+                      ),
+                      const SizedBox(height: 18),
+
+                      // ── 3. Sección: Nueva Contraseña ────────────────────
+                      _buildAnimatedItem(
+                        _buildSectionTitle('NUEVA CONTRASEÑA'),
+                        3,
+                      ),
+                      _buildAnimatedItem(
+                        _buildAppleGroupContainer(
+                          children: [
+                            // Campo Nueva Contraseña
+                            _buildPasswordField(
+                              controller: _newPasswordController,
+                              label: 'Nueva Contraseña',
+                              hintText: 'Mínimo 8 caracteres',
+                              icon: Icons.lock_reset_rounded,
+                              isVisible: _isNewPasswordVisible,
+                              enabled: !_isSaving,
+                              onToggleVisibility: () {
+                                setState(() {
+                                  _isNewPasswordVisible =
+                                      !_isNewPasswordVisible;
+                                });
+                              },
+                            ),
+
+                            // Medidor de fuerza estilo Apple
+                            if (_newPasswordController.text.isNotEmpty) ...[
+                              const SizedBox(height: 12),
+                              _buildStrengthMeter(),
                             ],
-                          ),
-                          const SizedBox(height: 10),
-                        ],
 
-                        // Campo confirmar nueva contraseña
-                        _buildPasswordField(
-                          controller: _confirmPasswordController,
-                          label: 'Confirmar Nueva Contraseña',
-                          icon: Icons.verified_user_outlined,
-                          isVisible: _isConfirmPasswordVisible,
-                          onToggleVisibility: () {
-                            setState(() {
-                              _isConfirmPasswordVisible =
-                                  !_isConfirmPasswordVisible;
-                            });
-                          },
+                            const SizedBox(height: 14),
+
+                            // Campo Confirmar Nueva Contraseña
+                            _buildPasswordField(
+                              controller: _confirmPasswordController,
+                              label: 'Confirmar Nueva Contraseña',
+                              hintText: 'Repite tu nueva contraseña',
+                              icon: Icons.verified_user_outlined,
+                              isVisible: _isConfirmPasswordVisible,
+                              enabled: !_isSaving,
+                              onToggleVisibility: () {
+                                setState(() {
+                                  _isConfirmPasswordVisible =
+                                      !_isConfirmPasswordVisible;
+                                });
+                              },
+                            ),
+
+                            // Indicador de Coincidencia estilo Apple
+                            if (_confirmPasswordController.text.isNotEmpty) ...[
+                              const SizedBox(height: 10),
+                              _buildMatchIndicator(),
+                            ],
+
+                            const SizedBox(height: 14),
+
+                            // Guía de requisitos con chips estilo Apple
+                            _buildRequirementsList(),
+                          ],
                         ),
+                        4,
+                      ),
+                      const SizedBox(height: 24),
 
-                        // Indicador de coincidencia
-                        if (_confirmPasswordController.text.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                              color: _passwordsMatch
-                                  ? const Color(0xFFDCFCE7)
-                                  : const Color(0xFFFEE2E2),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(
-                                  _passwordsMatch
-                                      ? Icons.check_circle_rounded
-                                      : Icons.error_rounded,
-                                  size: 13,
-                                  color: _passwordsMatch
-                                      ? const Color(0xFF16A34A)
-                                      : const Color(0xFFDC2626),
-                                ),
-                                const SizedBox(width: 5),
-                                Text(
-                                  _passwordsMatch
-                                      ? 'Las contraseñas coinciden'
-                                      : 'Las contraseñas no coinciden',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    color: _passwordsMatch
-                                        ? const Color(0xFF15803D)
-                                        : const Color(0xFFB91C1C),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 18),
-
-                    // Botón para actualizar contraseña
-                    _buildSaveButton(),
-                    const SizedBox(height: 24),
-                  ],
+                      // ── 4. Botón de Acción con Loading integrado ────────
+                      _buildAnimatedItem(
+                        LoadingActionButton(
+                          text: 'Actualizar Contraseña',
+                          isLoading: _isSaving,
+                          icon: Icons.check_circle_rounded,
+                          height: 50,
+                          borderRadius: 16,
+                          onPressed: _handleSubmit,
+                        ),
+                        5,
+                      ),
+                      const SizedBox(height: 28),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -694,27 +340,30 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
     );
   }
 
-  // --- HEADER SUPERIOR ---
-  Widget _buildHeader(BuildContext context) {
+  // ── ENCABEZADO APPLE (HEADER) ───────────────────────────────────────────────
+  Widget _buildAppleHeader(BuildContext context) {
     return Row(
       children: [
         Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: () => Navigator.pop(context),
+            onTap: _isSaving ? null : () => Navigator.pop(context),
             child: Container(
               width: 38,
               height: 38,
               decoration: BoxDecoration(
                 color: Colors.white,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: Colors.black.withOpacity(0.04)),
+                border: Border.all(
+                  color: const Color(0xFFE2E8F0),
+                  width: 1.0,
+                ),
                 boxShadow: [
                   BoxShadow(
-                    color: Colors.black.withOpacity(0.02),
+                    color: const Color(0xFF0F172A).withOpacity(0.04),
                     blurRadius: 8,
-                    offset: const Offset(0, 3),
+                    offset: const Offset(0, 2),
                   ),
                 ],
               ),
@@ -722,7 +371,7 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
                 child: Icon(
                   Icons.arrow_back_ios_new_rounded,
                   color: Color(0xFF0F172A),
-                  size: 16,
+                  size: 15,
                 ),
               ),
             ),
@@ -736,15 +385,17 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
               Text(
                 'Cambiar Contraseña',
                 style: TextStyle(
-                  fontSize: 18,
+                  fontSize: 21,
                   fontWeight: FontWeight.w800,
                   color: Color(0xFF0F172A),
-                  letterSpacing: -0.4,
+                  letterSpacing: -0.5,
                 ),
               ),
               SizedBox(height: 1),
               Text(
-                'Actualiza tu clave de acceso a la plataforma',
+                'Actualiza tu clave de acceso a la cuenta',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 11.5,
                   color: Color(0xFF64748B),
@@ -758,105 +409,251 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
     );
   }
 
-  // --- CONTENEDOR DE SECCIÓN (CARD) ---
-  Widget _buildSectionCard({
-    required IconData icon,
-    required Color iconColor,
-    required Color iconBg,
-    required String title,
-    required String subtitle,
-    required List<Widget> children,
-  }) {
+
+
+  // ── TÍTULO DE SECCIÓN INSET GROUPED ─────────────────────────────────────────
+  Widget _buildSectionTitle(String title) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 8),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF64748B),
+          letterSpacing: 0.8,
+        ),
+      ),
+    );
+  }
+
+  // ── CONTENEDOR INSET GROUPED ESTILO APPLE ───────────────────────────────────
+  Widget _buildAppleGroupContainer({required List<Widget> children}) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.black.withOpacity(0.04)),
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0),
+          width: 1.0,
+        ),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.02),
-            blurRadius: 8,
+            color: const Color(0xFF0F172A).withOpacity(0.03),
+            blurRadius: 10,
             offset: const Offset(0, 3),
           ),
         ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: iconBg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Center(
-                  child: Icon(icon, color: iconColor, size: 17),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F172A),
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: Color(0xFF64748B),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ...children,
-        ],
+        children: children,
       ),
     );
   }
 
-  // --- BADGE DE REQUISITOS ---
-  Widget _buildRequirementsBadge() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.black.withOpacity(0.04)),
-      ),
-      child: const Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Icon(
-            Icons.info_outline_rounded,
-            size: 15,
-            color: Color(0xFF0886B5),
+  // ── CAMPO DE CONTRASEÑA ESTILO APPLE ───────────────────────────────────────
+  Widget _buildPasswordField({
+    required TextEditingController controller,
+    required String label,
+    required String hintText,
+    required IconData icon,
+    required bool isVisible,
+    required VoidCallback onToggleVisibility,
+    bool enabled = true,
+  }) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(left: 2, bottom: 5),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w600,
+                  color: enabled
+                      ? const Color(0xFF475569)
+                      : const Color(0xFF94A3B8),
+                  letterSpacing: -0.1,
+                ),
+              ),
+              if (!enabled)
+                const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.lock_outline_rounded,
+                      size: 11,
+                      color: Color(0xFF94A3B8),
+                    ),
+                    SizedBox(width: 3),
+                    Text(
+                      'Bloqueado',
+                      style: TextStyle(
+                        fontSize: 10,
+                        color: Color(0xFF94A3B8),
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+            ],
           ),
-          SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              'Debe tener al menos 8 caracteres, incluir una letra mayúscula, un número y un carácter especial.',
+        ),
+        TextFormField(
+          controller: controller,
+          enabled: enabled,
+          readOnly: !enabled,
+          obscureText: !isVisible,
+          cursorColor: const Color(0xFF0284C7),
+          style: TextStyle(
+            fontSize: 13.5,
+            fontWeight: FontWeight.w600,
+            color: enabled ? const Color(0xFF0F172A) : const Color(0xFF64748B),
+          ),
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: hintText,
+            hintStyle: const TextStyle(
+              fontSize: 12.5,
+              color: Color(0xFF94A3B8),
+              fontWeight: FontWeight.w400,
+            ),
+            prefixIcon: Icon(
+              icon,
+              size: 17,
+              color: enabled
+                  ? const Color(0xFF0284C7)
+                  : const Color(0xFF94A3B8),
+            ),
+            suffixIcon: IconButton(
+              icon: Icon(
+                isVisible
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+                color: const Color(0xFF94A3B8),
+                size: 19,
+              ),
+              onPressed: enabled ? onToggleVisibility : null,
+              splashRadius: 18,
+            ),
+            filled: true,
+            fillColor:
+                enabled ? const Color(0xFFF8FAFC) : const Color(0xFFF1F5F9),
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+            border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+            ),
+            disabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(color: Colors.black.withOpacity(0.04)),
+            ),
+            focusedBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide:
+                  const BorderSide(color: Color(0xFF0284C7), width: 1.5),
+            ),
+            errorBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: const BorderSide(color: Color(0xFFEF4444)),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── MEDIDOR DE FUERZA DE CONTRASEÑA ─────────────────────────────────────────
+  Widget _buildStrengthMeter() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            const Text(
+              'Seguridad de la clave',
               style: TextStyle(
                 fontSize: 11,
                 color: Color(0xFF64748B),
-                height: 1.3,
+                fontWeight: FontWeight.w500,
               ),
+            ),
+            Text(
+              _passwordStrengthMessage,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                color: _passwordStrengthColor,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 5),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: LinearProgressIndicator(
+            value: _passwordStrength,
+            backgroundColor: const Color(0xFFF1F5F9),
+            color: _passwordStrengthColor,
+            minHeight: 5,
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ── INDICADOR DE COINCIDENCIA DE CONTRASEÑAS ────────────────────────────────
+  Widget _buildMatchIndicator() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: _passwordsMatch
+            ? const Color(0xFFDCFCE7)
+            : const Color(0xFFFEE2E2),
+        borderRadius: BorderRadius.circular(9),
+        border: Border.all(
+          color: _passwordsMatch
+              ? const Color(0xFF86EFAC)
+              : const Color(0xFFFCA5A5),
+          width: 0.8,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            _passwordsMatch
+                ? Icons.check_circle_rounded
+                : Icons.cancel_rounded,
+            size: 14,
+            color: _passwordsMatch
+                ? const Color(0xFF16A34A)
+                : const Color(0xFFDC2626),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            _passwordsMatch
+                ? 'Las contraseñas coinciden'
+                : 'Las contraseñas no coinciden',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: _passwordsMatch
+                  ? const Color(0xFF15803D)
+                  : const Color(0xFFB91C1C),
             ),
           ),
         ],
@@ -864,127 +661,99 @@ class _ChangePasswordPageState extends State<ChangePasswordPage> {
     );
   }
 
-  // --- CAMPO DE CONTRASEÑA ESTILIZADO ---
-  Widget _buildPasswordField({
-    required TextEditingController controller,
-    required String label,
-    required IconData icon,
-    required bool isVisible,
-    required VoidCallback onToggleVisibility,
-  }) {
-    return TextFormField(
-      controller: controller,
-      obscureText: !isVisible,
-      style: const TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-        color: Color(0xFF0F172A),
+  // ── LISTA DE REQUISITOS ESTILO APPLE CHIPS ──────────────────────────────────
+  Widget _buildRequirementsList() {
+    final pwd = _newPasswordController.text;
+    final hasLength = pwd.length >= 8;
+    final hasUpper = RegExp(r'[A-Z]').hasMatch(pwd);
+    final hasNumber = RegExp(r'[0-9]').hasMatch(pwd);
+    final hasSpecial = RegExp(r'[!@#$%^&*(),.?":{}|<>]').hasMatch(pwd);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
       ),
-      decoration: InputDecoration(
-        labelText: label,
-        labelStyle: TextStyle(
-          fontSize: 12,
-          color: Colors.grey[600],
-          fontWeight: FontWeight.w500,
-        ),
-        prefixIcon: Icon(
-          icon,
-          size: 17,
-          color: const Color(0xFF0886B5),
-        ),
-        suffixIcon: IconButton(
-          icon: Icon(
-            isVisible
-                ? Icons.visibility_outlined
-                : Icons.visibility_off_outlined,
-            color: Colors.grey[500],
-            size: 18,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Requisitos recomendados:',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF475569),
+            ),
           ),
-          onPressed: onToggleVisibility,
-        ),
-        filled: true,
-        fillColor: const Color(0xFFF8FAFC),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        isDense: true,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.black.withOpacity(0.05)),
-        ),
-        enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: Colors.black.withOpacity(0.05)),
-        ),
-        focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFF0886B5), width: 1.5),
-        ),
-        errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: const BorderSide(color: Color(0xFFEF4444)),
-        ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              _buildRequirementChip('8+ Caracteres', hasLength),
+              _buildRequirementChip('Mayúscula', hasUpper),
+              _buildRequirementChip('Número', hasNumber),
+              _buildRequirementChip('Símbolo (!@#)', hasSpecial),
+            ],
+          ),
+        ],
       ),
     );
   }
 
-  // --- BOTÓN ACTUALIZAR CONTRASEÑA ---
-  Widget _buildSaveButton() {
-    return Container(
-      width: double.infinity,
-      height: 46,
+  Widget _buildRequirementChip(String label, bool isMet) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [
-            Color(0xFF0886B5),
-            Color(0xFF0284C7),
-          ],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
+        color: isMet ? const Color(0xFFECFDF5) : Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isMet ? const Color(0xFF10B981) : const Color(0xFFCBD5E1),
+          width: 0.9,
         ),
-        borderRadius: BorderRadius.circular(14),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0886B5).withOpacity(0.3),
-            blurRadius: 10,
-            offset: const Offset(0, 4),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isMet ? Icons.check_circle_rounded : Icons.radio_button_unchecked,
+            size: 11,
+            color: isMet ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+          ),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: isMet ? FontWeight.w700 : FontWeight.w500,
+              color: isMet ? const Color(0xFF065F46) : const Color(0xFF64748B),
+            ),
           ),
         ],
       ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(14),
-          onTap: _isSaving ? null : _handleSubmit,
-          child: Center(
-            child: _isSaving
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                      color: Colors.white,
-                      strokeWidth: 2,
-                    ),
-                  )
-                : const Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.lock_reset_rounded,
-                          color: Colors.white, size: 18),
-                      SizedBox(width: 8),
-                      Text(
-                        'Actualizar Contraseña',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.2,
-                        ),
-                      ),
-                    ],
-                  ),
+    );
+  }
+
+  // ── ANIMACIÓN SUAVE STAGGERED ESTILO APPLE ──────────────────────────────────
+  Widget _buildAnimatedItem(Widget child, int index) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween<double>(begin: 0.0, end: 1.0),
+      duration: Duration(milliseconds: 260 + (index * 35)),
+      curve: Curves.easeOutCubic,
+      builder: (context, value, child) {
+        return Transform.translate(
+          offset: Offset(0, 10 * (1.0 - value)),
+          child: Opacity(
+            opacity: value.clamp(0.0, 1.0),
+            child: child,
           ),
-        ),
-      ),
+        );
+      },
+      child: child,
     );
   }
 }

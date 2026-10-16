@@ -40,10 +40,8 @@ dependencies:
 
   font_awesome_flutter: ^11.0.0
   lottie: ^3.1.3
-  curved_navigation_bar: ^1.0.0
   bottom_picker: ^3.1.0
 
-  
   flutter_screenutil: ^5.9.3
   top_snackbar_flutter: ^3.2.0
   flutter_staggered_animations: ^1.1.1
@@ -58,7 +56,6 @@ dependencies:
 
   # Acceso a dispositivos y hardware
   device_info_plus: ^10.0.0
-  local_auth: ^2.3.0
 
   # Almacenamiento local y utilidades
   shared_preferences: ^2.0.11
@@ -78,23 +75,18 @@ dependencies:
   image_picker: ^0.8.4+4
   image: ^4.3.0
 
-  # Seguridad y criptografía
-  crypto: ^3.0.0
-
-  # Base de datos MySQL
-  mysql1: ^0.20.0
-
-  # Google APIs (auth)
-  googleapis_auth: ^1.4.0
-  google_mlkit_barcode_scanning: ^0.14.1
-  camera: ^0.11.1
+  # Permisos y estado
   permission_handler: ^12.0.0+1
-  flutter_neumorphic_plus: ^3.5.0
   flutter_riverpod: ^3.4.3
   flutter_secure_storage: ^10.3.4
+  loading_animation_widget: ^1.3.0
+  sqflite: ^2.4.1
+  path: ^1.9.0
+  path_provider: ^2.1.5
+  mobile_scanner: ^6.0.6
+  flutter_local_notifications: ^18.0.1
 
 dev_dependencies:
-  flutter_native_splash: ^2.2.18
   test: ^1.21.0
   flutter_launcher_icons: ^0.13.1
   flutter_test:
@@ -126,13 +118,8 @@ flutter:
     - assets/car.png
     - assets/cargps.png
     - assets/ini.json
+    - assets/caleni_rutas_lottie.json
 
-flutter_native_splash:
-  color: "#FFFFFF" # Color de fondo de la pantalla splash
-  android: true # Activar la pantalla splash para Android
-  ios: true # Activar la pantalla splash para iOS
-  android_gravity: center # Centra la imagen en Android
-  ios_content_mode: scaleAspectFit # Ajusta la imagen en iOS para que mantenga su proporción
 
 
 flutter_icons:
