@@ -8,8 +8,12 @@ import 'package:mark_v3/pages/Vehicles_/TaxesPage.dart';
 import 'package:mark_v3/pages/Vehicles_/VerificationsPage.dart';
 import 'package:mark_v3/pages/inspeccion/SeleccionPlantillasPage.dart';
 import 'package:mark_v3/pages/MyVehicle_/MyVehiclePage.dart';
+import 'package:mark_v3/pages/ServiceStation_/ServiceStationPage.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
+import 'package:mark_v3/widgets/apple_section_title.dart';
+import 'package:mark_v3/widgets/vehicle_report_sheets.dart';
 
-//Autor: Josue Hernandez
+// Autor: Josue Hernandez
 class VehicleDetailPage extends ConsumerStatefulWidget {
   final Map<String, dynamic> vehicle;
   final String userId;
@@ -69,6 +73,49 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
     debugPrint('Seguro: $insurancePermissionValue');
   }
 
+  int get _idVehic =>
+      int.tryParse((widget.vehicle['idVehic'] ?? widget.vehicle['id'] ?? '0')
+          .toString()) ??
+      0;
+
+  String get _vehicleName {
+    final make = widget.vehicle['make']?.toString() ??
+        widget.vehicle['marca']?.toString() ??
+        '';
+    final model = widget.vehicle['model']?.toString() ??
+        widget.vehicle['modelo']?.toString() ??
+        '';
+    final eco = widget.vehicle['economic']?.toString() ??
+        widget.vehicle['eco']?.toString() ??
+        widget.vehicle['economico']?.toString() ??
+        '';
+    if (make.isNotEmpty || model.isNotEmpty) {
+      return '$make $model'.trim();
+    }
+    if (eco.isNotEmpty) return 'Unidad $eco';
+    return 'Vehículo';
+  }
+
+  String get _vehiclePlates {
+    return widget.vehicle['placas']?.toString() ??
+        widget.vehicle['plate']?.toString() ??
+        'Sin Placas';
+  }
+
+  String get _vehiclePhotoUrl {
+    final rawPhoto = (widget.vehicle['photo'] ??
+            widget.vehicle['foto'] ??
+            widget.vehicle['rawFoto'] ??
+            '')
+        .toString()
+        .trim();
+    if (rawPhoto.isEmpty) return '';
+    if (rawPhoto.startsWith('http://') || rawPhoto.startsWith('https://')) {
+      return rawPhoto;
+    }
+    return MarkApiClient.instance.resolveAssetUrl(rawPhoto);
+  }
+
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
@@ -90,16 +137,26 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
             children: [
               _buildAppleHeader(context),
               const SizedBox(height: 24),
+
+              // 1. ACCIONES RÁPIDAS
               _buildSectionTitle('ACCIONES RÁPIDAS'),
               const SizedBox(height: 8),
               _buildQuickActionsGroup(),
               const SizedBox(height: 24),
+
+              // 2. FALLAS E INCIDENCIAS (tipo: problema y tipo: incidenciaVehiculo)
+              _buildSectionTitle('FALLAS E INCIDENCIAS'),
+              const SizedBox(height: 8),
+              _buildFailuresAndIncidentsGroup(),
+              const SizedBox(height: 24),
+
+              // 3. GESTIÓN VEHICULAR
               if (_hasAnyManagementPermission()) ...[
                 _buildSectionTitle('GESTIÓN VEHICULAR'),
                 const SizedBox(height: 8),
                 _buildManagementGroup(),
                 const SizedBox(height: 24),
-              ]
+              ],
             ],
           ),
         ),
@@ -152,11 +209,11 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
                 ),
               ),
               const SizedBox(height: 1),
-              const Text(
-                'Gestión y administración del vehículo',
+              Text(
+                '$_vehicleName · ${_vehiclePlates.toUpperCase()}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(
+                style: const TextStyle(
                   fontSize: 11.5,
                   fontWeight: FontWeight.w400,
                   color: Color(0xFF64748B),
@@ -170,17 +227,9 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
   }
 
   Widget _buildSectionTitle(String title) {
-    return Padding(
+    return AppleSectionTitle(
+      title,
       padding: const EdgeInsets.only(left: 4, bottom: 2),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 11.5,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF64748B),
-          letterSpacing: 0.8,
-        ),
-      ),
     );
   }
 
@@ -189,14 +238,16 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
 
     children.add(_buildCupertinoListTile(
       title: 'Ficha Técnica',
-      icon: Icons.info_outline_rounded,
+      subtitle: 'Información general, odómetro y especificaciones',
+      icon: Icons.description_outlined,
       iconGradient: const [Color(0xFF0284C7), Color(0xFF38BDF8)], // Sky blue
       onTap: () => _handleMenuSelection('Ficha Técnica'),
     ));
 
-    if (hasPermission(inspectionsPermission, 2)) {
+    if (_canCreateInspections) {
       children.add(_buildCupertinoListTile(
         title: 'Inspeccionar',
+        subtitle: 'Inspección de seguridad con fotos y checklist',
         icon: Icons.search_outlined,
         iconGradient: const [Color(0xFF0891B2), Color(0xFF06B6D4)], // Cyan
         onTap: () => _handleMenuSelection('Inspeccionar'),
@@ -205,13 +256,56 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
 
     children.add(_buildCupertinoListTile(
       title: 'Mantenimiento',
+      subtitle: 'Servicios preventivos y correctivos',
       icon: Icons.build_outlined,
       iconGradient: const [Color(0xFF0F172A), Color(0xFF334155)], // Slate
       onTap: () => _handleMenuSelection('Mantenimiento'),
+    ));
+
+    children.add(_buildCupertinoListTile(
+      title: 'Reabastecimiento',
+      subtitle: 'Registro de carga de combustible, litros y costos',
+      icon: Icons.local_gas_station_rounded,
+      iconGradient: const [Color(0xFF0284C7), Color(0xFF0EA5E9)],
+      onTap: () => _handleMenuSelection('Reabastecimiento'),
       isLast: true,
     ));
 
     return _buildCupertinoListGroup(children);
+  }
+
+  Widget _buildFailuresAndIncidentsGroup() {
+    return _buildCupertinoListGroup([
+      _buildCupertinoListTile(
+        title: 'Reportar Falla o Avería',
+        subtitle: 'Crea una orden de trabajo o tarea para el taller',
+        icon: Icons.build_circle_rounded,
+        iconGradient: const [Color(0xFFEA580C), Color(0xFFF97316)],
+        onTap: () {
+          VehicleReportProblemSheet.show(
+            context,
+            idVehic: _idVehic,
+            vehicleName: _vehicleName,
+            plates: _vehiclePlates,
+          );
+        },
+      ),
+      _buildCupertinoListTile(
+        title: 'Incidencia / Percance Vial',
+        subtitle: 'Siniestros, averías en ruta, ponchaduras o multas',
+        icon: Icons.car_crash_rounded,
+        iconGradient: const [Color(0xFFDC2626), Color(0xFFEF4444)],
+        isLast: true,
+        onTap: () {
+          VehicleReportIncidentSheet.show(
+            context,
+            idVehic: _idVehic,
+            vehicleName: _vehicleName,
+            plates: _vehiclePlates,
+          );
+        },
+      ),
+    ]);
   }
 
   Widget _buildManagementGroup() {
@@ -302,11 +396,15 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
 
   Widget _buildCupertinoListTile({
     required String title,
+    String? subtitle,
     required IconData icon,
     required List<Color> iconGradient,
     required VoidCallback onTap,
+    String? imageUrl,
     bool isLast = false,
   }) {
+    final hasImage = imageUrl != null && imageUrl.isNotEmpty;
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -323,34 +421,72 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
                     width: 38,
                     height: 38,
                     decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: iconGradient,
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                      ),
+                      color: hasImage ? const Color(0xFFF1F5F9) : null,
+                      gradient: hasImage
+                          ? null
+                          : LinearGradient(
+                              colors: iconGradient,
+                              begin: Alignment.topLeft,
+                              end: Alignment.bottomRight,
+                            ),
                       borderRadius: BorderRadius.circular(11),
+                      border: hasImage
+                          ? Border.all(
+                              color: const Color(0xFFE2E8F0),
+                              width: 0.8,
+                            )
+                          : null,
                       boxShadow: [
                         BoxShadow(
-                          color: iconGradient.first.withOpacity(0.28),
+                          color: hasImage
+                              ? const Color(0xFF0F172A).withOpacity(0.06)
+                              : iconGradient.first.withOpacity(0.28),
                           blurRadius: 6,
                           offset: const Offset(0, 2),
                         ),
                       ],
                     ),
-                    child: Center(
-                      child: Icon(icon, size: 20, color: Colors.white),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: hasImage
+                          ? Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => Center(
+                                child: Icon(icon,
+                                    size: 20, color: iconGradient.first),
+                              ),
+                            )
+                          : Center(
+                              child: Icon(icon, size: 20, color: Colors.white),
+                            ),
                     ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
-                    child: Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF0F172A),
-                        letterSpacing: -0.3,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          title,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF0F172A),
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        if (subtitle != null && subtitle.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            subtitle,
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                   const Icon(
@@ -393,6 +529,7 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
         );
         break;
       case 'Inspeccionar':
+        if (!_canCreateInspections) return;
         final vehicleModel = Vehicle.fromMap(widget.vehicle);
         Navigator.push(
           context,
@@ -482,12 +619,37 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
           ),
         );
         break;
+      case 'Reabastecimiento':
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => ServiceStationForm(
+              idMainAccount: widget.idMainAccount,
+              idCollaborator: widget.idCollaborator,
+            ),
+          ),
+        );
+        break;
       default:
         break;
     }
   }
 
+  bool get _canCreateInspections {
+    final session = MarkApiClient.instance.currentSession;
+    if (session != null) {
+      final rol = session.rol.toLowerCase();
+      if (rol == 'usuario' || rol == 'chofer') return true;
+      return session.flota.can('inspeccion', 'crear');
+    }
+    return true;
+  }
+
   bool _hasAnyManagementPermission() {
+    final session = MarkApiClient.instance.currentSession;
+    if (session != null && (session.rol.toLowerCase() == 'usuario' || session.rol.toLowerCase() == 'chofer')) {
+      return true;
+    }
     return hasPermission(circulationPermissionValue, 2) ||
         hasPermission(taxesPermissionValue, 2) ||
         hasPermission(verificationsPermissionValue, 2) ||
@@ -496,6 +658,10 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
   }
 
   bool hasPermission(int permissionValue, int actionBit) {
+    final session = MarkApiClient.instance.currentSession;
+    if (session != null && (session.rol.toLowerCase() == 'usuario' || session.rol.toLowerCase() == 'chofer')) {
+      return true; // Acceso general habilitado para usuarios y choferes de la flota
+    }
     return (permissionValue & actionBit) == actionBit ||
         (permissionValue & 1) == 1;
   }

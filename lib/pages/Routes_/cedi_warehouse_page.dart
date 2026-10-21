@@ -129,6 +129,7 @@ class _CediOperationsPageState extends ConsumerState<CediOperationsPage>
   }
 
   Future<void> _openScannerForDownload(DriverRoute route) async {
+    final validCodes = _getValidRouteLabelCodes(route);
     final result = await showModalBottomSheet<List<String>>(
       context: context,
       isScrollControlled: true,
@@ -138,6 +139,10 @@ class _CediOperationsPageState extends ConsumerState<CediOperationsPage>
         subtitle: 'Escanee en ráfaga los paquetes que entrega al almacén',
         burstMode: true,
         initialCodes: _scannedDownloadCodes,
+        validNormalizedCodes: validCodes.isNotEmpty ? validCodes : null,
+        invalidCodeAlertTitle: '¡NO_ES_TU_RUTA!',
+        invalidCodeAlertMessage:
+            'Esa guía NO va en esta ruta ni corresponde a este CEDI.',
       ),
     );
     if (result != null) {

@@ -303,33 +303,8 @@ class _VehiclesPageState extends ConsumerState<VehiclesPage> {
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // Squircle Avatar (Reemplaza imagen de carro)
-                    Container(
-                      width: 46,
-                      height: 46,
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                        boxShadow: [
-                          BoxShadow(
-                            color: const Color(0xFF0284C7).withOpacity(0.28),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ],
-                      ),
-                      child: const Center(
-                        child: Icon(
-                          Icons.directions_car_outlined,
-                          color: Colors.white,
-                          size: 26,
-                        ),
-                      ),
-                    ),
+                    // Avatar / Imagen del Vehículo (con foto de API o icono por defecto)
+                    _buildVehicleAvatar(vehicle),
                     const SizedBox(width: 14),
 
                     // Título y Subtítulo
@@ -440,6 +415,87 @@ class _VehiclesPageState extends ConsumerState<VehiclesPage> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildVehicleAvatar(Vehicle vehicle) {
+    final photoUrl = vehicle.photo.trim();
+    final hasPhoto = photoUrl.isNotEmpty;
+
+    return Container(
+      width: 48,
+      height: 48,
+      decoration: BoxDecoration(
+        color: hasPhoto ? const Color(0xFFF8FAFC) : null,
+        gradient: hasPhoto
+            ? null
+            : const LinearGradient(
+                colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+        borderRadius: BorderRadius.circular(13),
+        border: Border.all(
+          color: hasPhoto ? const Color(0xFFE2E8F0) : Colors.transparent,
+          width: 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: hasPhoto
+                ? const Color(0xFF0F172A).withOpacity(0.06)
+                : const Color(0xFF0284C7).withOpacity(0.28),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: hasPhoto
+            ? Image.network(
+                photoUrl,
+                fit: BoxFit.cover,
+                loadingBuilder: (context, child, progress) {
+                  if (progress == null) return child;
+                  return const Center(
+                    child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2.0,
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Color(0xFF0284C7)),
+                      ),
+                    ),
+                  );
+                },
+                errorBuilder: (context, error, stackTrace) {
+                  return Container(
+                    decoration: const BoxDecoration(
+                      gradient: LinearGradient(
+                        colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                    ),
+                    child: const Center(
+                      child: Icon(
+                        Icons.directions_car_outlined,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                  );
+                },
+              )
+            : const Center(
+                child: Icon(
+                  Icons.directions_car_outlined,
+                  color: Colors.white,
+                  size: 24,
+                ),
+              ),
       ),
     );
   }

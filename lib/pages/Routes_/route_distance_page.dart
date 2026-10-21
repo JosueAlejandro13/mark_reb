@@ -1,4 +1,4 @@
-﻿import 'dart:ui' as ui;
+import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mark_v3/models/Routes_/driver_day_models.dart';
@@ -49,13 +49,109 @@ void showServerNoticesFeedback(
   }
 
   if (criticalErrors.isNotEmpty) {
-    HapticFeedback.lightImpact();
+    final hasNoEsTuRuta = criticalErrors.any(
+      (n) => n.codigo == 'NO_ES_TU_RUTA' || n.codigo == 'ETQ_OTRA',
+    );
+
+    if (hasNoEsTuRuta) {
+      SystemSound.play(SystemSoundType.alert);
+      HapticFeedback.heavyImpact();
+    } else {
+      HapticFeedback.mediumImpact();
+    }
+
     final text = criticalErrors.map((n) => n.displayTexto).join('\n');
     SnackbarTop.showError(
       context,
       text,
+      title: hasNoEsTuRuta ? '¡NO ES TU RUTA — NO LA SUBAS!' : 'Error de Operación',
       style: SnackbarTopStyle.appleCard,
+      duration: const Duration(seconds: 5),
     );
+
+    // Regla estricta de la guía Nelson (Págs. 19, 21 y 32):
+    // "El aviso NO_ES_TU_RUTA dice 'NO la subas'. La app debe mostrarlo en rojo y con sonido."
+    // "nivel del aviso: error (rojo, bloquear hasta que lo lea)."
+    if (hasNoEsTuRuta) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: const BorderSide(color: Color(0xFFDC2626), width: 2),
+          ),
+          backgroundColor: const Color(0xFFFEF2F2),
+          title: const Row(
+            children: [
+              Icon(Icons.dangerous_rounded, color: Color(0xFFDC2626), size: 28),
+              SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  '¡NO LA SUBAS!',
+                  style: TextStyle(
+                    color: Color(0xFF991B1B),
+                    fontWeight: FontWeight.w900,
+                    fontSize: 18,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFCA5A5)),
+                ),
+                child: Text(
+                  text,
+                  style: const TextStyle(
+                    color: Color(0xFF7F1D1D),
+                    fontWeight: FontWeight.w700,
+                    fontSize: 14,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'Esa guía o paquete NO corresponde a esta ruta. No la subas al vehículo ni la cargues.',
+                style: TextStyle(
+                  color: Color(0xFF450A0A),
+                  fontSize: 13,
+                  height: 1.3,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              ),
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text(
+                'Entendido, no la subiré',
+                style: TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
   }
 }
 

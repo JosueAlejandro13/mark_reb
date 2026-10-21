@@ -13,6 +13,7 @@ import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:mark_v3/pages/Error_/TrackingErrorPage.dart';
 import 'package:mark_v3/widgets/vehicle_commands_sheet.dart';
 import 'package:mark_v3/widgets/vehicle_alerts_sheet.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
 
 // Autor: Josue Hernandez - Reboot Completo con Riverpod y Diseño Ejecutivo
 class TrackingPage extends ConsumerStatefulWidget {
@@ -42,14 +43,20 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(trackingProvider.notifier).loadDevices(widget.userId);
+      if (MarkApiClient.instance.currentSession == null) {
+        MarkApiClient.instance.pingYo().then((_) {
+          if (mounted) setState(() {});
+        }).catchError((_) {});
+      }
     });
   }
+
+
 
   @override
   void dispose() {
     _pulseController.dispose();
     _mapController?.dispose();
-    ref.read(trackingProvider.notifier).stopPolling();
     super.dispose();
   }
 

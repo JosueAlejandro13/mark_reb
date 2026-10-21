@@ -6,6 +6,7 @@ class VerificationModel {
   final String monto;
   final int estado;
   final String docUrl;
+  final List<dynamic> fotos;
 
   VerificationModel({
     required this.id,
@@ -15,6 +16,7 @@ class VerificationModel {
     required this.monto,
     required this.estado,
     required this.docUrl,
+    this.fotos = const [],
   });
 
   factory VerificationModel.fromMap(Map<String, dynamic> map) {
@@ -26,6 +28,7 @@ class VerificationModel {
       monto: map['monto']?.toString() ?? '0',
       estado: map['estado'] is int ? map['estado'] : int.tryParse(map['estado']?.toString() ?? '0') ?? 0,
       docUrl: map['doc_url']?.toString() ?? '',
+      fotos: map['fotos'] is List ? (map['fotos'] as List) : const [],
     );
   }
 
@@ -38,6 +41,7 @@ class VerificationModel {
       'monto': monto,
       'estado': estado,
       'doc_url': docUrl,
+      'fotos': fotos,
     };
   }
 }

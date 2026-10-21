@@ -145,6 +145,8 @@ class EditProfileNotifier extends Notifier<EditProfileState> {
     required String dateOfBirth,
     required String employeeNum,
     required String idJobTitle,
+    File? newPhotoFile,
+    String? photoUuid,
   }) async {
     state = state.copyWith(
       isSaving: true,
@@ -155,6 +157,11 @@ class EditProfileNotifier extends Notifier<EditProfileState> {
       isUnexpectedError: false,
     );
     try {
+      String? finalPhotoUuid = photoUuid;
+      if (newPhotoFile != null && await newPhotoFile.exists()) {
+        finalPhotoUuid = await _service.updateProfilePhoto(newPhotoFile.path);
+      }
+
       await _service.updateUserData(
         userId: userId,
         idMainAccount: idMainAccount,
@@ -167,7 +174,12 @@ class EditProfileNotifier extends Notifier<EditProfileState> {
         dateOfBirth: dateOfBirth,
         employeeNum: employeeNum,
         idJobTitle: idJobTitle,
+        photoUuid: finalPhotoUuid,
       );
+
+      // Sincronizar fotografía y datos oficiales desde el servidor
+      ref.read(profileProvider.notifier).refreshProfile();
+
       state = state.copyWith(
         isSaving: false,
         successMessage: 'Cambios guardados con éxito.',

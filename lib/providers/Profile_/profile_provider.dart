@@ -4,25 +4,39 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
+import 'package:mark_v3/services/ConnectionProfile_/ProfileCon_service.dart';
 
 // Estado inmutable del Perfil
 class ProfileState {
   final File? imageFile;
   final String? networkPhotoUrl;
   final bool isLoading;
+  final bool isUploadingPhoto;
+  final String? error;
+  final bool hasLicense;
+  final bool canEditLicense;
 
   const ProfileState({
     this.imageFile,
     this.networkPhotoUrl,
     this.isLoading = false,
+    this.isUploadingPhoto = false,
+    this.error,
+    this.hasLicense = false,
+    this.canEditLicense = true,
   });
 
   ProfileState copyWith({
     File? imageFile,
     String? networkPhotoUrl,
     bool? isLoading,
+    bool? isUploadingPhoto,
+    String? error,
+    bool? hasLicense,
+    bool? canEditLicense,
     bool clearImage = false,
     bool clearNetworkPhoto = false,
+    bool clearError = false,
   }) {
     return ProfileState(
       imageFile: clearImage ? null : (imageFile ?? this.imageFile),
@@ -30,6 +44,10 @@ class ProfileState {
           ? null
           : (networkPhotoUrl ?? this.networkPhotoUrl),
       isLoading: isLoading ?? this.isLoading,
+      isUploadingPhoto: isUploadingPhoto ?? this.isUploadingPhoto,
+      error: clearError ? null : (error ?? this.error),
+      hasLicense: hasLicense ?? this.hasLicense,
+      canEditLicense: canEditLicense ?? this.canEditLicense,
     );
   }
 }
@@ -39,13 +57,17 @@ final profileProvider =
     NotifierProvider<ProfileNotifier, ProfileState>(ProfileNotifier.new);
 
 class ProfileNotifier extends Notifier<ProfileState> {
+  final ProfileconService _profileService = ProfileconService();
+
   @override
   ProfileState build() {
     Future.microtask(() {
       _cleanLegacyImagePrefs();
       _loadNetworkPhoto();
     });
-    return const ProfileState();
+    return const ProfileState(
+      canEditLicense: true,
+    );
   }
 
   /// Limpieza única de claves obsoletas de imagen en base64 de SharedPreferences
@@ -71,34 +93,81 @@ class ProfileNotifier extends Notifier<ProfileState> {
   Future<void> _loadNetworkPhoto() async {
     try {
       final res = await MarkApiClient.instance.getPerfil();
-      if (res['ok'] == true && res['colaborador'] is Map<String, dynamic>) {
-        final colaborador = res['colaborador'] as Map<String, dynamic>;
-        final rawFoto = (colaborador['foto'] ?? '').toString().trim();
-        if (rawFoto.isNotEmpty) {
-          setNetworkPhotoUrl(rawFoto);
+      if (res['ok'] == true) {
+        if (res['colaborador'] is Map<String, dynamic>) {
+          final colaborador = res['colaborador'] as Map<String, dynamic>;
+          final rawFoto = (colaborador['foto'] ?? '').toString().trim();
+          if (rawFoto.isNotEmpty) {
+            setNetworkPhotoUrl(rawFoto);
+          }
         }
+
+        final licencia = res['licencia'];
+        final licNum = (licencia is Map ? (licencia['numero'] ?? '') : '').toString().trim();
+        final hasLic = licNum.isNotEmpty;
+
+        state = state.copyWith(
+          hasLicense: hasLic,
+          canEditLicense: true,
+        );
       }
     } catch (e) {
-      debugPrint('[ProfileNotifier] Error loading network photo: $e');
+      debugPrint('[ProfileNotifier] Error loading network photo/license: $e');
     }
   }
 
-  Future<void> pickImage() async {
-    try {
-      state = state.copyWith(isLoading: true);
-      final pickedFile =
-          await ImagePicker().pickImage(source: ImageSource.gallery);
+  Future<void> refreshProfile() async {
+    await _loadNetworkPhoto();
+  }
 
-      if (pickedFile != null) {
-        final file = File(pickedFile.path);
-        state = state.copyWith(imageFile: file, isLoading: false);
-      } else {
-        state = state.copyWith(isLoading: false);
-      }
+  /// Selecciona una fotografía y la sube de inmediato al servidor (api.php?a=foto y acción perfil)
+  Future<bool> changeProfilePhoto({
+    ImageSource source = ImageSource.gallery,
+  }) async {
+    try {
+      final pickedFile = await ImagePicker().pickImage(
+        source: source,
+        maxWidth: 1200,
+        maxHeight: 1200,
+        imageQuality: 85,
+      );
+
+      if (pickedFile == null) return false;
+
+      final file = File(pickedFile.path);
+      state = state.copyWith(
+        imageFile: file,
+        isUploadingPhoto: true,
+        clearError: true,
+      );
+
+      // Subida de imagen al servidor vía api.php?a=foto y api.php?a=acciones
+      await _profileService.updateProfilePhoto(file.path);
+
+      // Recargar perfil del servidor para obtener la nueva URL definitiva
+      await _loadNetworkPhoto();
+
+      state = state.copyWith(
+        clearImage: true,
+        isUploadingPhoto: false,
+        clearError: true,
+      );
+      return true;
     } catch (e) {
-      debugPrint('Error al seleccionar imagen: $e');
-      state = state.copyWith(isLoading: false);
+      debugPrint('[ProfileNotifier] Error al actualizar foto de perfil: $e');
+      final msg = e.toString().replaceFirst('Exception: ', '').trim();
+      state = state.copyWith(
+        clearImage: true,
+        isUploadingPhoto: false,
+        error: msg.isNotEmpty ? msg : 'Error al subir la fotografía al servidor.',
+      );
+      rethrow;
     }
+  }
+
+  /// Compatibilidad con llamadas previas: sube la foto directamente al servidor
+  Future<void> pickImage({ImageSource source = ImageSource.gallery}) async {
+    await changeProfilePhoto(source: source);
   }
 
   Future<void> removeImage() async {

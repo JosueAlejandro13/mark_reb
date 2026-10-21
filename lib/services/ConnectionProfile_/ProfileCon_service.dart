@@ -114,6 +114,7 @@ class ProfileconService {
     required String employeeNum,
     required String idJobTitle,
     required String idMainAccount,
+    String? photoUuid,
   }) async {
     try {
       final acciones = [
@@ -127,6 +128,7 @@ class ProfileconService {
           'celular': mobilPhone.trim(),
           'direccion': address.trim(),
           'nacimiento': dateOfBirth.trim(),
+          if (photoUuid != null && photoUuid.isNotEmpty) 'foto': photoUuid,
           'fecHor': DateTime.now()
               .toIso8601String()
               .replaceFirst('T', ' ')
@@ -149,6 +151,43 @@ class ProfileconService {
     }
   }
 
+  /// Subir y actualizar la fotografía de perfil en el servidor
+  Future<String> updateProfilePhoto(String filePath) async {
+    final photoUuid = const Uuid().v4();
+    final ok = await _client.uploadPhoto(
+      uuid: photoUuid,
+      tipo: 1, // 1 = foto
+      filePath: filePath,
+    );
+    if (!ok) {
+      throw Exception('No se pudo subir la fotografía al servidor.');
+    }
+
+    final acciones = [
+      {
+        'uuid': const Uuid().v4(),
+        'tipo': 'perfil',
+        'foto': photoUuid,
+        'fecHor': DateTime.now()
+            .toIso8601String()
+            .replaceFirst('T', ' ')
+            .substring(0, 19),
+      }
+    ];
+
+    final res = await _client.sendActions(acciones);
+    debugPrint('Resultado updateProfilePhoto via a=acciones: $res');
+    if (res.isNotEmpty &&
+        (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      final avisos = res.first['avisos'] as List? ?? [];
+      final errorTexto = avisos.isNotEmpty
+          ? avisos.first['texto']?.toString()
+          : 'Error al actualizar la foto de perfil en el servidor.';
+      throw Exception(errorTexto);
+    }
+    return photoUuid;
+  }
+
   /// Cambiar contraseña
   Future<bool> updatePassword({
     required String usuario,
@@ -169,7 +208,20 @@ class ProfileconService {
     try {
       final res = await _client.getPerfil();
       final licencia = res['licencia'];
-      if (licencia is Map<String, dynamic> && licencia.isNotEmpty) {
+      final session = _client.currentSession;
+      final rol = session?.rol.toLowerCase().trim() ?? '';
+      final isPreventa = session?.isPreventa == true || rol == 'preventa' || rol == 'vendedor';
+
+      final bool puedeEditar = !isPreventa &&
+          (res['puedeEditar'] == true ||
+           _client.flota.can('colaboradores', 'editar') ||
+           _client.flota.can('licencia', 'editar') ||
+           _client.flota.can('licencias', 'editar'));
+
+      if (licencia is Map<String, dynamic> &&
+          licencia.isNotEmpty &&
+          (licencia['numero'] != null &&
+              licencia['numero'].toString().trim().isNotEmpty)) {
         return {
           'id': licencia['id'] ?? idCollabo,
           'licNum': licencia['numero'] ?? '',
@@ -177,9 +229,12 @@ class ProfileconService {
           'dueDate': licencia['vence'] ?? '',
           'semaforo': licencia['semaforo'] ?? 'vigente',
           'fotos': licencia['fotos'] ?? [],
+          'puedeEditar': puedeEditar,
         };
       }
-      return <String, dynamic>{};
+      return <String, dynamic>{
+        'puedeEditar': puedeEditar,
+      };
     } catch (e) {
       debugPrint('Error al obtener licencia: $e');
       return <String, dynamic>{};
@@ -195,7 +250,8 @@ class ProfileconService {
             .toIso8601String()
             .substring(0, 10);
       } else {
-        dueDateString = licenciaData['dueDate'].toString();
+        final raw = licenciaData['dueDate'].toString();
+        dueDateString = raw.length >= 10 ? raw.substring(0, 10) : raw;
       }
 
       final acciones = [

@@ -84,20 +84,22 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
         ? showRoutes
         : (isChofer && activeRoute != null && showRoutes);
 
-    final showTracking = query.isEmpty ||
+    final showTracking =
+        (query.isEmpty ||
         'rastreo'.contains(query) ||
         'gps'.contains(query) ||
         'monitoreo'.contains(query) ||
         'unidades'.contains(query) ||
-        'mapa'.contains(query);
+        'mapa'.contains(query));
 
-    final showRefill = query.isEmpty ||
+    final showRefill = !isPreventa &&
+        (query.isEmpty ||
         'reabastecimiento'.contains(query) ||
         'combustible'.contains(query) ||
         'gasolina'.contains(query) ||
         'estacion'.contains(query) ||
         'carga'.contains(query) ||
-        'odometro'.contains(query);
+        'odometro'.contains(query));
 
     final mediaQuery = MediaQuery.of(context);
     final clampedScaler = mediaQuery.textScaler.clamp(

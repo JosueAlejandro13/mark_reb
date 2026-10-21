@@ -337,6 +337,24 @@ class _MyAppState extends State<MyApp> {
                 borderRadius: BorderRadius.circular(16),
               ),
             ),
+            datePickerTheme: DatePickerThemeData(
+              backgroundColor: Colors.white,
+              headerBackgroundColor: const Color(0xFF0284C7),
+              headerForegroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+              dayStyle: const TextStyle(
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF0F172A),
+              ),
+              todayBorder: const BorderSide(
+                color: Color(0xFF0284C7),
+                width: 1.5,
+              ),
+              todayForegroundColor:
+                  WidgetStateProperty.all(const Color(0xFF0284C7)),
+            ),
             iconButtonTheme: IconButtonThemeData(
               style: IconButton.styleFrom(
                 splashFactory: NoSplash.splashFactory,

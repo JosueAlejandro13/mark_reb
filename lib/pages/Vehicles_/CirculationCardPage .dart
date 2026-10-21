@@ -4,19 +4,24 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
+
+import 'package:mark_v3/models/Vehicles_/circulation_card_model.dart';
 import 'package:mark_v3/pages/Error_/ConnectionErrorPage.dart';
 import 'package:mark_v3/pages/Error_/ServerErrorPage.dart';
 import 'package:mark_v3/pages/Error_/unexpectedErrorPage.dart';
+import 'package:mark_v3/providers/Vehicles_/circulation_card_provider.dart';
 import 'package:mark_v3/services/ConnectionNotification_/NotificationCon_service.dart';
 import 'package:mark_v3/services/ConnectionVehicles_/VehiclesCon_service.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
 import 'package:mark_v3/widgets/app_skeleton.dart';
+import 'package:mark_v3/widgets/doc_foto_widget.dart';
 import 'package:mark_v3/widgets/loading_action_button.dart';
 import 'package:mark_v3/widgets/snackbar_top.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:mark_v3/models/Vehicles_/circulation_card_model.dart';
-import 'package:mark_v3/providers/Vehicles_/circulation_card_provider.dart';
-import 'package:mark_v3/services/mark_api_client.dart';
 
 // Autor: Josue Hernandez
 class CirculationCardPage extends ConsumerStatefulWidget {
@@ -41,6 +46,22 @@ class CirculationCardPage extends ConsumerStatefulWidget {
 class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
   String _typeSource = '';
   bool _isDisposed = false;
+  bool _isEditing = false;
+  bool _isLoading = false;
+
+  final _formKey = GlobalKey<FormState>();
+  final _numTarjetaController = TextEditingController();
+  final _fecExpedicionController = TextEditingController();
+  final _fecVencimientoController = TextEditingController();
+  final _montoController = TextEditingController();
+
+  DateTime? _selectedFechaExpedicion;
+  DateTime? _selectedFechaVencimiento;
+
+  // Fotografías de la credencial y estado de OCR
+  File? _frontImage;
+  File? _backImage;
+  bool _isScanningOcr = false;
 
   final NumberFormat _currencyFormat = NumberFormat.currency(
     locale: 'es_MX',
@@ -84,50 +105,7 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
     _loadCirculationCard();
   }
 
-  void _handleError(dynamic error) {
-    if (_isDisposed || !mounted) return;
-
-    if (error is SocketException) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => ConnectionErrorPage(
-            onRetry: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (context) => widget),
-              );
-            },
-          ),
-        ),
-      );
-    } else if (error is TimeoutException) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => ServerErrorPage(
-            onRetry: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (context) => widget),
-              );
-            },
-          ),
-        ),
-      );
-    } else {
-      debugPrint('Error al obtener la tarjeta de circulación: $error');
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(
-          builder: (context) => Unexpectederrorpage(
-            onRetry: () {
-              Navigator.of(context).pushReplacement(
-                MaterialPageRoute(builder: (context) => widget),
-              );
-            },
-          ),
-        ),
-      );
-    }
-  }
-
-  // --- PERMISOS BITWISE Y FLOTA (Nelson doc) ---
+  // --- PERMISOS BITWISE Y FLOTA ---
   bool get _canEdit =>
       MarkApiClient.instance.flota.can('tarjeta', 'editar') ||
       ((int.tryParse(widget.circulationCardPermission) ?? 0) & 8 == 8);
@@ -138,7 +116,7 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
       MarkApiClient.instance.flota.can('tarjeta', 'crear') ||
       ((int.tryParse(widget.circulationCardPermission) ?? 0) & 4 == 4);
 
-  // --- FORMATEO Y PARSEO DE FECHAS SEGURO ---
+  // --- FORMATEO Y PARSEO DE FECHAS ---
   String _formatDisplayDate(dynamic date) {
     if (date == null) return 'N/A';
     if (date is DateTime) {
@@ -196,9 +174,772 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
   @override
   void dispose() {
     _isDisposed = true;
+    _numTarjetaController.dispose();
+    _fecExpedicionController.dispose();
+    _fecVencimientoController.dispose();
+    _montoController.dispose();
     super.dispose();
   }
 
+  // =========================================================================
+  // CAPTURA Y ESCANEO OCR DE FOTOGRAFÍAS
+  // =========================================================================
+  Future<void> _pickAndScanFrontImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 88,
+        maxWidth: 1920,
+      );
+
+      if (pickedFile == null) return;
+
+      setState(() {
+        _frontImage = File(pickedFile.path);
+        _isScanningOcr = true;
+      });
+
+      final inputImage = InputImage.fromFilePath(pickedFile.path);
+      final textRecognizer =
+          TextRecognizer(script: TextRecognitionScript.latin);
+      final RecognizedText recognizedText =
+          await textRecognizer.processImage(inputImage);
+      await textRecognizer.close();
+
+      if (!mounted) return;
+
+      _applyOcrResults(recognizedText);
+
+      setState(() {
+        _isScanningOcr = false;
+      });
+
+      SnackbarTop.showSuccess(
+        context,
+        'Frente procesado. Revisa y confirma los campos detectados.',
+      );
+    } catch (e) {
+      debugPrint('Error en OCR de tarjeta de circulación: $e');
+      if (mounted) {
+        setState(() {
+          _isScanningOcr = false;
+        });
+        SnackbarTop.showWarning(
+          context,
+          'No se pudieron extraer datos automáticamente. Puedes completarlos manualmente.',
+        );
+      }
+    }
+  }
+
+  Future<void> _pickBackImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 88,
+        maxWidth: 1920,
+      );
+
+      if (pickedFile == null) return;
+
+      setState(() {
+        _backImage = File(pickedFile.path);
+      });
+    } catch (e) {
+      debugPrint('Error al capturar reverso: $e');
+    }
+  }
+
+  void _showPhotoSourceDialog({required bool isFront}) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 38,
+                height: 4.5,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              Text(
+                isFront
+                    ? 'Capturar Frente de Tarjeta'
+                    : 'Capturar Reverso de Tarjeta',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                isFront
+                    ? 'El frente se escaneará con IA para autocompletar el folio y fechas.'
+                    : 'Adjunta el reverso para tener respaldo completo del documento.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(height: 18),
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0F2FE),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.camera_alt_rounded,
+                      color: Color(0xFF0284C7)),
+                ),
+                title: const Text(
+                  'Tomar Fotografía con Cámara',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (isFront) {
+                    _pickAndScanFrontImage(ImageSource.camera);
+                  } else {
+                    _pickBackImage(ImageSource.camera);
+                  }
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.photo_library_rounded,
+                      color: Color(0xFF2563EB)),
+                ),
+                title: const Text(
+                  'Seleccionar de la Galería',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (isFront) {
+                    _pickAndScanFrontImage(ImageSource.gallery);
+                  } else {
+                    _pickBackImage(ImageSource.gallery);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- MOTOR HEURÍSTICO OCR PARA TARJETA DE CIRCULACIÓN ---
+  void _applyOcrResults(RecognizedText recognizedText) {
+    final fullText = recognizedText.text;
+
+    // 1. Extraer Folio / Número de Tarjeta
+    final detectedFolio = _extractCirculationNumber(fullText, recognizedText);
+    if (detectedFolio != null && detectedFolio.isNotEmpty) {
+      _numTarjetaController.text = detectedFolio;
+    }
+
+    // 2. Extraer Fecha de Expedición
+    final detectedExp = _extractDateByKeywords(
+      fullText,
+      recognizedText,
+      ['EXPEDICION', 'EMISION', 'EXPEDIDA', 'FECHA EXP', 'FECHA DE EXP'],
+    );
+    if (detectedExp != null) {
+      setState(() {
+        _selectedFechaExpedicion = detectedExp;
+        _fecExpedicionController.text =
+            DateFormat('dd / MM / yyyy').format(detectedExp);
+      });
+    }
+
+    // 3. Extraer Fecha de Vencimiento / Vigencia
+    final detectedVen = _extractDateByKeywords(
+      fullText,
+      recognizedText,
+      ['VIGENCIA', 'VENCE', 'VENCIMIENTO', 'HASTA', 'EXPIRA', 'FECHA VENC'],
+    );
+    if (detectedVen != null) {
+      setState(() {
+        _selectedFechaVencimiento = detectedVen;
+        _fecVencimientoController.text =
+            DateFormat('dd / MM / yyyy').format(detectedVen);
+      });
+    } else {
+      final upper = fullText.toUpperCase();
+      if (upper.contains('PERMANENTE') ||
+          upper.contains('INDEFINIDA') ||
+          upper.contains('INDETERMINAD')) {
+        setState(() {
+          _selectedFechaVencimiento = DateTime(2099, 12, 31);
+          _fecVencimientoController.text =
+              DateFormat('dd / MM / yyyy').format(_selectedFechaVencimiento!);
+        });
+      }
+    }
+
+    // 4. Extraer Monto / Derechos
+    final detectedMonto = _extractMonto(fullText);
+    if (detectedMonto != null && _montoController.text.trim().isEmpty) {
+      _montoController.text = detectedMonto.toStringAsFixed(2);
+    }
+  }
+
+  String? _extractCirculationNumber(
+      String fullText, RecognizedText recognizedText) {
+    final upperFull = fullText.toUpperCase();
+
+    // Heurística A: Patrón con palabra clave
+    final keywordRegex = RegExp(
+      r'(?:FOLIO(?:\s*NO\.?|\s*DE\s*TARJETA|\s*TARJETA)?|NO\.?\s*DE\s*TARJETA|TARJETA(?:\s*NO\.?)?|CONTROL|NO\.)\s*[:.\-]?\s*([A-Z0-9\-]{5,18})',
+      caseSensitive: false,
+    );
+    for (final m in keywordRegex.allMatches(fullText)) {
+      final cand = m.group(1)!
+          .replaceAll(' ', '')
+          .replaceAll('-', '')
+          .toUpperCase();
+      if (_isValidCirculationNumber(cand)) {
+        return cand;
+      }
+    }
+
+    // Heurística B: Bloques adyacentes a palabras clave FOLIO o TARJETA
+    for (final block in recognizedText.blocks) {
+      for (int i = 0; i < block.lines.length; i++) {
+        final lineRaw = block.lines[i].text.toUpperCase();
+        if (lineRaw.contains('FOLIO') ||
+            lineRaw.contains('TARJETA') ||
+            lineRaw.contains('NO. CONTROL')) {
+          if (i + 1 < block.lines.length) {
+            final nextClean = block.lines[i + 1].text
+                .toUpperCase()
+                .replaceAll(' ', '')
+                .replaceAll('-', '');
+            if (_isValidCirculationNumber(nextClean)) {
+              return nextClean;
+            }
+          }
+        }
+
+        final lineClean = lineRaw.replaceAll(' ', '').replaceAll('-', '');
+        if (_isValidCirculationNumber(lineClean)) {
+          return lineClean;
+        }
+      }
+    }
+
+    // Heurística C: Formato estándar común en México (TC seguido de números o 7 a 12 dígitos)
+    final standardRegex = RegExp(r'\b(TC\s*\d{6,10}|\d{7,12})\b');
+    final match = standardRegex.firstMatch(upperFull);
+    if (match != null) {
+      final cand = match.group(1)!.replaceAll(' ', '');
+      if (_isValidCirculationNumber(cand)) {
+        return cand;
+      }
+    }
+
+    return null;
+  }
+
+  bool _isValidCirculationNumber(String cand) {
+    if (cand.length < 5 || cand.length > 20) return false;
+    if (!RegExp(r'\d{3,}').hasMatch(cand)) return false;
+
+    final forbidden = [
+      'SERIE',
+      'MOTOR',
+      'CHASIS',
+      'VIN',
+      'NIV',
+      'RFC',
+      'CURP',
+      'PLACA',
+      'ESTADO',
+      'GOBIERNO',
+      'VEHICULAR',
+      'SECRETARIA',
+      'MOVILIDAD',
+      'TRANSPORTE',
+      'EXPEDICION',
+      'VIGENCIA',
+      'VENCIMIENTO',
+      'MODELO',
+      'MARCA',
+      'CLASE',
+      'TIPO',
+      'COMBUSTIBLE',
+      'CILINDROS',
+      'ORIGEN',
+      'PROPIETARIO',
+      'DOMICILIO',
+      'DERECHOS',
+      'IMPORTE',
+      'PAGO'
+    ];
+    for (final word in forbidden) {
+      if (cand.contains(word)) return false;
+    }
+
+    final currentPlates = (widget.vehicle['placas'] ??
+            widget.vehicle['plate'] ??
+            '')
+        .toString()
+        .replaceAll(' ', '')
+        .replaceAll('-', '')
+        .toUpperCase();
+    if (currentPlates.isNotEmpty && cand == currentPlates) {
+      return false;
+    }
+
+    return true;
+  }
+
+  DateTime? _extractDateByKeywords(
+    String fullText,
+    RecognizedText recognizedText,
+    List<String> keywords,
+  ) {
+    final dateRegex =
+        RegExp(r'\b(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{2,4})\b');
+    final dateIsoRegex =
+        RegExp(r'\b(\d{4})[\/\.\-](\d{1,2})[\/\.\-](\d{1,2})\b');
+
+    for (final block in recognizedText.blocks) {
+      for (int i = 0; i < block.lines.length; i++) {
+        final line = block.lines[i].text.toUpperCase();
+        for (final kw in keywords) {
+          if (line.contains(kw)) {
+            var m = dateRegex.firstMatch(block.lines[i].text);
+            if (m != null) {
+              final d = int.tryParse(m.group(1)!);
+              final mo = int.tryParse(m.group(2)!);
+              var y = int.tryParse(m.group(3)!);
+              if (d != null &&
+                  mo != null &&
+                  y != null &&
+                  mo >= 1 &&
+                  mo <= 12 &&
+                  d >= 1 &&
+                  d <= 31) {
+                if (y < 100) y += 2000;
+                return DateTime(y, mo, d);
+              }
+            }
+            var mIso = dateIsoRegex.firstMatch(block.lines[i].text);
+            if (mIso != null) {
+              final y = int.tryParse(mIso.group(1)!);
+              final mo = int.tryParse(mIso.group(2)!);
+              final d = int.tryParse(mIso.group(3)!);
+              if (d != null &&
+                  mo != null &&
+                  y != null &&
+                  mo >= 1 &&
+                  mo <= 12 &&
+                  d >= 1 &&
+                  d <= 31) {
+                return DateTime(y, mo, d);
+              }
+            }
+
+            if (i + 1 < block.lines.length) {
+              final nextText = block.lines[i + 1].text;
+              m = dateRegex.firstMatch(nextText);
+              if (m != null) {
+                final d = int.tryParse(m.group(1)!);
+                final mo = int.tryParse(m.group(2)!);
+                var y = int.tryParse(m.group(3)!);
+                if (d != null &&
+                    mo != null &&
+                    y != null &&
+                    mo >= 1 &&
+                    mo <= 12 &&
+                    d >= 1 &&
+                    d <= 31) {
+                  if (y < 100) y += 2000;
+                  return DateTime(y, mo, d);
+                }
+              }
+              mIso = dateIsoRegex.firstMatch(nextText);
+              if (mIso != null) {
+                final y = int.tryParse(mIso.group(1)!);
+                final mo = int.tryParse(mIso.group(2)!);
+                final d = int.tryParse(mIso.group(3)!);
+                if (d != null &&
+                    mo != null &&
+                    y != null &&
+                    mo >= 1 &&
+                    mo <= 12 &&
+                    d >= 1 &&
+                    d <= 31) {
+                  return DateTime(y, mo, d);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  double? _extractMonto(String fullText) {
+    final regex = RegExp(
+      r'(?:TOTAL|IMPORTE|MONTO|DERECHOS|\$)\s*[:.\-]?\s*\$?\s*([0-9]{1,4}(?:[,\.][0-9]{2,3})*(?:\.[0-9]{2})?)',
+      caseSensitive: false,
+    );
+    final match = regex.firstMatch(fullText);
+    if (match != null) {
+      final str = match.group(1)!.replaceAll(',', '');
+      return double.tryParse(str);
+    }
+    return null;
+  }
+
+  Future<void> _selectDate(
+    BuildContext context, {
+    required String title,
+    DateTime? initialDate,
+    required ValueChanged<DateTime> onDateSelected,
+  }) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: title,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF0284C7),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF0F172A),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      onDateSelected(picked);
+    }
+  }
+
+  // =========================================================================
+  // SUBMIT FORMULARIO (CREAR O ACTUALIZAR)
+  // =========================================================================
+  Future<void> _submitForm({required bool isEditing}) async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    if (_selectedFechaExpedicion == null) {
+      SnackbarTop.showInfo(
+        context,
+        'Por favor selecciona la fecha de expedición.',
+      );
+      return;
+    }
+
+    if (_selectedFechaVencimiento == null) {
+      SnackbarTop.showInfo(
+        context,
+        'Por favor selecciona la fecha de vencimiento.',
+      );
+      return;
+    }
+
+    if (_selectedFechaExpedicion!.isAfter(_selectedFechaVencimiento!)) {
+      SnackbarTop.showInfo(
+        context,
+        'La fecha de expedición no puede ser posterior a la fecha de vencimiento.',
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final String numTarjeta = _numTarjetaController.text.trim();
+    final double monto = double.tryParse(_montoController.text.trim()) ?? 0.0;
+
+    try {
+      // 1. Subir fotografías a la API si están presentes
+      final List<String> photoUuids = [];
+      if (_frontImage != null) {
+        final uuidFront = const Uuid().v4();
+        final ok = await MarkApiClient.instance.uploadPhoto(
+          uuid: uuidFront,
+          tipo: 1,
+          filePath: _frontImage!.path,
+        );
+        if (ok) {
+          photoUuids.add(uuidFront);
+        }
+      }
+
+      if (_backImage != null &&
+          (_frontImage == null || _frontImage!.path != _backImage!.path)) {
+        final uuidBack = const Uuid().v4();
+        final ok = await MarkApiClient.instance.uploadPhoto(
+          uuid: uuidBack,
+          tipo: 1,
+          filePath: _backImage!.path,
+        );
+        if (ok) {
+          photoUuids.add(uuidBack);
+        }
+      }
+
+      final int idVehic = int.parse(widget.vehicle['id'].toString());
+      final int idUs = int.parse(widget.idMainAccount.toString());
+
+      if (isEditing) {
+        // --- ACTUALIZACIÓN DE TARJETA ---
+        await VehiclesconService().actualizarTarjetaCirculacion(
+          idVehic,
+          idUs,
+          numTarjeta,
+          DateFormat('yyyy-MM-dd').format(_selectedFechaExpedicion!),
+          DateFormat('yyyy-MM-dd').format(_selectedFechaVencimiento!),
+          monto,
+          fotos: photoUuids,
+        );
+
+        // Notificación de actualización
+        try {
+          final circu = await VehiclesconService().obtenerTarjetaCirculacion(
+            widget.vehicle['id'].toString(),
+            widget.idMainAccount.toString(),
+          );
+
+          if (circu != null && circu.isNotEmpty && circu['id'] != null) {
+            final int idcircu = circu['id'] is int
+                ? circu['id']
+                : int.tryParse(circu['id'].toString()) ?? 0;
+            const nameNotice = 'vehicle_registration_card_updated';
+            final noticeTemplate =
+                await NotificationService().getNoticeByName(nameNotice);
+
+            if (noticeTemplate != null) {
+              String message = '';
+              final rawMsg = noticeTemplate['message'];
+              if (rawMsg is List<int>) {
+                try {
+                  message = utf8.decode(rawMsg);
+                } catch (_) {
+                  message = rawMsg.toString();
+                }
+              } else {
+                message = rawMsg?.toString() ?? '';
+              }
+
+              final vehiclePlates = widget.vehicle['placas']?.toString() ??
+                  widget.vehicle['plate']?.toString() ??
+                  '';
+
+              final formattedMessage = message
+                  .replaceAll('{vehicle_plate}', vehiclePlates)
+                  .replaceAll('{card_number}', numTarjeta)
+                  .replaceAll(
+                      '{issue_date}',
+                      DateFormat('dd/MM/yyyy')
+                          .format(_selectedFechaExpedicion!))
+                  .replaceAll(
+                      '{expiry_date}',
+                      DateFormat('dd/MM/yyyy')
+                          .format(_selectedFechaVencimiento!));
+
+              final title = (noticeTemplate['title']?.toString() ?? '')
+                  .replaceAll('{vehicle_plate}', vehiclePlates);
+
+              final finalMessage =
+                  '$title|$formattedMessage|${noticeTemplate['icon'] ?? ''}';
+
+              await NotificationService().insertNotification({
+                'typeSource': _typeSource,
+                'idOrigin': idcircu,
+                'typEvent': 2,
+                'date': DateTime.now().toIso8601String(),
+                'message': finalMessage,
+                'colNotice': 'tc_Edit',
+                'idMainAcoount': widget.idMainAccount.toString(),
+                'codUsGenerator': widget.userId.toString(),
+                'idDev': widget.userId.toString(),
+              });
+            }
+          }
+        } catch (notifErr) {
+          debugPrint(
+              'Error al enviar notificación de actualización: $notifErr');
+        }
+
+        // Actualizar control de gestión
+        await VehiclesconService().updateManagementControlTJ(
+          idUs,
+          idVehic,
+          DateFormat('yyyy-MM-dd').format(_selectedFechaVencimiento!),
+        );
+
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _isEditing = false;
+            _frontImage = null;
+            _backImage = null;
+          });
+          SnackbarTop.showSuccess(
+            context,
+            'Tarjeta de circulación actualizada exitosamente.',
+          );
+          _refreshData();
+        }
+      } else {
+        // --- CREACIÓN DE NUEVA TARJETA ---
+        final DateTime fechaExpUTC = _selectedFechaExpedicion!.toUtc();
+        final DateTime fechaVenUTC = _selectedFechaVencimiento!.toUtc();
+
+        await VehiclesconService().crearTarjetaCirculacion(
+          widget.vehicle['id'].toString(),
+          widget.idMainAccount.toString(),
+          numTarjeta,
+          fechaExpUTC,
+          fechaVenUTC,
+          monto,
+          fotos: photoUuids,
+        );
+
+        // Notificación de creación
+        try {
+          final circu = await VehiclesconService().obtenerTarjetaCirculacion(
+            widget.vehicle['id'].toString(),
+            widget.idMainAccount.toString(),
+          );
+
+          if (circu != null && circu.isNotEmpty && circu['id'] != null) {
+            final int idcircu = circu['id'] is int
+                ? circu['id']
+                : int.tryParse(circu['id'].toString()) ?? 0;
+            const nameNotice = 'vehicle_registration_card_added';
+            final noticeTemplate =
+                await NotificationService().getNoticeByName(nameNotice);
+
+            if (noticeTemplate != null) {
+              String message = '';
+              final rawMsg = noticeTemplate['message'];
+              if (rawMsg is List<int>) {
+                try {
+                  message = utf8.decode(rawMsg);
+                } catch (_) {
+                  message = rawMsg.toString();
+                }
+              } else {
+                message = rawMsg?.toString() ?? '';
+              }
+
+              final vehiclePlates = widget.vehicle['placas']?.toString() ??
+                  widget.vehicle['plate']?.toString() ??
+                  '';
+
+              final formattedMessage = message
+                  .replaceAll('{vehicle_plate}', vehiclePlates)
+                  .replaceAll('{card_number}', numTarjeta)
+                  .replaceAll(
+                      '{issue_date}',
+                      DateFormat('dd/MM/yyyy')
+                          .format(_selectedFechaExpedicion!))
+                  .replaceAll(
+                      '{expiry_date}',
+                      DateFormat('dd/MM/yyyy')
+                          .format(_selectedFechaVencimiento!));
+
+              final title = (noticeTemplate['title']?.toString() ?? '')
+                  .replaceAll('{vehicle_plate}', vehiclePlates);
+
+              final finalMessage =
+                  '$title|$formattedMessage|${noticeTemplate['icon'] ?? ''}';
+
+              await NotificationService().insertNotification({
+                'typeSource': _typeSource,
+                'idOrigin': idcircu,
+                'typEvent': 1,
+                'date': DateTime.now().toIso8601String(),
+                'message': finalMessage,
+                'colNotice': 'tc_New',
+                'idMainAcoount': widget.idMainAccount.toString(),
+                'codUsGenerator': widget.userId.toString(),
+                'idDev': widget.userId.toString(),
+              });
+            }
+          }
+        } catch (notifErr) {
+          debugPrint('Error al enviar notificación de creación: $notifErr');
+        }
+
+        // Insertar control de gestión
+        await VehiclesconService().insertManagementControlTJ(
+          widget.idMainAccount.toString(),
+          widget.vehicle['id'].toString(),
+          fechaVenUTC,
+        );
+
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _isEditing = false;
+            _frontImage = null;
+            _backImage = null;
+          });
+          SnackbarTop.showSuccess(
+            context,
+            'Tarjeta de circulación creada exitosamente.',
+          );
+          _refreshData();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error al guardar tarjeta de circulación: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        SnackbarTop.showError(
+          context,
+          'Ocurrió un error al procesar la solicitud: ${e.toString().replaceAll('Exception:', '').trim()}',
+        );
+      }
+    }
+  }
+
+  // =========================================================================
+  // BUILD PRINCIPAL
+  // =========================================================================
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
@@ -207,7 +948,6 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
       maxScaleFactor: 1.15,
     );
     final isSmallScreen = mediaQuery.size.width < 360;
-
     final cardState = ref.watch(circulationCardProvider);
 
     if (cardState.isConnectionError) {
@@ -219,6 +959,8 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
     if (cardState.isUnexpectedError) {
       return Unexpectederrorpage(onRetry: _refreshData);
     }
+
+    final hasCard = cardState.cards.isNotEmpty;
 
     return MediaQuery(
       data: mediaQuery.copyWith(textScaler: clampedScaler),
@@ -239,12 +981,13 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _buildHeader(context),
+                  _buildHeader(context, hasCard: hasCard),
                   const SizedBox(height: 12),
-                  if (!_canEdit && !_canCreate)
+                  if (!_canEdit && !_canCreate && !hasCard)
                     Container(
                       margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
                         color: const Color(0xFFEFF6FF),
                         borderRadius: BorderRadius.circular(14),
@@ -267,7 +1010,8 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
                               'Modo solo lectura: Tu rol cuenta con permisos para consultar la tarjeta de circulación y sus vigencias, pero no para registrar o modificar datos.',
                               style: TextStyle(
                                 fontSize: 12,
-                                color: const Color(0xFF1E3A8A).withOpacity(0.9),
+                                color:
+                                    const Color(0xFF1E3A8A).withOpacity(0.9),
                                 fontWeight: FontWeight.w500,
                                 height: 1.35,
                               ),
@@ -278,7 +1022,9 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
                     ),
                   if (cardState.isLoading)
                     _buildSkeleton(isSmallScreen)
-                  else if (cardState.cards.isEmpty)
+                  else if (_isEditing)
+                    _buildFormSection(isEditing: hasCard)
+                  else if (!hasCard)
                     _buildEmptyState()
                   else
                     _buildCardDetails(cardState.cards.first),
@@ -294,7 +1040,7 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
   // =========================================================================
   // HEADER SUPERIOR ESTILO APPLE
   // =========================================================================
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, {required bool hasCard}) {
     final make = widget.vehicle['make']?.toString() ?? '';
     final model = widget.vehicle['model']?.toString() ?? '';
     final plates = widget.vehicle['placas']?.toString() ??
@@ -311,7 +1057,13 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              if (_isEditing && hasCard) {
+                setState(() => _isEditing = false);
+              } else {
+                Navigator.pop(context);
+              }
+            },
             child: Container(
               width: 38,
               height: 38,
@@ -345,9 +1097,13 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Tarjeta de Circulación',
-                style: TextStyle(
+              Text(
+                _isEditing
+                    ? (hasCard
+                        ? 'Editar Tarjeta'
+                        : 'Registrar Tarjeta')
+                    : 'Tarjeta de Circulación',
+                style: const TextStyle(
                   fontSize: 21,
                   fontWeight: FontWeight.w800,
                   color: Color(0xFF0F172A),
@@ -368,8 +1124,10 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
             ],
           ),
         ),
-        const SizedBox(width: 8),
-        _buildHeaderActionMenu(context),
+        if (!_isEditing) ...[
+          const SizedBox(width: 8),
+          _buildHeaderActionMenu(context),
+        ],
       ],
     );
   }
@@ -462,12 +1220,12 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
           if (action == 'edit') {
             final cards = ref.read(circulationCardProvider).cards;
             if (cards.isNotEmpty) {
-              _openCardModal(isEditing: true, initialData: cards.first.toMap());
+              _startEditing(cards.first);
             }
           } else if (action == 'delete') {
             _showDeleteConfirmationDialog();
           } else if (action == 'create') {
-            _openCardModal(isEditing: false);
+            _startCreating();
           }
         },
       ),
@@ -509,255 +1267,625 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
     );
   }
 
+  void _startEditing(CirculationCardModel tarjeta) {
+    setState(() {
+      _isEditing = true;
+      _numTarjetaController.text = tarjeta.numTarjeta;
+      _selectedFechaExpedicion = _parseDateSafe(tarjeta.fecExpedicion);
+      _fecExpedicionController.text = _selectedFechaExpedicion != null
+          ? DateFormat('dd / MM / yyyy').format(_selectedFechaExpedicion!)
+          : '';
+      _selectedFechaVencimiento = _parseDateSafe(tarjeta.fecVencimiento);
+      _fecVencimientoController.text = _selectedFechaVencimiento != null
+          ? DateFormat('dd / MM / yyyy').format(_selectedFechaVencimiento!)
+          : '';
+      _montoController.text = tarjeta.monto;
+      _frontImage = null;
+      _backImage = null;
+    });
+  }
+
+  void _startCreating() {
+    setState(() {
+      _isEditing = true;
+      _numTarjetaController.clear();
+      _fecExpedicionController.clear();
+      _fecVencimientoController.clear();
+      _montoController.text = '0.00';
+      _selectedFechaExpedicion = null;
+      _selectedFechaVencimiento = null;
+      _frontImage = null;
+      _backImage = null;
+    });
+  }
+
   // =========================================================================
-  // SKELETON LOADER CON APPSHIMMERBOX
+  // VISTA DE FORMULARIO ESTILO APPLE HIG (EN PÁGINA)
   // =========================================================================
-  Widget _buildSkeleton(bool isSmallScreen) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const AppShimmerBox.card(
-          height: 195,
-          borderRadius: 20,
-        ),
-        const SizedBox(height: 16),
-        const Padding(
-          padding: EdgeInsets.only(left: 4, bottom: 8),
-          child: AppShimmerBox.text(width: 160, height: 12),
-        ),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+  Widget _buildFormSection({required bool isEditing}) {
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. FOTOGRAFÍAS DE LA TARJETA (FRENTE CON IA OCR Y REVERSO)
+          _buildSectionTitle('FOTOGRAFÍAS DE LA TARJETA DE CIRCULACIÓN'),
+          _buildAppleGroupContainer(
             children: [
               Row(
-                children: const [
-                  AppShimmerBox(width: 36, height: 36, borderRadius: 10),
-                  SizedBox(width: 12),
+                children: [
+                  Expanded(
+                    child: _buildPhotoBox(
+                      title: 'Frente de la Tarjeta',
+                      tag: 'IA OCR',
+                      image: _frontImage,
+                      isScanning: _isScanningOcr,
+                      onTap: () => _showPhotoSourceDialog(isFront: true),
+                      onRemove: () => setState(() => _frontImage = null),
+                      isRequired: true,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildPhotoBox(
+                      title: 'Reverso de la Tarjeta',
+                      tag: 'OPCIONAL',
+                      image: _backImage,
+                      isScanning: false,
+                      onTap: () => _showPhotoSourceDialog(isFront: false),
+                      onRemove: () => setState(() => _backImage = null),
+                      isRequired: false,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0F9FF),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFBAE6FD)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 24,
+                      height: 24,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF0284C7),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.info_outline_rounded,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'El escaneo con IA completará automáticamente los campos detectados de la tarjeta. Podrás revisar o editar la información antes de guardar.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF0369A1),
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 2. DATOS DEL DOCUMENTO
+          _buildSectionTitle('DATOS DEL DOCUMENTO'),
+          _buildAppleGroupContainer(
+            children: [
+              // Folio / Número de Tarjeta
+              _buildFieldLabel('Número de Tarjeta / Folio *'),
+              TextFormField(
+                controller: _numTarjetaController,
+                textCapitalization: TextCapitalization.characters,
+                maxLength: 25,
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0F172A),
+                ),
+                decoration: _buildInputDecoration(
+                  hint: 'Ej. TC-94820194',
+                  prefixIcon: Icons.badge_outlined,
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return 'Ingresa el número o folio de la tarjeta.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 14),
+
+              // Fechas (Expedición y Vencimiento)
+              Row(
+                children: [
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        AppShimmerBox.text(width: 150, height: 14),
-                        SizedBox(height: 6),
-                        AppShimmerBox.text(width: 220, height: 11),
+                        _buildFieldLabel('Fecha de Expedición *'),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () {
+                            _selectDate(
+                              context,
+                              title: 'Fecha de Expedición',
+                              initialDate: _selectedFechaExpedicion,
+                              onDateSelected: (date) {
+                                setState(() {
+                                  _selectedFechaExpedicion = date;
+                                  _fecExpedicionController.text =
+                                      DateFormat('dd / MM / yyyy')
+                                          .format(date);
+                                });
+                              },
+                            );
+                          },
+                          child: IgnorePointer(
+                            child: TextFormField(
+                              controller: _fecExpedicionController,
+                              readOnly: true,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF0F172A),
+                              ),
+                              decoration: _buildInputDecoration(
+                                hint: 'dd / mm / aaaa',
+                                prefixIcon: Icons.calendar_today_rounded,
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return 'Selecciona la fecha.';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildFieldLabel('Fecha de Vencimiento *'),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () {
+                            _selectDate(
+                              context,
+                              title: 'Fecha de Vencimiento',
+                              initialDate: _selectedFechaVencimiento,
+                              onDateSelected: (date) {
+                                setState(() {
+                                  _selectedFechaVencimiento = date;
+                                  _fecVencimientoController.text =
+                                      DateFormat('dd / MM / yyyy')
+                                          .format(date);
+                                });
+                              },
+                            );
+                          },
+                          child: IgnorePointer(
+                            child: TextFormField(
+                              controller: _fecVencimientoController,
+                              readOnly: true,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF0F172A),
+                              ),
+                              decoration: _buildInputDecoration(
+                                hint: 'dd / mm / aaaa',
+                                prefixIcon: Icons.event_available_rounded,
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return 'Selecciona la fecha.';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                        ),
                       ],
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 14),
-              const AppShimmerBox(
-                width: double.infinity,
-                height: 48,
-                borderRadius: 12,
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(height: 20),
-        const Padding(
-          padding: EdgeInsets.only(left: 4, bottom: 8),
-          child: AppShimmerBox.text(width: 170, height: 12),
-        ),
-        Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-          ),
-          child: Column(
-            children: const [
-              AppShimmerBox.text(width: double.infinity, height: 14),
-              SizedBox(height: 12),
-              AppShimmerBox.text(width: double.infinity, height: 14),
-              SizedBox(height: 12),
-              AppShimmerBox.text(width: double.infinity, height: 14),
-              SizedBox(height: 12),
-              AppShimmerBox.text(width: double.infinity, height: 14),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 
-  // =========================================================================
-  // ESTADO DE ERROR ESTILO APPLE
-  // =========================================================================
-  Widget _buildErrorState() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 40),
-      child: Center(
-        child: Column(
-          children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEE2E2),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(
-                Icons.error_outline_rounded,
-                color: Color(0xFFEF4444),
-                size: 26,
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Error al cargar la tarjeta de circulación',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF0F172A),
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Comprueba tu conexión o intenta nuevamente.',
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFF64748B),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0284C7),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
+              // Monto Pagado / Derechos
+              _buildFieldLabel('Monto Pagado / Derechos *'),
+              TextFormField(
+                controller: _montoController,
+                keyboardType:
+                    const TextInputType.numberWithOptions(decimal: true),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(
+                    RegExp(r'^\d+\.?\d{0,2}'),
+                  ),
+                ],
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0F172A),
                 ),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                decoration: _buildInputDecoration(
+                  hint: '0.00',
+                  prefixIcon: Icons.attach_money_rounded,
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return 'Ingresa el monto de derechos.';
+                  }
+                  final parsed = double.tryParse(v);
+                  if (parsed == null || parsed < 0) {
+                    return 'Monto inválido.';
+                  }
+                  return null;
+                },
               ),
-              onPressed: _refreshData,
-              icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text(
-                'Reintentar',
-                style: TextStyle(fontWeight: FontWeight.w700),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // 3. BOTONES DE ACCIÓN
+          Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    backgroundColor: const Color(0xFFF1F5F9),
+                    foregroundColor: const Color(0xFF475569),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onPressed: _isLoading
+                      ? null
+                      : () => setState(() => _isEditing = false),
+                  child: const Text(
+                    'Cancelar',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
               ),
-            ),
-          ],
-        ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: LoadingActionButton(
+                  text: isEditing ? 'Guardar Cambios' : 'Registrar Tarjeta',
+                  icon: isEditing ? Icons.check_rounded : Icons.add_rounded,
+                  isLoading: _isLoading,
+                  height: 48,
+                  borderRadius: 14,
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  onPressed: () => _submitForm(isEditing: isEditing),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 32),
+        ],
       ),
     );
   }
 
   // =========================================================================
-  // ESTADO VACÍO (SIN TARJETA REGISTRADA)
+  // CAJA DE FOTOGRAFÍA ESTILO APPLE CARD
   // =========================================================================
-  Widget _buildEmptyState() {
-    final plates = widget.vehicle['placas']?.toString() ??
-        widget.vehicle['plate']?.toString() ??
-        'este vehículo';
+  Widget _buildPhotoBox({
+    required String title,
+    required String tag,
+    required File? image,
+    required bool isScanning,
+    required VoidCallback onTap,
+    required VoidCallback onRemove,
+    required bool isRequired,
+  }) {
+    final hasImage = image != null;
+    final isOcrFront = tag == 'IA OCR';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24.0),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+    return GestureDetector(
+      onTap: isScanning ? null : onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        height: 132,
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
+          color: hasImage ? Colors.black : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: const Color(0xFFE2E8F0),
-            width: 1.0,
+            color: hasImage
+                ? const Color(0xFF0284C7)
+                : (isOcrFront
+                    ? const Color(0xFFBAE6FD)
+                    : const Color(0xFFE2E8F0)),
+            width: hasImage ? 1.5 : 1.0,
           ),
           boxShadow: [
             BoxShadow(
               color: const Color(0xFF0F172A).withOpacity(0.03),
-              blurRadius: 16,
-              offset: const Offset(0, 4),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
             ),
           ],
         ),
-        child: Column(
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE0F2FE),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0284C7).withOpacity(0.12),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.credit_card_rounded,
-                color: Color(0xFF0284C7),
-                size: 32,
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Sin Tarjeta de Circulación',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
-                letterSpacing: -0.3,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'No se encontró ningún registro oficial de tarjeta de circulación para $plates.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 12.5,
-                color: Color(0xFF64748B),
-                height: 1.4,
-              ),
-            ),
-            if (_canCreate) ...[
-              const SizedBox(height: 24),
-              LoadingActionButton(
-                text: 'Registrar Tarjeta',
-                icon: Icons.add_circle_outline_rounded,
-                isLoading: false,
-                height: 46,
-                borderRadius: 14,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(15),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (hasImage) ...[
+                Image.file(
+                  image,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
                 ),
-                onPressed: () => _openCardModal(isEditing: false),
-              ),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.black.withOpacity(0.1),
+                        Colors.black.withOpacity(0.65),
+                      ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981),
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.check_circle_rounded,
+                            size: 11, color: Colors.white),
+                        const SizedBox(width: 4),
+                        Text(
+                          isOcrFront ? 'Frente listo' : 'Reverso listo',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: GestureDetector(
+                    onTap: onRemove,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: Colors.white.withOpacity(0.3), width: 1),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.close_rounded,
+                          color: Colors.white,
+                          size: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 8,
+                  left: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.22),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.cached_rounded,
+                            size: 12, color: Colors.white),
+                        SizedBox(width: 4),
+                        Text(
+                          'Cambiar',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ] else ...[
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isOcrFront
+                          ? const Color(0xFFE0F2FE)
+                          : const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isOcrFront
+                            ? const Color(0xFFBAE6FD)
+                            : const Color(0xFFE2E8F0),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isOcrFront) ...[
+                          const Icon(Icons.auto_awesome,
+                              size: 10, color: Color(0xFF0284C7)),
+                          const SizedBox(width: 3),
+                        ],
+                        Text(
+                          tag,
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.4,
+                            color: isOcrFront
+                                ? const Color(0xFF0284C7)
+                                : const Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Center(
+                  child: isScanning
+                      ? const Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 26,
+                              height: 26,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Color(0xFF0284C7),
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Escaneando IA...',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF0284C7),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 42,
+                              height: 42,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: LinearGradient(
+                                  colors: isOcrFront
+                                      ? [
+                                          const Color(0xFFE0F2FE),
+                                          const Color(0xFFBAE6FD)
+                                        ]
+                                      : [
+                                          const Color(0xFFF1F5F9),
+                                          const Color(0xFFE2E8F0)
+                                        ],
+                                  begin: Alignment.topLeft,
+                                  end: Alignment.bottomRight,
+                                ),
+                              ),
+                              child: Icon(
+                                isOcrFront
+                                    ? Icons.document_scanner_rounded
+                                    : Icons.flip_to_back_rounded,
+                                color: isOcrFront
+                                    ? const Color(0xFF0284C7)
+                                    : const Color(0xFF64748B),
+                                size: 22,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Text(
+                              isOcrFront
+                                  ? 'Escanear Frente'
+                                  : 'Foto Reverso',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF1E293B),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              isOcrFront
+                                  ? 'Cámara o Galería'
+                                  : 'Respaldo opcional',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w500,
+                                color: Color(0xFF94A3B8),
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
   }
 
   // =========================================================================
-  // DETALLES DE LA TARJETA (HERO WALLET CARD COLOR VINO / BURGUNDY / RUBÍ)
-  // OJO: Solo la carta cambia a color vino / rubí, todos los inputs y botones quedan estándar azul
+  // DETALLES DE LA TARJETA (ESTILO APPLE HERO COLOR ESMERALDA / PETRÓLEO)
   // =========================================================================
   Widget _buildCardDetails(CirculationCardModel tarjeta) {
     final numTarjeta = tarjeta.numTarjeta.trim().isNotEmpty
         ? tarjeta.numTarjeta
-        : 'Sin Número';
+        : 'Sin Folio';
     final fecExpStr = _formatDisplayDate(tarjeta.fecExpedicion);
     final fecVenStr = _formatDisplayDate(tarjeta.fecVencimiento);
-
     final monto = double.tryParse(tarjeta.monto) ?? 0.0;
 
     final plates = widget.vehicle['placas']?.toString() ??
@@ -766,7 +1894,6 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
 
     final parsedExpiry = _parseDateSafe(tarjeta.fecVencimiento);
 
-    // Evaluación del estatus de vigencia
     int daysRemaining = 0;
     bool isExpired = false;
     bool isToday = false;
@@ -777,9 +1904,9 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
     String badgeText;
     IconData badgeIcon;
 
-    if (parsedExpiry == null) {
-      badgeBg = const Color(0xFFBE123C).withOpacity(0.2);
-      badgeColor = const Color(0xFFFDA4AF);
+    if (parsedExpiry == null || parsedExpiry.year >= 2090) {
+      badgeBg = const Color(0xFF042F2E).withOpacity(0.3);
+      badgeColor = const Color(0xFF5EEAD4);
       badgeText = 'PERMANENTE';
       badgeIcon = Icons.verified_rounded;
     } else {
@@ -810,18 +1937,34 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
       }
     }
 
+    // Extraer IDs de fotografías registradas
+    final List<int> fotoIds = [];
+    for (final f in tarjeta.fotos) {
+      int? p;
+      if (f is int) {
+        p = f;
+      } else if (f is Map && f['id'] != null) {
+        p = int.tryParse(f['id'].toString());
+      } else if (f != null) {
+        p = int.tryParse(f.toString());
+      }
+      if (p != null && !fotoIds.contains(p)) {
+        fotoIds.add(p);
+      }
+    }
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 1. TARJETA DIGITAL APPLE WALLET HERO (DISTINTIVO COLOR AZUL PETRÓLEO / TURQUESA OCEÁNICO)
+        // 1. TARJETA DIGITAL APPLE WALLET HERO (PETROL TEAL GRADIENT)
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
             gradient: const LinearGradient(
               colors: [
-                Color(0xFF042F2E), // Deep Obsidian Petrol Teal
-                Color(0xFF0F766E), // Rich Oceanic Emerald Teal
-                Color(0xFF0D9488), // Luminous Executive Teal
+                Color(0xFF042F2E),
+                Color(0xFF0F766E),
+                Color(0xFF0D9488),
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
@@ -872,7 +2015,6 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Fila Superior: Marca oficial y Placas
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -905,18 +2047,20 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
                                         style: TextStyle(
                                           fontSize: 10.5,
                                           fontWeight: FontWeight.w800,
-                                          color: Colors.white.withOpacity(0.95),
+                                          color: Colors.white
+                                              .withOpacity(0.95),
                                           letterSpacing: 0.6,
                                         ),
                                       ),
                                       Text(
-                                        'REGISTRO VEHICULAR OFICIAL · MARK FLEET',
+                                        'REGISTRO VEHICULAR OFICIAL',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
                                           fontSize: 8,
                                           fontWeight: FontWeight.w600,
-                                          color: Colors.white.withOpacity(0.65),
+                                          color: Colors.white
+                                              .withOpacity(0.65),
                                           letterSpacing: 0.4,
                                         ),
                                       ),
@@ -961,8 +2105,6 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
                         ],
                       ),
                       const SizedBox(height: 18),
-
-                      // Fila Central: Número de Tarjeta y Status Badge
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         crossAxisAlignment: CrossAxisAlignment.center,
@@ -1026,8 +2168,6 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
                         ],
                       ),
                       const SizedBox(height: 16),
-
-                      // Fila Inferior: Expedición, Vencimiento, Monto
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -1073,7 +2213,8 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
                               child: Padding(
                                 padding: const EdgeInsets.only(left: 10),
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
                                   children: [
                                     Text(
                                       'VENCIMIENTO',
@@ -1108,7 +2249,8 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
                               child: Padding(
                                 padding: const EdgeInsets.only(left: 10),
                                 child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  crossAxisAlignment:
+                                      CrossAxisAlignment.start,
                                   children: [
                                     Text(
                                       'DERECHOS',
@@ -1181,7 +2323,7 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          parsedExpiry == null
+                          parsedExpiry == null || parsedExpiry.year >= 2090
                               ? 'Tarjeta con Vigencia Permanente'
                               : (isExpired
                                   ? 'Vencida hace ${daysRemaining.abs()} días'
@@ -1278,7 +2420,7 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
             ),
           ],
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 14),
 
         // 3. SECCIÓN: DETALLES DE LA TARJETA
         _buildSectionTitle('DATOS DE LA TARJETA'),
@@ -1310,13 +2452,64 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
             ),
           ],
         ),
+        const SizedBox(height: 14),
+
+        // 4. FOTOGRAFÍAS REGISTRADAS DE LA TARJETA (SI EXISTEN)
+        if (fotoIds.isNotEmpty) ...[
+          _buildSectionTitle('FOTOGRAFÍAS DE LA TARJETA DE CIRCULACIÓN'),
+          _buildAppleGroupContainer(
+            children: [
+              SizedBox(
+                height: 130,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: fotoIds.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        width: 190,
+                        color: const Color(0xFFF1F5F9),
+                        child: DocFotoWidget(
+                          idFoto: fotoIds[index],
+                          width: 190,
+                          height: 130,
+                          fit: BoxFit.cover,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Row(
+                children: [
+                  Icon(Icons.touch_app_outlined,
+                      size: 14, color: Color(0xFF0284C7)),
+                  SizedBox(width: 6),
+                  Text(
+                    'Toca cualquier imagen para verla en pantalla completa.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+        ],
 
         const SizedBox(height: 32),
       ],
     );
   }
 
-  // --- FILA DE DETALLE ESTILO CUPERTINO/APPLE ---
+  // --- FILA DE DETALLE ESTILO APPLE ---
   Widget _buildDetailRow({
     required IconData icon,
     required String label,
@@ -1329,15 +2522,17 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
           width: 32,
           height: 32,
           decoration: BoxDecoration(
-            color:
-                isHighlight ? const Color(0xFFCCFBF1) : const Color(0xFFF8FAFC),
+            color: isHighlight
+                ? const Color(0xFFCCFBF1)
+                : const Color(0xFFF8FAFC),
             borderRadius: BorderRadius.circular(9),
           ),
           child: Icon(
             icon,
             size: 16,
-            color:
-                isHighlight ? const Color(0xFF0F766E) : const Color(0xFF64748B),
+            color: isHighlight
+                ? const Color(0xFF0F766E)
+                : const Color(0xFF64748B),
           ),
         ),
         const SizedBox(width: 10),
@@ -1358,8 +2553,9 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
           style: TextStyle(
             fontSize: isHighlight ? 14.5 : 13,
             fontWeight: isHighlight ? FontWeight.w800 : FontWeight.w600,
-            color:
-                isHighlight ? const Color(0xFF0F766E) : const Color(0xFF0F172A),
+            color: isHighlight
+                ? const Color(0xFF0F766E)
+                : const Color(0xFF0F172A),
             letterSpacing: isHighlight ? -0.2 : 0,
           ),
         ),
@@ -1408,944 +2604,6 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
     );
   }
 
-  // =========================================================================
-  // MODAL DE CONFIRMACIÓN DE ELIMINACIÓN
-  // =========================================================================
-  void _showDeleteConfirmationDialog() {
-    final plates = widget.vehicle['placas']?.toString() ??
-        widget.vehicle['plate']?.toString() ??
-        'este vehículo';
-
-    showDialog(
-      context: context,
-      builder: (dialogContext) {
-        bool isDeleting = false;
-
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            return Dialog(
-              backgroundColor: Colors.transparent,
-              insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Container(
-                padding: const EdgeInsets.all(22),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(22),
-                  boxShadow: [
-                    BoxShadow(
-                      color: const Color(0xFF0F172A).withOpacity(0.12),
-                      blurRadius: 24,
-                      offset: const Offset(0, 8),
-                    ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Container(
-                      width: 52,
-                      height: 52,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEE2E2),
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: const Icon(
-                        Icons.delete_forever_rounded,
-                        color: Color(0xFFEF4444),
-                        size: 28,
-                      ),
-                    ),
-                    const SizedBox(height: 16),
-                    const Text(
-                      '¿Eliminar Tarjeta?',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
-                        letterSpacing: -0.3,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Se borrará la tarjeta de circulación registrada para las placas $plates. Esta acción no se puede deshacer.',
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        color: Color(0xFF64748B),
-                        height: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 22),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: TextButton(
-                            style: TextButton.styleFrom(
-                              backgroundColor: const Color(0xFFF1F5F9),
-                              foregroundColor: const Color(0xFF475569),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              padding: const EdgeInsets.symmetric(vertical: 12),
-                            ),
-                            onPressed: isDeleting
-                                ? null
-                                : () => Navigator.of(dialogContext).pop(),
-                            child: const Text(
-                              'Cancelar',
-                              style: TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: LoadingActionButton(
-                            text: 'Eliminar',
-                            isLoading: isDeleting,
-                            height: 44,
-                            borderRadius: 14,
-                            backgroundColor: const Color(0xFFEF4444),
-                            onPressed: () async {
-                              setDialogState(() {
-                                isDeleting = true;
-                              });
-                              await _performDeleteCard(dialogContext);
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Future<void> _performDeleteCard(BuildContext dialogContext) async {
-    try {
-      final circu = await VehiclesconService().obtenerTarjetaCirculacion(
-        widget.vehicle['id'].toString(),
-        widget.idMainAccount.toString(),
-      );
-
-      if (circu == null || circu.isEmpty || circu['id'] == null) {
-        if (mounted) {
-          Navigator.of(dialogContext).pop();
-          SnackbarTop.showInfo(
-            context,
-            'No se encontró la tarjeta de circulación para eliminar.',
-          );
-        }
-        return;
-      }
-
-      final int idcircu = circu['id'];
-      final String numTar = circu['numTarjeta']?.toString() ?? '';
-      final String fecExp = circu['fecExpedicion']?.toString() ?? '';
-      final String fecVen = circu['fecVencimiento']?.toString() ?? '';
-
-      // 1. Notificación
-      try {
-        const nameNotice = 'vehicle_registration_card_deleted';
-        final noticeTemplate =
-            await NotificationService().getNoticeByName(nameNotice);
-
-        if (noticeTemplate != null) {
-          String message = '';
-          final rawMsg = noticeTemplate['message'];
-          if (rawMsg is List<int>) {
-            try {
-              message = utf8.decode(rawMsg);
-            } catch (_) {
-              message = rawMsg.toString();
-            }
-          } else {
-            message = rawMsg?.toString() ?? '';
-          }
-
-          final vehiclePlates = widget.vehicle['placas']?.toString() ??
-              widget.vehicle['plate']?.toString() ??
-              '';
-
-          final formattedMessage = message
-              .replaceAll('{vehicle_plate}', vehiclePlates)
-              .replaceAll('{card_number}', numTar)
-              .replaceAll('{issue_date}', _formatDisplayDate(fecExp))
-              .replaceAll('{expiry_date}', _formatDisplayDate(fecVen));
-
-          final title = (noticeTemplate['title']?.toString() ?? '')
-              .replaceAll('{vehicle_plate}', vehiclePlates);
-
-          final finalMessage =
-              '$title|$formattedMessage|${noticeTemplate['icon'] ?? ''}';
-
-          await NotificationService().insertNotification({
-            'typeSource': _typeSource,
-            'idOrigin': idcircu,
-            'typEvent': 3,
-            'date': DateTime.now().toIso8601String(),
-            'message': finalMessage,
-            'colNotice': 'tc_Delete',
-            'idMainAcoount': widget.idMainAccount.toString(),
-            'codUsGenerator': widget.userId.toString(),
-            'idDev': widget.userId.toString(),
-          });
-        }
-      } catch (notifErr) {
-        debugPrint('Error al enviar notificación de eliminación: $notifErr');
-      }
-
-      // 2. Eliminar tarjeta
-      await VehiclesconService().eliminarTarjetaCirculacion(
-        widget.vehicle['id'].toString(),
-        widget.idMainAccount.toString(),
-      );
-
-      // 3. Eliminar control de gestión
-      await VehiclesconService().deleteManagementControlTJ(
-        widget.idMainAccount.toString(),
-        widget.vehicle['id'].toString(),
-      );
-
-      if (mounted) {
-        Navigator.of(dialogContext).pop();
-        SnackbarTop.showSuccess(
-          context,
-          'Tarjeta de circulación eliminada exitosamente.',
-        );
-        _refreshData();
-      }
-    } catch (e) {
-      debugPrint('Error al eliminar tarjeta de circulación: $e');
-      if (mounted) {
-        Navigator.of(dialogContext).pop();
-        SnackbarTop.showError(
-          context,
-          'Error al eliminar la tarjeta. Inténtalo de nuevo.',
-        );
-      }
-    }
-  }
-
-  // =========================================================================
-  // MODAL CREAR / EDITAR ESTILO APPLE (BOTTOM SHEET)
-  // OJO: Los campos de entrada y botones de acción mantienen el azul estándar Color(0xFF0284C7)
-  // =========================================================================
-  void _openCardModal({
-    required bool isEditing,
-    Map<String, dynamic>? initialData,
-  }) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) {
-        return _CirculationCardFormModalSheet(
-          isEditing: isEditing,
-          initialData: initialData,
-          vehicle: widget.vehicle,
-          idMainAccount: widget.idMainAccount,
-          userId: widget.userId,
-          typeSource: _typeSource,
-          onSuccess: () {
-            _refreshData();
-          },
-        );
-      },
-    );
-  }
-}
-
-// ===========================================================================
-// COMPONENTE: MODAL BOTTOM SHEET DE FORMULARIO ESTILO APPLE
-// ===========================================================================
-class _CirculationCardFormModalSheet extends StatefulWidget {
-  final bool isEditing;
-  final Map<String, dynamic>? initialData;
-  final Map<String, dynamic> vehicle;
-  final String idMainAccount;
-  final String userId;
-  final String typeSource;
-  final VoidCallback onSuccess;
-
-  const _CirculationCardFormModalSheet({
-    required this.isEditing,
-    this.initialData,
-    required this.vehicle,
-    required this.idMainAccount,
-    required this.userId,
-    required this.typeSource,
-    required this.onSuccess,
-  });
-
-  @override
-  State<_CirculationCardFormModalSheet> createState() =>
-      _CirculationCardFormModalSheetState();
-}
-
-class _CirculationCardFormModalSheetState
-    extends State<_CirculationCardFormModalSheet> {
-  final _formKey = GlobalKey<FormState>();
-  final _numTarjetaController = TextEditingController();
-  final _fecExpedicionController = TextEditingController();
-  final _fecVencimientoController = TextEditingController();
-  final _montoController = TextEditingController();
-
-  DateTime? _selectedFechaExpedicion;
-  DateTime? _selectedFechaVencimiento;
-  bool _isLoading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.isEditing && widget.initialData != null) {
-      final d = widget.initialData!;
-      _numTarjetaController.text = d['numTarjeta']?.toString() ?? '';
-      _montoController.text = d['monto']?.toString() ?? '0';
-
-      _selectedFechaExpedicion = _parseDate(d['fecExpedicion']);
-      if (_selectedFechaExpedicion != null) {
-        _fecExpedicionController.text =
-            DateFormat('dd / MM / yyyy').format(_selectedFechaExpedicion!);
-      }
-
-      _selectedFechaVencimiento = _parseDate(d['fecVencimiento']);
-      if (_selectedFechaVencimiento != null) {
-        _fecVencimientoController.text =
-            DateFormat('dd / MM / yyyy').format(_selectedFechaVencimiento!);
-      }
-    }
-  }
-
-  DateTime? _parseDate(dynamic date) {
-    if (date == null) return null;
-    if (date is DateTime) return date;
-    final str = date.toString().trim();
-    if (str.isEmpty) return null;
-
-    try {
-      return DateFormat('yyyy-MM-dd').parse(str);
-    } catch (_) {}
-
-    try {
-      return DateFormat('dd/MM/yyyy').parse(str);
-    } catch (_) {}
-
-    try {
-      return DateTime.parse(str);
-    } catch (_) {}
-
-    return null;
-  }
-
-  @override
-  void dispose() {
-    _numTarjetaController.dispose();
-    _fecExpedicionController.dispose();
-    _fecVencimientoController.dispose();
-    _montoController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _selectDate(
-    BuildContext context, {
-    required String title,
-    DateTime? initialDate,
-    required ValueChanged<DateTime> onDateSelected,
-  }) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate ?? DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-      helpText: title,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF0284C7),
-              onPrimary: Colors.white,
-              onSurface: Color(0xFF0F172A),
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      onDateSelected(picked);
-    }
-  }
-
-  Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    if (_selectedFechaExpedicion == null) {
-      SnackbarTop.showInfo(
-        context,
-        'Por favor selecciona la fecha de expedición.',
-      );
-      return;
-    }
-
-    if (_selectedFechaVencimiento == null) {
-      SnackbarTop.showInfo(
-        context,
-        'Por favor selecciona la fecha de vencimiento.',
-      );
-      return;
-    }
-
-    if (_selectedFechaExpedicion!.isAfter(_selectedFechaVencimiento!)) {
-      SnackbarTop.showInfo(
-        context,
-        'La fecha de expedición no puede ser posterior a la fecha de vencimiento.',
-      );
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    final String numTarjeta = _numTarjetaController.text.trim();
-    final double monto = double.tryParse(_montoController.text.trim()) ?? 0.0;
-
-    try {
-      if (widget.isEditing) {
-        // --- ACTUALIZACIÓN DE TARJETA ---
-        final int idVehic = int.parse(widget.vehicle['id'].toString());
-        final int idUs = int.parse(widget.idMainAccount.toString());
-
-        await VehiclesconService().actualizarTarjetaCirculacion(
-          idVehic,
-          idUs,
-          numTarjeta,
-          DateFormat('yyyy-MM-dd').format(_selectedFechaExpedicion!),
-          DateFormat('yyyy-MM-dd').format(_selectedFechaVencimiento!),
-          monto,
-        );
-
-        // Notificación de actualización
-        try {
-          final circu = await VehiclesconService().obtenerTarjetaCirculacion(
-            widget.vehicle['id'].toString(),
-            widget.idMainAccount.toString(),
-          );
-
-          if (circu != null && circu.isNotEmpty && circu['id'] != null) {
-            final int idcircu = circu['id'];
-            const nameNotice = 'vehicle_registration_card_updated';
-            final noticeTemplate =
-                await NotificationService().getNoticeByName(nameNotice);
-
-            if (noticeTemplate != null) {
-              String message = '';
-              final rawMsg = noticeTemplate['message'];
-              if (rawMsg is List<int>) {
-                try {
-                  message = utf8.decode(rawMsg);
-                } catch (_) {
-                  message = rawMsg.toString();
-                }
-              } else {
-                message = rawMsg?.toString() ?? '';
-              }
-
-              final vehiclePlates = widget.vehicle['placas']?.toString() ??
-                  widget.vehicle['plate']?.toString() ??
-                  '';
-
-              final formattedMessage = message
-                  .replaceAll('{vehicle_plate}', vehiclePlates)
-                  .replaceAll('{card_number}', numTarjeta)
-                  .replaceAll(
-                      '{issue_date}',
-                      DateFormat('dd/MM/yyyy')
-                          .format(_selectedFechaExpedicion!))
-                  .replaceAll(
-                      '{expiry_date}',
-                      DateFormat('dd/MM/yyyy')
-                          .format(_selectedFechaVencimiento!));
-
-              final title = (noticeTemplate['title']?.toString() ?? '')
-                  .replaceAll('{vehicle_plate}', vehiclePlates);
-
-              final finalMessage =
-                  '$title|$formattedMessage|${noticeTemplate['icon'] ?? ''}';
-
-              await NotificationService().insertNotification({
-                'typeSource': widget.typeSource,
-                'idOrigin': idcircu,
-                'typEvent': 2,
-                'date': DateTime.now().toIso8601String(),
-                'message': finalMessage,
-                'colNotice': 'tc_Edit',
-                'idMainAcoount': widget.idMainAccount.toString(),
-                'codUsGenerator': widget.userId.toString(),
-                'idDev': widget.userId.toString(),
-              });
-            }
-          }
-        } catch (notifErr) {
-          debugPrint(
-              'Error al enviar notificación de actualización: $notifErr');
-        }
-
-        // Actualizar control de gestión
-        await VehiclesconService().updateManagementControlTJ(
-          idUs,
-          idVehic,
-          DateFormat('yyyy-MM-dd').format(_selectedFechaVencimiento!),
-        );
-
-        if (mounted) {
-          Navigator.of(context).pop();
-          SnackbarTop.showSuccess(
-            context,
-            'Tarjeta de circulación actualizada exitosamente.',
-          );
-          widget.onSuccess();
-        }
-      } else {
-        // --- CREACIÓN DE NUEVA TARJETA ---
-        final DateTime fechaExpUTC = _selectedFechaExpedicion!.toUtc();
-        final DateTime fechaVenUTC = _selectedFechaVencimiento!.toUtc();
-
-        await VehiclesconService().crearTarjetaCirculacion(
-          widget.vehicle['id'].toString(),
-          widget.idMainAccount.toString(),
-          numTarjeta,
-          fechaExpUTC,
-          fechaVenUTC,
-          monto,
-        );
-
-        // Notificación de creación
-        try {
-          final circu = await VehiclesconService().obtenerTarjetaCirculacion(
-            widget.vehicle['id'].toString(),
-            widget.idMainAccount.toString(),
-          );
-
-          if (circu != null && circu.isNotEmpty && circu['id'] != null) {
-            final int idcircu = circu['id'];
-            const nameNotice = 'vehicle_registration_card_added';
-            final noticeTemplate =
-                await NotificationService().getNoticeByName(nameNotice);
-
-            if (noticeTemplate != null) {
-              String message = '';
-              final rawMsg = noticeTemplate['message'];
-              if (rawMsg is List<int>) {
-                try {
-                  message = utf8.decode(rawMsg);
-                } catch (_) {
-                  message = rawMsg.toString();
-                }
-              } else {
-                message = rawMsg?.toString() ?? '';
-              }
-
-              final vehiclePlates = widget.vehicle['placas']?.toString() ??
-                  widget.vehicle['plate']?.toString() ??
-                  '';
-
-              final formattedMessage = message
-                  .replaceAll('{vehicle_plate}', vehiclePlates)
-                  .replaceAll('{card_number}', numTarjeta)
-                  .replaceAll(
-                      '{issue_date}',
-                      DateFormat('dd/MM/yyyy')
-                          .format(_selectedFechaExpedicion!))
-                  .replaceAll(
-                      '{expiry_date}',
-                      DateFormat('dd/MM/yyyy')
-                          .format(_selectedFechaVencimiento!));
-
-              final title = (noticeTemplate['title']?.toString() ?? '')
-                  .replaceAll('{vehicle_plate}', vehiclePlates);
-
-              final finalMessage =
-                  '$title|$formattedMessage|${noticeTemplate['icon'] ?? ''}';
-
-              await NotificationService().insertNotification({
-                'typeSource': widget.typeSource,
-                'idOrigin': idcircu,
-                'typEvent': 1,
-                'date': DateTime.now().toIso8601String(),
-                'message': finalMessage,
-                'colNotice': 'tc_New',
-                'idMainAcoount': widget.idMainAccount.toString(),
-                'codUsGenerator': widget.userId.toString(),
-                'idDev': widget.userId.toString(),
-              });
-            }
-          }
-        } catch (notifErr) {
-          debugPrint('Error al enviar notificación de creación: $notifErr');
-        }
-
-        // Insertar control de gestión
-        await VehiclesconService().insertManagementControlTJ(
-          widget.idMainAccount.toString(),
-          widget.vehicle['id'].toString(),
-          fechaVenUTC,
-        );
-
-        if (mounted) {
-          Navigator.of(context).pop();
-          SnackbarTop.showSuccess(
-            context,
-            'Tarjeta de circulación creada exitosamente.',
-          );
-          widget.onSuccess();
-        }
-      }
-    } catch (e) {
-      debugPrint('Error al guardar tarjeta de circulación: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        SnackbarTop.showError(
-          context,
-          'Ocurrió un error al procesar la solicitud. Intenta nuevamente.',
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    return Container(
-      constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.88,
-      ),
-      padding: EdgeInsets.only(bottom: bottomInset),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(28),
-          topRight: Radius.circular(28),
-        ),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Asa superior estilo Apple
-            Center(
-              child: Container(
-                margin: const EdgeInsets.only(top: 10, bottom: 6),
-                width: 38,
-                height: 4.5,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFCBD5E1),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-              ),
-            ),
-
-            // Encabezado del modal
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Row(
-                children: [
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFE0F2FE),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Icon(
-                      Icons.credit_card_rounded,
-                      color: Color(0xFF0284C7),
-                      size: 20,
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.isEditing
-                              ? 'Editar Tarjeta de Circulación'
-                              : 'Nueva Tarjeta de Circulación',
-                          style: const TextStyle(
-                            fontSize: 16.5,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF0F172A),
-                            letterSpacing: -0.3,
-                          ),
-                        ),
-                        Text(
-                          widget.vehicle['placas']?.toString() ??
-                              widget.vehicle['plate']?.toString() ??
-                              'Vehículo',
-                          style: const TextStyle(
-                            fontSize: 11.5,
-                            color: Color(0xFF64748B),
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1, color: Color(0xFFE2E8F0)),
-
-            // Formulario scrolleable
-            Flexible(
-              child: SingleChildScrollView(
-                physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-                child: Form(
-                  key: _formKey,
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // Número / Folio de Tarjeta
-                      _buildFieldLabel('Número de Tarjeta / Folio *'),
-                      TextFormField(
-                        controller: _numTarjetaController,
-                        textCapitalization: TextCapitalization.characters,
-                        maxLength: 20,
-                        style: const TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF0F172A),
-                        ),
-                        decoration: _buildInputDecoration(
-                          hint: 'Ej. TC-94820194',
-                          prefixIcon: Icons.badge_outlined,
-                        ),
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) {
-                            return 'Ingresa el número de tarjeta.';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Fechas (Expedición y Vencimiento)
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildFieldLabel('Fecha de Expedición *'),
-                                InkWell(
-                                  borderRadius: BorderRadius.circular(14),
-                                  onTap: () {
-                                    _selectDate(
-                                      context,
-                                      title: 'Fecha de Expedición',
-                                      initialDate: _selectedFechaExpedicion,
-                                      onDateSelected: (date) {
-                                        setState(() {
-                                          _selectedFechaExpedicion = date;
-                                          _fecExpedicionController.text =
-                                              DateFormat('dd / MM / yyyy')
-                                                  .format(date);
-                                        });
-                                      },
-                                    );
-                                  },
-                                  child: IgnorePointer(
-                                    child: TextFormField(
-                                      controller: _fecExpedicionController,
-                                      readOnly: true,
-                                      style: const TextStyle(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF0F172A),
-                                      ),
-                                      decoration: _buildInputDecoration(
-                                        hint: 'dd / mm / aaaa',
-                                        prefixIcon:
-                                            Icons.calendar_today_rounded,
-                                      ),
-                                      validator: (v) {
-                                        if (v == null || v.trim().isEmpty) {
-                                          return 'Selecciona la fecha.';
-                                        }
-                                        return null;
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                _buildFieldLabel('Fecha de Vencimiento *'),
-                                InkWell(
-                                  borderRadius: BorderRadius.circular(14),
-                                  onTap: () {
-                                    _selectDate(
-                                      context,
-                                      title: 'Fecha de Vencimiento',
-                                      initialDate: _selectedFechaVencimiento,
-                                      onDateSelected: (date) {
-                                        setState(() {
-                                          _selectedFechaVencimiento = date;
-                                          _fecVencimientoController.text =
-                                              DateFormat('dd / MM / yyyy')
-                                                  .format(date);
-                                        });
-                                      },
-                                    );
-                                  },
-                                  child: IgnorePointer(
-                                    child: TextFormField(
-                                      controller: _fecVencimientoController,
-                                      readOnly: true,
-                                      style: const TextStyle(
-                                        fontSize: 12.5,
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF0F172A),
-                                      ),
-                                      decoration: _buildInputDecoration(
-                                        hint: 'dd / mm / aaaa',
-                                        prefixIcon:
-                                            Icons.event_available_rounded,
-                                      ),
-                                      validator: (v) {
-                                        if (v == null || v.trim().isEmpty) {
-                                          return 'Selecciona la fecha.';
-                                        }
-                                        return null;
-                                      },
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 14),
-
-                      // Monto / Costo
-                      _buildFieldLabel('Monto Pagado / Derechos *'),
-                      TextFormField(
-                        controller: _montoController,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d+\.?\d{0,2}'),
-                          ),
-                        ],
-                        style: const TextStyle(
-                          fontSize: 13.5,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF0F172A),
-                        ),
-                        decoration: _buildInputDecoration(
-                          hint: '0.00',
-                          prefixIcon: Icons.attach_money_rounded,
-                        ),
-                        validator: (v) {
-                          if (v == null || v.trim().isEmpty) {
-                            return 'Ingresa el monto.';
-                          }
-                          final parsed = double.tryParse(v);
-                          if (parsed == null || parsed < 0) {
-                            return 'Monto inválido.';
-                          }
-                          return null;
-                        },
-                      ),
-                      const SizedBox(height: 24),
-
-                      // Botones de acción del BottomSheet
-                      // OJO: Azul estándar (#0284C7 / #0369A1) para botones e inputs
-                      Row(
-                        children: [
-                          Expanded(
-                            child: TextButton(
-                              style: TextButton.styleFrom(
-                                backgroundColor: const Color(0xFFF1F5F9),
-                                foregroundColor: const Color(0xFF475569),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 14),
-                              ),
-                              onPressed: _isLoading
-                                  ? null
-                                  : () => Navigator.of(context).pop(),
-                              child: const Text(
-                                'Cancelar',
-                                style: TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            flex: 2,
-                            child: LoadingActionButton(
-                              text: widget.isEditing
-                                  ? 'Guardar Cambios'
-                                  : 'Crear Tarjeta',
-                              icon: widget.isEditing
-                                  ? Icons.check_rounded
-                                  : Icons.add_rounded,
-                              isLoading: _isLoading,
-                              height: 48,
-                              borderRadius: 14,
-                              gradient: const LinearGradient(
-                                colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                              onPressed: _submitForm,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Widget _buildFieldLabel(String label) {
     return Padding(
       padding: const EdgeInsets.only(left: 2, bottom: 6),
@@ -2380,7 +2638,8 @@ class _CirculationCardFormModalSheetState
       fillColor: const Color(0xFFF8FAFC),
       counterText: '',
       isDense: true,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(14),
         borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
@@ -2402,5 +2661,214 @@ class _CirculationCardFormModalSheetState
         borderSide: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
       ),
     );
+  }
+
+  // =========================================================================
+  // SKELETON LOADER
+  // =========================================================================
+  Widget _buildSkeleton(bool isSmallScreen) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const AppShimmerBox.card(
+          height: 195,
+          borderRadius: 20,
+        ),
+        const SizedBox(height: 16),
+        const Padding(
+          padding: EdgeInsets.only(left: 4, bottom: 8),
+          child: AppShimmerBox.text(width: 160, height: 12),
+        ),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: const [
+              AppShimmerBox.text(width: double.infinity, height: 14),
+              SizedBox(height: 12),
+              AppShimmerBox.text(width: double.infinity, height: 14),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  // =========================================================================
+  // ESTADO VACÍO (SIN TARJETA REGISTRADA)
+  // =========================================================================
+  Widget _buildEmptyState() {
+    final plates = widget.vehicle['placas']?.toString() ??
+        widget.vehicle['plate']?.toString() ??
+        'este vehículo';
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 24.0),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: const Color(0xFFE2E8F0),
+            width: 1.0,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0F172A).withOpacity(0.03),
+              blurRadius: 16,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          children: [
+            Container(
+              width: 64,
+              height: 64,
+              decoration: BoxDecoration(
+                color: const Color(0xFFE0F2FE),
+                borderRadius: BorderRadius.circular(20),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0284C7).withOpacity(0.12),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ],
+              ),
+              child: const Icon(
+                Icons.credit_card_rounded,
+                color: Color(0xFF0284C7),
+                size: 32,
+              ),
+            ),
+            const SizedBox(height: 16),
+            const Text(
+              'Sin Tarjeta de Circulación',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w800,
+                color: Color(0xFF0F172A),
+                letterSpacing: -0.3,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'No se encontró ningún registro oficial de tarjeta de circulación para $plates.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 12.5,
+                color: Color(0xFF64748B),
+                height: 1.4,
+              ),
+            ),
+            if (_canCreate) ...[
+              const SizedBox(height: 24),
+              LoadingActionButton(
+                text: 'Registrar Tarjeta',
+                icon: Icons.add_circle_outline_rounded,
+                isLoading: false,
+                height: 46,
+                borderRadius: 14,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                onPressed: _startCreating,
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  // =========================================================================
+  // DIÁLOGO DE CONFIRMACIÓN DE ELIMINACIÓN
+  // =========================================================================
+  void _showDeleteConfirmationDialog() {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+          ),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded, color: Color(0xFFEF4444)),
+              SizedBox(width: 8),
+              Text(
+                'Eliminar Tarjeta',
+                style: TextStyle(
+                  fontSize: 16.5,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ],
+          ),
+          content: const Text(
+            '¿Estás seguro de que deseas eliminar este registro de tarjeta de circulación?',
+            style: TextStyle(
+              fontSize: 13,
+              color: Color(0xFF475569),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(
+                foregroundColor: const Color(0xFFEF4444),
+              ),
+              onPressed: () {
+                Navigator.of(context).pop();
+                _deleteCirculationCard();
+              },
+              child: const Text(
+                'Eliminar',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _deleteCirculationCard() async {
+    try {
+      await VehiclesconService().eliminarTarjetaCirculacion(
+        widget.vehicle['id'].toString(),
+        widget.idMainAccount.toString(),
+      );
+      if (mounted) {
+        SnackbarTop.showSuccess(
+          context,
+          'Tarjeta de circulación eliminada con éxito.',
+        );
+        _refreshData();
+      }
+    } catch (e) {
+      if (mounted) {
+        SnackbarTop.showError(
+          context,
+          'Error al eliminar la tarjeta. Inténtalo de nuevo.',
+        );
+      }
+    }
   }
 }

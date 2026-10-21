@@ -6,6 +6,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'package:mark_v3/models/Routes_/driver_day_models.dart';
+import 'package:mark_v3/services/ConnectionRoutes_/driver_local_db.dart';
 
 class MarkApiException implements Exception {
   final int statusCode;
@@ -57,7 +58,6 @@ class LoginAuthResult {
         challenge = null;
 }
 
-/// Cliente único oficial de Mark V3.1 para comunicarse con el backend:
 /// Puerta: https://calenigps.com/markv3.1/deliveryPHP/operacion/api.php?a=<acción>
 class MarkApiClient {
   static final MarkApiClient _instance = MarkApiClient._internal();
@@ -66,7 +66,7 @@ class MarkApiClient {
   MarkApiClient._internal();
 
   static const String defaultEndpoint =
-      'http://192.168.1.75/markv3.1/deliveryPHP/operacion/api.php';
+      'http://62.151.176.50/markv3.1/deliveryPHP/operacion/api.php';
 
   String? _customEndpoint;
   String get endpoint => _customEndpoint ?? defaultEndpoint;
@@ -229,8 +229,8 @@ class MarkApiClient {
     if (action != 'notificaciones' && action != 'notificacionesLeer') {
       debugPrint(
           '========= [api.php?a=$action] HTTP ${response.statusCode} =========');
-      if (response.statusCode != 200) {
-        _printLong('Payload enviado: ', jsonEncode(body));
+      if (response.statusCode != 200 || action == 'acciones') {
+        _printLong('Payload enviado ($action): ', jsonEncode(body));
       }
       _printLong('Body: ', response.body);
     }
@@ -247,6 +247,13 @@ class MarkApiClient {
         final raw = jsonDecode(response.body);
         if (raw is Map<String, dynamic>) {
           decoded = raw;
+        } else if (raw is List) {
+          decoded = {
+            'reportes': raw,
+            'vehiculos': raw,
+            'data': raw,
+            'items': raw,
+          };
         }
       } catch (_) {}
     }
@@ -514,8 +521,67 @@ class MarkApiClient {
     return const [];
   }
 
-  Future<Map<String, dynamic>> getCatalogos({String? tokenOverride}) async {
-    return await _postAction('catalogos', const {}, customToken: tokenOverride);
+  Map<String, dynamic>? _cachedMasterCatalogs;
+
+  /// Obtiene los catálogos maestros de la plataforma (a=catalogos) con estrategia Cache-First / Stale-While-Revalidate
+  /// Cumpliendo la regla de la guía (Pág. 15): "listas de los formularios (combustibles, aseguradoras, prioridades...) -> a=catalogos (pedirla al entrar y guardarla)."
+  Future<Map<String, dynamic>> getCatalogos({
+    String? tokenOverride,
+    bool forceRefresh = false,
+  }) async {
+    // 1. Si está en memoria y no es forzado, retorno inmediato
+    if (!forceRefresh &&
+        _cachedMasterCatalogs != null &&
+        _cachedMasterCatalogs!.isNotEmpty) {
+      return _cachedMasterCatalogs!;
+    }
+
+    // 2. Intentar obtener de SQLite/Prefs si no hay memoria y no es forzado
+    if (!forceRefresh) {
+      final localCats = await DriverLocalDb.instance.getMasterCatalogs();
+      if (localCats.isNotEmpty) {
+        _cachedMasterCatalogs = localCats;
+        // Refresco en segundo plano no bloqueante si hay red
+        _backgroundRefreshCatalogos(tokenOverride);
+        return localCats;
+      }
+    }
+
+    // 3. Consultar al servidor
+    try {
+      final data =
+          await _postAction('catalogos', const {}, customToken: tokenOverride);
+      if (data.isNotEmpty) {
+        _cachedMasterCatalogs = data;
+        await DriverLocalDb.instance.saveMasterCatalogs(data);
+      }
+      return data;
+    } catch (e) {
+      // 4. Fallback offline: recuperar del almacenamiento local
+      final localCats = await DriverLocalDb.instance.getMasterCatalogs();
+      if (localCats.isNotEmpty) {
+        _cachedMasterCatalogs = localCats;
+        return localCats;
+      }
+      debugPrint('Aviso: sin catálogos maestros en red ni en caché: $e');
+      return const {};
+    }
+  }
+
+  void _backgroundRefreshCatalogos(String? tokenOverride) {
+    _postAction('catalogos', const {}, customToken: tokenOverride).then((data) {
+      if (data.isNotEmpty) {
+        _cachedMasterCatalogs = data;
+        DriverLocalDb.instance.saveMasterCatalogs(data);
+      }
+    }).catchError((_) {});
+  }
+
+  /// Precarga y guarda localmente los catálogos maestros (a=catalogos) al iniciar sesión o auto-login
+  Future<Map<String, dynamic>> preloadAndCacheCatalogos({
+    String? tokenOverride,
+  }) async {
+    return await getCatalogos(tokenOverride: tokenOverride, forceRefresh: true);
   }
 
   Future<Map<String, dynamic>> getInspecciones(int idVehic,

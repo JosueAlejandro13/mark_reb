@@ -100,6 +100,13 @@ class DriverLocalDb {
             json_data TEXT NOT NULL
           )
         ''');
+        await db.execute('''
+          CREATE TABLE IF NOT EXISTS master_catalogs (
+            id TEXT PRIMARY KEY,
+            json_data TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+          )
+        ''');
       },
       onCreate: (db, version) async {
         await db.execute('''
@@ -158,6 +165,14 @@ class DriverLocalDb {
           CREATE TABLE catalog_cache (
             id_producto INTEGER PRIMARY KEY,
             json_data TEXT NOT NULL
+          )
+        ''');
+
+        await db.execute('''
+          CREATE TABLE master_catalogs (
+            id TEXT PRIMARY KEY,
+            json_data TEXT NOT NULL,
+            updated_at TEXT NOT NULL
           )
         ''');
       },
@@ -845,5 +860,70 @@ class DriverLocalDb {
         whereArgs: [referencia],
       );
     } catch (_) {}
+  }
+
+  // ===========================================================================
+  // CATÁLOGOS MAESTROS DE FLOTA (a=catalogos) - Pág. 15 Guía Nelson
+  // ===========================================================================
+
+  /// Guarda los catálogos maestros recibidos de a=catalogos en SQLite y SharedPreferences
+  Future<void> saveMasterCatalogs(Map<String, dynamic> catalogs) async {
+    try {
+      final db = await database;
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS master_catalogs (
+          id TEXT PRIMARY KEY,
+          json_data TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      ''');
+      await db.insert(
+        'master_catalogs',
+        {
+          'id': 'singleton',
+          'json_data': jsonEncode(catalogs),
+          'updated_at': DateTime.now().toIso8601String(),
+        },
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('master_catalogs_cache', jsonEncode(catalogs));
+    } catch (e) {
+      // Ignorar errores no bloqueantes de persistencia local
+    }
+  }
+
+  /// Recupera los catálogos maestros guardados localmente
+  Future<Map<String, dynamic>> getMasterCatalogs() async {
+    try {
+      final db = await database;
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS master_catalogs (
+          id TEXT PRIMARY KEY,
+          json_data TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        )
+      ''');
+      final rows = await db.query(
+        'master_catalogs',
+        where: 'id = ?',
+        whereArgs: ['singleton'],
+        limit: 1,
+      );
+      if (rows.isNotEmpty) {
+        final data = rows.first['json_data'] as String;
+        return jsonDecode(data) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final str = prefs.getString('master_catalogs_cache');
+      if (str != null && str.isNotEmpty) {
+        return jsonDecode(str) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+
+    return const {};
   }
 }

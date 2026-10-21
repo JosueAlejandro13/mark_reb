@@ -1,8 +1,11 @@
+import 'dart:io';
 import 'package:dropdown_button2/dropdown_button2.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:mark_v3/models/Vehicles_/vehicle_model.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
+import 'package:mark_v3/services/ConnectionMyVehicle_/MyVehicleCon_service.dart';
 import 'package:mark_v3/pages/Error_/ConnectionErrorPage.dart';
 import 'package:mark_v3/pages/Error_/ServerErrorPage.dart';
 import 'package:mark_v3/pages/Error_/unexpectedErrorPage.dart';
@@ -43,6 +46,9 @@ class _EditVehiclePageState extends ConsumerState<EditVehiclePage> {
   late TextEditingController capacidadTanqueController;
   late TextEditingController colorController;
   final TextEditingController obsController = TextEditingController();
+  File? _localImageFile;
+  String? _uploadedPhotoUrl;
+  bool _isUploadingPhoto = false;
 
   @override
   void initState() {
@@ -151,6 +157,13 @@ class _EditVehiclePageState extends ConsumerState<EditVehiclePage> {
   void _showChangeStatusDialog() {
     final state = ref.read(editVehicleProvider);
     String? localStatus = state.selectedStatus;
+    if ((localStatus == null ||
+            localStatus == '0' ||
+            !state.estadosVehiculo
+                .any((s) => s['id']?.toString() == localStatus)) &&
+        state.estadosVehiculo.isNotEmpty) {
+      localStatus = state.estadosVehiculo.first['id']?.toString();
+    }
     bool isSavingStatus = false;
 
     showDialog(
@@ -337,10 +350,38 @@ class _EditVehiclePageState extends ConsumerState<EditVehiclePage> {
                             ? null
                             : () async {
                                 if (localStatus == null ||
-                                    localStatus!.isEmpty) {
+                                    localStatus!.isEmpty ||
+                                    localStatus == '0') {
                                   SnackbarTop.showInfo(
                                     context,
                                     "Por favor, selecciona un estado.",
+                                  );
+                                  return;
+                                }
+
+                                final currentId =
+                                    widget.vehicle.idStatus.toString().trim();
+                                final currentName =
+                                    widget.vehicle.Status.toLowerCase().trim();
+                                final isSameStatus = localStatus == currentId ||
+                                    state.estadosVehiculo.any((s) =>
+                                        s['id']?.toString() == localStatus &&
+                                        (s['name']
+                                                ?.toString()
+                                                .toLowerCase()
+                                                .trim() ==
+                                            currentName ||
+                                        s['status']
+                                                ?.toString()
+                                                .toLowerCase()
+                                                .trim() ==
+                                            currentName));
+
+                                if (isSameStatus) {
+                                  SnackbarTop.showInfo(
+                                    context,
+                                    "El vehículo ya se encuentra en este estado. Elige un estado diferente.",
+                                    title: "Estado sin cambios",
                                   );
                                   return;
                                 }
@@ -479,6 +520,10 @@ class _EditVehiclePageState extends ConsumerState<EditVehiclePage> {
                           // ── 1. Encabezado Apple con botón de estado ─────────
                           _buildAnimatedItem(_buildAppleHeader(context), 0),
                           const SizedBox(height: 12),
+
+                          // ── 1.1 Fotografía del Vehículo Estilo Apple ────────
+                          _buildAnimatedItem(_buildVehiclePhotoCard(), 1),
+                          const SizedBox(height: 16),
 
                           // Banner si el usuario no tiene permisos para editar vehículo (Nelson doc)
                           if (!_canEditVehicle)
@@ -731,6 +776,451 @@ class _EditVehiclePageState extends ConsumerState<EditVehiclePage> {
         ),
       ),
     );
+  }
+
+  // ── TARJETA DE FOTOGRAFÍA ESTILO APPLE ──────────────────────────────────────
+  Widget _buildVehiclePhotoCard() {
+    final rawPhoto = widget.vehicle.photo.trim();
+    final photoUrl = _uploadedPhotoUrl ??
+        (rawPhoto.isNotEmpty
+            ? MarkApiClient.instance.resolveAssetUrl(rawPhoto)
+            : '');
+    final hasPhoto = _localImageFile != null || photoUrl.isNotEmpty;
+
+    return Center(
+      child: Column(
+        children: [
+          GestureDetector(
+            onTap: () {
+              _showPhotoSourceSheet(
+                context: context,
+                canEdit: _canEditVehicle,
+                hasPhoto: hasPhoto,
+                file: _localImageFile,
+                networkUrl: photoUrl.isNotEmpty ? photoUrl : null,
+              );
+            },
+            child: Stack(
+              alignment: Alignment.bottomRight,
+              children: [
+                Container(
+                  width: 170,
+                  height: 110,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(18),
+                    border: Border.all(
+                      color: const Color(0xFFE2E8F0),
+                      width: 1.2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0F172A).withOpacity(0.06),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(17),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (_localImageFile != null)
+                          Image.file(
+                            _localImageFile!,
+                            fit: BoxFit.contain,
+                          )
+                        else if (photoUrl.isNotEmpty)
+                          Image.network(
+                            photoUrl,
+                            fit: BoxFit.contain,
+                            loadingBuilder: (context, child, progress) {
+                              if (progress == null) return child;
+                              return const Center(
+                                child: SizedBox(
+                                  width: 24,
+                                  height: 24,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.2,
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Color(0xFF0284C7),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                            errorBuilder: (_, __, ___) => Image.asset(
+                              'assets/car.png',
+                              fit: BoxFit.contain,
+                            ),
+                          )
+                        else
+                          Padding(
+                            padding: const EdgeInsets.all(12),
+                            child: Image.asset(
+                              'assets/car.png',
+                              fit: BoxFit.contain,
+                            ),
+                          ),
+                        if (_isUploadingPhoto)
+                          Container(
+                            color: Colors.black.withOpacity(0.4),
+                            child: const Center(
+                              child: SizedBox(
+                                width: 28,
+                                height: 28,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2.5,
+                                  valueColor: AlwaysStoppedAnimation<Color>(
+                                    Colors.white,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_canEditVehicle)
+                  Positioned(
+                    bottom: 4,
+                    right: 4,
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0284C7),
+                        shape: BoxShape.circle,
+                        border: Border.all(color: Colors.white, width: 2.2),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF0F172A).withOpacity(0.2),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Icon(
+                        Icons.camera_alt_rounded,
+                        color: Colors.white,
+                        size: 15,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _canEditVehicle
+                ? 'Toca para cambiar la foto de la unidad'
+                : 'Fotografía de la unidad',
+            style: const TextStyle(
+              fontSize: 11.5,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF64748B),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showPhotoSourceSheet({
+    required BuildContext context,
+    required bool canEdit,
+    required bool hasPhoto,
+    File? file,
+    String? networkUrl,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Material(
+          color: Colors.white,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(22)),
+          clipBehavior: Clip.antiAlias,
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 16),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFCBD5E1),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                const Text(
+                  'Foto del vehículo',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                if (hasPhoto)
+                  ListTile(
+                    leading: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.fullscreen_rounded,
+                        color: Color(0xFF0284C7),
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Ver fotografía',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showImagePreviewDialog(
+                        context,
+                        file: file,
+                        networkUrl: networkUrl,
+                      );
+                    },
+                  ),
+                if (canEdit) ...[
+                  ListTile(
+                    leading: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDF4),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.camera_alt_rounded,
+                        color: Color(0xFF16A34A),
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Tomar foto con la cámara',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickAndUploadPhoto(ImageSource.camera);
+                    },
+                  ),
+                  ListTile(
+                    leading: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.photo_library_rounded,
+                        color: Color(0xFF0284C7),
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Elegir de la galería',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickAndUploadPhoto(ImageSource.gallery);
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      );
+    },
+  );
+  }
+
+  void _showImagePreviewDialog(
+    BuildContext context, {
+    File? file,
+    String? networkUrl,
+  }) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: EdgeInsets.zero,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              GestureDetector(
+                onTap: () => Navigator.of(dialogContext).pop(),
+                child: Container(
+                  color: Colors.black87,
+                  width: double.infinity,
+                  height: double.infinity,
+                ),
+              ),
+              Center(
+                child: FractionallySizedBox(
+                  widthFactor: 0.90,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white, width: 3.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.4),
+                          blurRadius: 20,
+                          spreadRadius: 3,
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16.5),
+                      child: InteractiveViewer(
+                        panEnabled: true,
+                        minScale: 0.8,
+                        maxScale: 4.0,
+                        child: file != null
+                            ? Image.file(
+                                file,
+                                fit: BoxFit.contain,
+                              )
+                            : (networkUrl != null && networkUrl.isNotEmpty)
+                                ? Image.network(
+                                    networkUrl,
+                                    fit: BoxFit.contain,
+                                    loadingBuilder:
+                                        (context, child, progress) {
+                                      if (progress == null) return child;
+                                      return const Padding(
+                                        padding: EdgeInsets.all(40.0),
+                                        child: Center(
+                                          child: SizedBox(
+                                            width: 36,
+                                            height: 36,
+                                            child: CircularProgressIndicator(
+                                              valueColor:
+                                                  AlwaysStoppedAnimation<Color>(
+                                                Colors.white,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    errorBuilder: (_, __, ___) =>
+                                        const Padding(
+                                      padding: EdgeInsets.all(40.0),
+                                      child: Center(
+                                        child: Icon(
+                                          Icons.broken_image_rounded,
+                                          size: 48,
+                                          color: Colors.white70,
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : Image.asset(
+                                    'assets/car.png',
+                                    fit: BoxFit.contain,
+                                  ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 40,
+                right: 20,
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickAndUploadPhoto(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final picked = await picker.pickImage(
+        source: source,
+        maxWidth: 1600,
+        maxHeight: 1600,
+        imageQuality: 85,
+      );
+      if (picked == null) return;
+
+      final file = File(picked.path);
+      setState(() {
+        _localImageFile = file;
+        _isUploadingPhoto = true;
+      });
+
+      await MyvehicleconService()
+          .updateVehiclePhoto(widget.vehicle.id, file.path);
+
+      if (mounted) {
+        setState(() {
+          _isUploadingPhoto = false;
+        });
+        SnackbarTop.showSuccess(
+          context,
+          'Fotografía del vehículo actualizada en el servidor.',
+        );
+        ref
+            .read(myVehicleProvider.notifier)
+            .loadVehicles(widget.idCollaborator);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isUploadingPhoto = false;
+        });
+        SnackbarTop.showError(
+          context,
+          'Error al subir la fotografía: ${e.toString().replaceFirst('Exception: ', '')}',
+        );
+      }
+    }
   }
 
   // ── ENCABEZADO APPLE ────────────────────────────────────────────────────────
@@ -1139,10 +1629,16 @@ class _EditVehiclePageState extends ConsumerState<EditVehiclePage> {
               ),
             ),
             ...items.map((Map<String, dynamic> item) {
+              final label = (item['name'] ??
+                      item['nombre'] ??
+                      item['status'] ??
+                      item['estatus'] ??
+                      '')
+                  .toString();
               return DropdownMenuItem<String>(
                 value: item['id'].toString(),
                 child: Text(
-                  item['name']?.toString() ?? '',
+                  label.isNotEmpty ? label : item['id'].toString(),
                   style: const TextStyle(
                     color: Color(0xFF0F172A),
                     fontSize: 13.5,

@@ -254,6 +254,12 @@ class LoginNotifier extends Notifier<LoginState> {
     // 2. Cambiar base de datos local SQLite al usuario autenticado
     await DriverLocalDb.instance.switchUser(userId, isDemo: isDemo);
 
+    // Precargar y guardar localmente Catálogos Maestros (a=catalogos) según la guía de Nelson (Pág. 15)
+    unawaited(apiClient.preloadAndCacheCatalogos().catchError((e) {
+      debugPrint('Aviso: no se pudo precargar catálogos maestros en login: $e');
+      return <String, dynamic>{};
+    }));
+
     // 3. Reiniciar estado de Riverpod para evitar fuga de datos entre cuentas
     ref.invalidate(profileProvider);
     ref.invalidate(editProfileProvider);

@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -403,15 +403,16 @@ class _MyInspectVehiclePageState extends ConsumerState<MyInspectVehiclePage> {
         debugPrint('Ubicación por defecto: $geoError');
       }
 
-      // Obtener el ID del estado seleccionado
-      int statusId = 0;
-      final matchStatus = state.statuses.firstWhere(
-        (s) => s['name'] == state.selectedStatus,
-        orElse: () => {'id': 0},
-      );
-      statusId = matchStatus['id'] is int
-          ? matchStatus['id']
-          : int.tryParse(matchStatus['id'].toString()) ?? 0;
+      // Obtener el ID del estado seleccionado según la guía de Nelson (Pág. 7 y 9):
+      // estatus (1: Excelente, 2: Regular / Con detalles, 3: Fallida)
+      int statusId = 1;
+      if (state.selectedStatus == 'Excelente' && state.allPassed) {
+        statusId = 1;
+      } else if (state.selectedStatus == 'Fallida / Mala') {
+        statusId = 3;
+      } else {
+        statusId = 2; // Regular / Con detalles
+      }
 
       DateTime startDate = DateTime.now();
       if (state.startDateTime != null) {
@@ -1460,15 +1461,17 @@ class _MyInspectVehiclePageState extends ConsumerState<MyInspectVehiclePage> {
   Widget _buildStickyBottomControls(InspectionExecutionState state) {
     final notifier = ref.read(inspectionExecutionProvider.notifier);
 
-    // Filtrar los estados permitidos según la lógica de negocio
+    // Filtrar los estados permitidos según la regla estricta de Nelson (Pág. 9):
+    // "Si hay un punto malo, el estatus general no puede ser 1 «Excelente»."
     final bool allItemsPassed = state.allPassed;
-    final List<Map<String, dynamic>> availableStatuses = state.statuses
-        .asMap()
-        .entries
-        .where((entry) =>
-            allItemsPassed && entry.key < 3 || entry.key > 0 && entry.key < 3)
-        .map((entry) => entry.value)
-        .toList();
+    final List<Map<String, dynamic>> availableStatuses = state.statuses.where((s) {
+      final code = s['code'] ?? s['id'] ?? 1;
+      if (allItemsPassed) {
+        return code == 1 || code == 2;
+      } else {
+        return code == 2 || code == 3;
+      }
+    }).toList();
 
     return Container(
       width: double.infinity,
@@ -1545,17 +1548,37 @@ class _MyInspectVehiclePageState extends ConsumerState<MyInspectVehiclePage> {
               final List<DropdownMenuItem<String>> dropdownItems = [];
               for (final status in availableStatuses) {
                 final name = status['name']?.toString() ?? '';
+                final int code = status['code'] ?? status['id'] ?? 1;
+                final Color color = code == 1
+                    ? const Color(0xFF059669)
+                    : (code == 2
+                        ? const Color(0xFFD97706)
+                        : const Color(0xFFDC2626));
+
                 if (name.isNotEmpty && uniqueNames.add(name)) {
                   dropdownItems.add(
                     DropdownMenuItem<String>(
                       value: name,
-                      child: Text(
-                        name,
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF0F172A),
-                        ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 8,
+                            height: 8,
+                            decoration: BoxDecoration(
+                              color: color,
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Text(
+                            name,
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w600,
+                              color: color,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   );

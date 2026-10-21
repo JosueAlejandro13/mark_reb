@@ -4,7 +4,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:mark_v3/services/ConnectionInspeccion_/InspeccionCon_service.dart';
-import 'package:mark_v3/services/ConnectionMyVehicle_/MyVehicleCon_service.dart';
 
 // Modelo inmutable para cada elemento de inspección
 class InspectionItem {
@@ -149,6 +148,32 @@ class InspectionExecutionState {
   }
 }
 
+// Estados oficiales de inspección según la guía de Nelson (Págs. 7, 8 y 9)
+// estatus (1 · 2 · 3):
+// 1 = Excelente (Solo si no hay ningún punto malo)
+// 2 = Regular / Con detalles (Si hay observaciones menores)
+// 3 = Fallida / Mala (Si la inspección reprueba por fallas)
+const List<Map<String, dynamic>> kInspectionStatuses = [
+  {
+    'id': 1,
+    'code': 1,
+    'name': 'Excelente',
+    'subtitle': 'Sin observaciones ni fallas',
+  },
+  {
+    'id': 2,
+    'code': 2,
+    'name': 'Regular / Con detalles',
+    'subtitle': 'Detalles menores detectados',
+  },
+  {
+    'id': 3,
+    'code': 3,
+    'name': 'Fallida / Mala',
+    'subtitle': 'Falla crítica detectada',
+  },
+];
+
 // Provider de la ejecución de inspección (se resetea al entrar y salir de la pantalla)
 final inspectionExecutionProvider = NotifierProvider<
     InspectionExecutionNotifier,
@@ -157,7 +182,6 @@ final inspectionExecutionProvider = NotifierProvider<
 class InspectionExecutionNotifier
     extends Notifier<InspectionExecutionState> {
   final InspeccionconService _dbService = InspeccionconService();
-  final MyvehicleconService _vehicleService = MyvehicleconService();
 
   @override
   InspectionExecutionState build() {
@@ -179,21 +203,13 @@ class InspectionExecutionNotifier
     );
 
     try {
-      // 1. Cargar estados generales y elementos en paralelo
-      final results = await Future.wait([
-        _vehicleService.obtenerStatus(),
-        _dbService
-            .obtenerInspeccionesPorVehiculo(
-              idVehic: vehicleId,
-              idItemTemplate: plantillaId,
-            )
-            .timeout(const Duration(seconds: 12)),
-      ]);
-
-      final List<Map<String, dynamic>> statuses =
-          List<Map<String, dynamic>>.from(results[0]);
-      final List<Map<String, dynamic>> rawInspections =
-          List<Map<String, dynamic>>.from(results[1]);
+      // 1. Cargar elementos de la plantilla asignada
+      final rawInspections = await _dbService
+          .obtenerInspeccionesPorVehiculo(
+            idVehic: vehicleId,
+            idItemTemplate: plantillaId,
+          )
+          .timeout(const Duration(seconds: 12));
 
       if (rawInspections.isEmpty) {
         state = state.copyWith(
@@ -204,15 +220,26 @@ class InspectionExecutionNotifier
         return;
       }
 
-      // Convertir a modelos de ítem
+      // Convertir a modelos de ítem soportando formato en español de la guía (nombre, fotoSiFalla, etc.)
       final List<InspectionItem> items = [];
       for (int i = 0; i < rawInspections.length; i++) {
         final raw = rawInspections[i];
-        final idItemDefault = raw['idItemDefault']?.toString() ?? '$i';
-        final name = raw['defaultItemName']?.toString() ?? 'Punto ${i + 1}';
-        final description = raw['description']?.toString() ?? '';
-        final instruction = raw['instruction']?.toString() ?? '';
-        final requirePhotoFail = (raw['requirePhotoFail'] == true ||
+        final idItemDefault =
+            raw['idItem']?.toString() ?? raw['id']?.toString() ?? '$i';
+        final name = raw['nombre']?.toString() ??
+            raw['name']?.toString() ??
+            raw['defaultItemName']?.toString() ??
+            'Punto ${i + 1}';
+        final description = raw['descripcion']?.toString() ??
+            raw['description']?.toString() ??
+            '';
+        final instruction = raw['instruccion']?.toString() ??
+            raw['instruction']?.toString() ??
+            '';
+        final requirePhotoFail = (raw['fotoSiFalla'] == true ||
+            raw['fotoSiFalla'] == 1 ||
+            raw['fotoSiFalla'] == '1' ||
+            raw['requirePhotoFail'] == true ||
             raw['requirePhotoFail'] == 1 ||
             raw['requirePhotoFail'] == '1');
 
@@ -229,9 +256,9 @@ class InspectionExecutionNotifier
         ));
       }
 
-      // Seleccionar automáticamente el estado óptimo inicial (índice 0, ej: "Excelente")
-      final String? initialStatus =
-          statuses.isNotEmpty ? statuses[0]['name']?.toString() : null;
+      // Estados de inspección oficiales según la guía (Pág. 7 y 9)
+      final List<Map<String, dynamic>> statuses = kInspectionStatuses;
+      const String initialStatus = 'Excelente';
 
       // No auto-iniciamos el tiempo: el usuario debe presionar obligatoriamente "Iniciar Revisión"
       state = state.copyWith(
@@ -361,40 +388,28 @@ class InspectionExecutionNotifier
     state = state.copyWith(isSubmitting: isSubmitting);
   }
 
-  /// Calcula dinámicamente el estado general según los puntos evaluados
+  /// Calcula dinámicamente el estado general según los puntos evaluados (Regla Nelson Pág. 9)
   void _updateAutoSelectedStatus(List<InspectionItem> items) {
-    if (state.statuses.isEmpty) {
-      state = state.copyWith(items: items);
-      return;
-    }
-
     final hasFaults = items.any((i) => i.isManipulated && !i.isActive);
     final allPassed = !hasFaults;
 
-    String? currentStatus = state.selectedStatus;
-    final String excellentName =
-        state.statuses[0]['name']?.toString() ?? '';
+    String currentStatus = state.selectedStatus ?? 'Excelente';
 
     if (allPassed) {
-      // Si todos los puntos pasan y el usuario no forzó manualmente otro estado permitido,
-      // o si estaba en estado de fallo, volver dinámicamente a "Excelente"
-      if (!state.isStatusManuallySet || currentStatus != excellentName) {
-        currentStatus = excellentName;
+      // Si todos los puntos pasan y no fue fijado manualmente a Regular, sugerir Excelente
+      if (!state.isStatusManuallySet || currentStatus == 'Fallida / Mala') {
+        currentStatus = 'Excelente';
       }
     } else {
-      // Hay al menos una falla: "Excelente" ya no es una opción válida para fallas
-      if (currentStatus == excellentName ||
-          !state.isStatusManuallySet ||
-          currentStatus == null) {
-        final failCount =
-            items.where((i) => i.isManipulated && !i.isActive).length;
+      // Regla de Nelson (Pág. 9): "Si hay un punto malo, el estatus general no puede ser 1 «Excelente»."
+      final failCount =
+          items.where((i) => i.isManipulated && !i.isActive).length;
 
-        if (failCount >= 3 && state.statuses.length > 2) {
-          // Si hay 3 o más fallas, asignar estado más severo (índice 2, ej: "Malo")
-          currentStatus = state.statuses[2]['name']?.toString();
-        } else if (state.statuses.length > 1) {
-          // Si hay 1 o 2 fallas, asignar estado intermedio (índice 1, ej: "Regular / Bueno")
-          currentStatus = state.statuses[1]['name']?.toString();
+      if (currentStatus == 'Excelente' || !state.isStatusManuallySet) {
+        if (failCount >= 2) {
+          currentStatus = 'Fallida / Mala';
+        } else {
+          currentStatus = 'Regular / Con detalles';
         }
       }
     }
@@ -402,7 +417,7 @@ class InspectionExecutionNotifier
     state = state.copyWith(
       items: items,
       selectedStatus: currentStatus,
-      clearSelectedStatus: currentStatus == null,
+      clearSelectedStatus: false,
     );
   }
 }

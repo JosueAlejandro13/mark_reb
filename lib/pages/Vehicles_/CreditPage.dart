@@ -13,6 +13,10 @@ import 'package:mark_v3/pages/Vehicles_/PayCreditPage.dart';
 import 'package:mark_v3/services/ConnectionNotification_/NotificationCon_service.dart';
 import 'package:mark_v3/services/ConnectionVehicles_/VehiclesCon_service.dart';
 import 'package:mark_v3/widgets/app_skeleton.dart';
+import 'package:mark_v3/widgets/apple_detail_row.dart';
+import 'package:mark_v3/widgets/apple_empty_state.dart';
+import 'package:mark_v3/widgets/apple_group_card.dart';
+import 'package:mark_v3/widgets/apple_section_title.dart';
 import 'package:mark_v3/widgets/loading_action_button.dart';
 import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -684,88 +688,26 @@ class _CreditpageState extends ConsumerState<Creditpage> {
         widget.vehicle['plate']?.toString() ??
         'este vehículo';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24.0),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(
-            color: const Color(0xFFE2E8F0),
-            width: 1.0,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF0F172A).withOpacity(0.03),
-              blurRadius: 16,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                color: const Color(0xFFE0F2FE),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0284C7).withOpacity(0.12),
-                    blurRadius: 12,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
+    return AppleEmptyState(
+      icon: Icons.account_balance_rounded,
+      title: 'Sin Crédito Activo',
+      description:
+          'No se encontró ningún financiamiento o contrato de crédito activo para $plates.',
+      action: _canCreate
+          ? LoadingActionButton(
+              text: 'Registrar Crédito',
+              icon: Icons.add_circle_outline_rounded,
+              isLoading: false,
+              height: 46,
+              borderRadius: 14,
+              gradient: const LinearGradient(
+                colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              child: const Icon(
-                Icons.account_balance_rounded,
-                color: Color(0xFF0284C7),
-                size: 32,
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Sin Crédito Activo',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
-                letterSpacing: -0.3,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'No se encontró ningún financiamiento o contrato de crédito activo para $plates.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 12.5,
-                color: Color(0xFF64748B),
-                height: 1.4,
-              ),
-            ),
-            if (_canCreate) ...[
-              const SizedBox(height: 24),
-              LoadingActionButton(
-                text: 'Registrar Crédito',
-                icon: Icons.add_circle_outline_rounded,
-                isLoading: false,
-                height: 46,
-                borderRadius: 14,
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                onPressed: () => _openCreditModal(isEditing: false),
-              ),
-            ],
-          ],
-        ),
-      ),
+              onPressed: () => _openCreditModal(isEditing: false),
+            )
+          : null,
     );
   }
 
@@ -1415,88 +1357,20 @@ class _CreditpageState extends ConsumerState<Creditpage> {
     required String value,
     bool isHighlight = false,
   }) {
-    return Row(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color:
-                isHighlight ? const Color(0xFFE0F2FE) : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(9),
-          ),
-          child: Icon(
-            icon,
-            size: 16,
-            color:
-                isHighlight ? const Color(0xFF0284C7) : const Color(0xFF64748B),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: isHighlight ? FontWeight.w700 : FontWeight.w500,
-              color: isHighlight
-                  ? const Color(0xFF0F172A)
-                  : const Color(0xFF475569),
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: isHighlight ? FontWeight.w800 : FontWeight.w600,
-            color:
-                isHighlight ? const Color(0xFF0284C7) : const Color(0xFF0F172A),
-          ),
-        ),
-      ],
+    return AppleDetailRow(
+      icon: icon,
+      label: label,
+      value: value,
+      isHighlight: isHighlight,
     );
   }
 
   Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 8, top: 4),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF64748B),
-          letterSpacing: 0.8,
-        ),
-      ),
-    );
+    return AppleSectionTitle(title);
   }
 
   Widget _buildAppleGroupContainer({required List<Widget> children}) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFE2E8F0),
-          width: 1.0,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0F172A).withOpacity(0.02),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
-      ),
-    );
+    return AppleGroupCard(children: children);
   }
 
   // =========================================================================
@@ -1791,6 +1665,7 @@ class _CreditFormModalSheetState extends State<_CreditFormModalSheet> {
   final _fechaInicioController = TextEditingController();
   final _dateFirstPaymentController = TextEditingController();
 
+  List<Map<String, dynamic>> _creditosLocales = [];
   String? _selectedFinanceEntityId;
   DateTime? _selectedFechaInicio;
   DateTime? _selectedDateFirstPayment;
@@ -1799,6 +1674,20 @@ class _CreditFormModalSheetState extends State<_CreditFormModalSheet> {
   @override
   void initState() {
     super.initState();
+
+    _creditosLocales = widget.creditosDisponibles.isNotEmpty
+        ? List<Map<String, dynamic>>.from(widget.creditosDisponibles)
+        : List<Map<String, dynamic>>.from(VehiclesconService.defaultFinanceEntities);
+
+    if (widget.creditosDisponibles.isEmpty) {
+      VehiclesconService().obtenerCreditos(widget.idMainAccount).then((data) {
+        if (mounted && data.isNotEmpty) {
+          setState(() {
+            _creditosLocales = data;
+          });
+        }
+      });
+    }
 
     if (widget.isEditing && widget.initialData != null) {
       final d = widget.initialData!;
@@ -1825,20 +1714,17 @@ class _CreditFormModalSheetState extends State<_CreditFormModalSheet> {
       // Resolver ID de la entidad financiera
       final name = d['name']?.toString().trim().toLowerCase();
       final idComp = d['idCompania']?.toString();
-      if (widget.creditosDisponibles.isNotEmpty) {
-        final match = widget.creditosDisponibles.firstWhere(
+      if (_creditosLocales.isNotEmpty) {
+        final match = _creditosLocales.firstWhere(
           (c) =>
               c['id']?.toString() == idComp ||
               c['name']?.toString().trim().toLowerCase() == name,
-          orElse: () => widget.creditosDisponibles.first,
+          orElse: () => _creditosLocales.first,
         );
         _selectedFinanceEntityId = match['id']?.toString();
       }
     } else {
-      if (widget.creditosDisponibles.isNotEmpty) {
-        _selectedFinanceEntityId =
-            widget.creditosDisponibles.first['id']?.toString();
-      }
+      _selectedFinanceEntityId = null;
     }
   }
 
@@ -2293,45 +2179,69 @@ class _CreditFormModalSheetState extends State<_CreditFormModalSheet> {
                     children: [
                       // Institución Financiera (Dropdown)
                       _buildFieldLabel('Institución / Financiera *'),
-                      DropdownButtonFormField2<String>(
-                        value: _selectedFinanceEntityId,
-                        isExpanded: true,
-                        decoration: _buildInputDecoration(
-                          hint: 'Selecciona la financiera',
-                          prefixIcon: Icons.business_rounded,
-                        ),
-                        items: widget.creditosDisponibles.map((entidad) {
-                          return DropdownMenuItem<String>(
-                            value: entidad['id'].toString(),
-                            child: Text(
-                              entidad['name']?.toString() ?? '',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF0F172A),
+                      Builder(
+                        builder: (context) {
+                          final seen = <String>{};
+                          final dropdownItems = <DropdownMenuItem<String>>[];
+                          for (final entidad in _creditosLocales) {
+                            final id = entidad['id']?.toString() ?? '';
+                            final name = (entidad['name'] ??
+                                    entidad['nombre'] ??
+                                    '')
+                                .toString();
+                            if (id.isNotEmpty && !seen.contains(id)) {
+                              seen.add(id);
+                              dropdownItems.add(
+                                DropdownMenuItem<String>(
+                                  value: id,
+                                  child: Text(
+                                    name,
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF0F172A),
+                                    ),
+                                  ),
+                                ),
+                              );
+                            }
+                          }
+
+                          final validValue =
+                              seen.contains(_selectedFinanceEntityId)
+                                  ? _selectedFinanceEntityId
+                                  : null;
+
+                          return DropdownButtonFormField2<String>(
+                            value: validValue,
+                            isExpanded: true,
+                            decoration: _buildInputDecoration(
+                              hint: 'Selecciona la financiera',
+                              prefixIcon: Icons.business_rounded,
+                            ),
+                            items: dropdownItems,
+                            onChanged: (value) {
+                              setState(() {
+                                _selectedFinanceEntityId = value;
+                              });
+                            },
+                            dropdownStyleData: DropdownStyleData(
+                              maxHeight: 280,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(16),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: const Color(0xFF0F172A)
+                                        .withOpacity(0.08),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ],
                               ),
                             ),
                           );
-                        }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedFinanceEntityId = value;
-                          });
                         },
-                        dropdownStyleData: DropdownStyleData(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(16),
-                            boxShadow: [
-                              BoxShadow(
-                                color:
-                                    const Color(0xFF0F172A).withOpacity(0.08),
-                                blurRadius: 16,
-                                offset: const Offset(0, 4),
-                              ),
-                            ],
-                          ),
-                        ),
                       ),
                       const SizedBox(height: 14),
 

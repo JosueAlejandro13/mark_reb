@@ -28,15 +28,43 @@ class StationService {
       final double precioUnitario = double.tryParse(priceLts) ?? 0.0;
       final double costoTotal = precioUnitario * lts;
 
+      // Extraer código numérico de estación CRE de forma robusta
+      int parsedCodeES = int.tryParse(codeES) ?? 0;
+      if (parsedCodeES == 0 && codeES.isNotEmpty) {
+        final digits = codeES.replaceAll(RegExp(r'\D'), '');
+        parsedCodeES = int.tryParse(digits) ?? 0;
+      }
+      if (parsedCodeES == 0) {
+        parsedCodeES = 2071;
+      }
+
+      final String formattedDatePrice = datePrice.year > 1990
+          ? datePrice.toIso8601String().substring(0, 10)
+          : DateTime.now().toIso8601String().substring(0, 10);
+
+      final double parsedOdom = double.tryParse(odom) ?? 0.0;
+      final int parsedTypFuel = int.tryParse(typFuel) ?? 6;
+
       final acciones = [
         {
           'uuid': const Uuid().v4(),
           'tipo': 'combustible',
           'idVehic': idVehic,
-          'idCombustible': int.tryParse(typFuel) ?? 6,
+          'idCombustible': parsedTypFuel,
+          'typFuel': parsedTypFuel,
           'cantidad': lts,
+          'lts': lts,
           if (costoTotal > 0) 'costo': costoTotal,
-          'estacion': codeES.isNotEmpty ? 'Estación $codeES' : 'Estación de Servicio',
+          'precioUnitario': precioUnitario,
+          'priceLts': precioUnitario,
+          'precio': precioUnitario,
+          'codeES': parsedCodeES,
+          'estacion': parsedCodeES,
+          'datePrice': formattedDatePrice,
+          'fechaPrecio': formattedDatePrice,
+          'fecha': formattedDatePrice,
+          'odom': parsedOdom,
+          'odometro': parsedOdom,
           'fecHor': dateCreated
               .toIso8601String()
               .replaceFirst('T', ' ')
@@ -156,9 +184,9 @@ class StationService {
   ) async {
     return {
       'id': 1,
-      'code': 'PL/2856/EXP/ES/2015',
-      'codeES': '2856',
-      'reg': 'PL/2856/EXP/ES/2015',
+      'code': 'PL/2071/EXP/ES/2015',
+      'codeES': '2071',
+      'reg': 'PL/2071/EXP/ES/2015',
       'name': 'Estación de Servicio Cercana',
       'dist': 50,
       'fecha': DateTime.now().toIso8601String().substring(0, 10),

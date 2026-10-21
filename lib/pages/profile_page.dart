@@ -95,84 +95,93 @@ class ProfilePage extends ConsumerWidget {
                 const SizedBox(height: 22),
 
                 // ── 3. Sección Cuenta y Credenciales (Apple Inset Grouped) ──
-                _buildAnimatedItem(
-                  _buildAppleSectionHeader(
-                    title: 'CUENTA Y CREDENCIALES',
-                    badge: '3 OPCIONES',
-                  ),
-                  2,
-                ),
-                const SizedBox(height: 7),
-                _buildAnimatedItem(
-                  _buildAppleGroupedCard(
-                    children: [
-                      // Datos Personales
-                      _buildAppleListTile(
-                        icon: Icons.person_rounded,
-                        iconGradient: const [
-                          Color(0xFF0284C7),
-                          Color(0xFF38BDF8),
-                        ],
-                        title: 'Datos Personales',
-                        subtitle: 'Nombre, teléfono y datos de contacto',
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => EditProfilePage(
-                                idCollaborator: idCollaborator,
-                                idMainAccount: idMainAccount,
-                              ),
-                            ),
-                          );
-                        },
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildAnimatedItem(
+                      _buildAppleSectionHeader(
+                        title: 'CUENTA Y CREDENCIALES',
+                        badge: '3 OPCIONES',
                       ),
-                      // Licencia de Conducir
-                      _buildAppleListTile(
-                        icon: Icons.badge_rounded,
-                        iconGradient: const [
-                          Color(0xFF0369A1),
-                          Color(0xFF0284C7),
+                      2,
+                    ),
+                    const SizedBox(height: 7),
+                    _buildAnimatedItem(
+                      _buildAppleGroupedCard(
+                        children: [
+                          // Datos Personales
+                          _buildAppleListTile(
+                            icon: Icons.person_rounded,
+                            iconGradient: const [
+                              Color(0xFF0284C7),
+                              Color(0xFF38BDF8),
+                            ],
+                            title: 'Datos Personales',
+                            subtitle:
+                                'Nombre, teléfono y datos de contacto',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => EditProfilePage(
+                                    idCollaborator: idCollaborator,
+                                    idMainAccount: idMainAccount,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          // Licencia de Conducir
+                          _buildAppleListTile(
+                            icon: Icons.badge_rounded,
+                            iconGradient: const [
+                              Color(0xFF0369A1),
+                              Color(0xFF0284C7),
+                            ],
+                            title: 'Licencia de Conducir',
+                            subtitle:
+                                'Estatus, vigencia y tipo de documento',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      LicenseDetailsPage(
+                                    idCollaborator: idCollaborator,
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                          // Cambiar Contraseña
+                          _buildAppleListTile(
+                            icon: Icons.lock_rounded,
+                            iconGradient: const [
+                              Color(0xFF0F172A),
+                              Color(0xFF1E3A8A),
+                            ],
+                            title: 'Cambiar Contraseña',
+                            subtitle:
+                                'Modifica tu clave de acceso a la cuenta',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => ChangePasswordPage(
+                                    usuario: usuario,
+                                    userId: userId,
+                                    idMainAccount: idMainAccount,
+                                  ),
+                                ),
+                              );
+                            },
+                            isLast: true,
+                          ),
                         ],
-                        title: 'Licencia de Conducir',
-                        subtitle: 'Estatus, vigencia y tipo de documento',
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => LicenseDetailsPage(
-                                idCollaborator: idCollaborator,
-                              ),
-                            ),
-                          );
-                        },
                       ),
-                      // Cambiar Contraseña
-                      _buildAppleListTile(
-                        icon: Icons.lock_rounded,
-                        iconGradient: const [
-                          Color(0xFF0F172A),
-                          Color(0xFF1E3A8A),
-                        ],
-                        title: 'Cambiar Contraseña',
-                        subtitle: 'Modifica tu clave de acceso a la cuenta',
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => ChangePasswordPage(
-                                usuario: usuario,
-                                userId: userId,
-                                idMainAccount: idMainAccount,
-                              ),
-                            ),
-                          );
-                        },
-                        isLast: true,
-                      ),
-                    ],
-                  ),
-                  3,
+                      3,
+                    ),
+                  ],
                 ),
                 _buildAppleSectionFooter(
                   'Mantén tus datos y credenciales oficiales actualizados para el registro operativo.',
@@ -230,6 +239,8 @@ class ProfilePage extends ConsumerWidget {
   ) {
     final clientSession = MarkApiClient.instance.currentSession;
     final editUserData = ref.watch(editProfileProvider).userData;
+    final canEdit = (editUserData?['puedeEditar'] == true) ||
+        MarkApiClient.instance.flota.can('colaboradores', 'editar');
 
     String realName = (editUserData?['name'] ??
             editUserData?['nombre'] ??
@@ -331,8 +342,10 @@ class ProfilePage extends ConsumerWidget {
                                         fit: BoxFit.cover,
                                         errorBuilder: (_, __, ___) =>
                                             const Center(
-                                          child: Icon(Icons.broken_image_rounded,
-                                              size: 40, color: Colors.white70),
+                                          child: Icon(
+                                              Icons.broken_image_rounded,
+                                              size: 40,
+                                              color: Colors.white70),
                                         ),
                                       )
                                     : const SizedBox.shrink(),
@@ -384,12 +397,13 @@ class ProfilePage extends ConsumerWidget {
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  // Avatar (con visor de imagen)
+                  // Avatar (con visor al tocar, sin modal ni icono de cámara)
                   GestureDetector(
                     onTap: () {
-                      if (state.imageFile != null ||
+                      final hasPhoto = state.imageFile != null ||
                           (state.networkPhotoUrl != null &&
-                              state.networkPhotoUrl!.isNotEmpty)) {
+                              state.networkPhotoUrl!.isNotEmpty);
+                      if (hasPhoto) {
                         showImageDialog(
                           context,
                           imageFile: state.imageFile,
@@ -416,43 +430,63 @@ class ProfilePage extends ConsumerWidget {
                         ],
                       ),
                       child: ClipOval(
-                        child: state.imageFile != null
-                            ? Image.file(
-                                state.imageFile!,
-                                fit: BoxFit.cover,
-                              )
-                            : (state.networkPhotoUrl != null &&
-                                    state.networkPhotoUrl!.isNotEmpty)
-                                ? Image.network(
-                                    state.networkPhotoUrl!,
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            state.imageFile != null
+                                ? Image.file(
+                                    state.imageFile!,
                                     fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => Container(
-                                      color: const Color(0xFFDDF0FF),
-                                      child: Center(
-                                        child: Text(
-                                          getInitials(displayName),
-                                          style: const TextStyle(
-                                            color: Color(0xFF0284C7),
-                                            fontWeight: FontWeight.w900,
-                                            fontSize: 22,
+                                  )
+                                : (state.networkPhotoUrl != null &&
+                                        state.networkPhotoUrl!.isNotEmpty)
+                                    ? Image.network(
+                                        state.networkPhotoUrl!,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => Container(
+                                          color: const Color(0xFFDDF0FF),
+                                          child: Center(
+                                            child: Text(
+                                              getInitials(displayName),
+                                              style: const TextStyle(
+                                                color: Color(0xFF0284C7),
+                                                fontWeight: FontWeight.w900,
+                                                fontSize: 22,
+                                              ),
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    : Container(
+                                        color: const Color(0xFFDDF0FF),
+                                        child: Center(
+                                          child: Text(
+                                            getInitials(displayName),
+                                            style: const TextStyle(
+                                              color: Color(0xFF0284C7),
+                                              fontWeight: FontWeight.w900,
+                                              fontSize: 22,
+                                            ),
                                           ),
                                         ),
                                       ),
-                                    ),
-                                  )
-                                : Container(
-                                    color: const Color(0xFFDDF0FF),
-                                    child: Center(
-                                      child: Text(
-                                        getInitials(displayName),
-                                        style: const TextStyle(
-                                          color: Color(0xFF0284C7),
-                                          fontWeight: FontWeight.w900,
-                                          fontSize: 22,
-                                        ),
-                                      ),
+                            if (state.isUploadingPhoto)
+                              Container(
+                                color: Colors.black.withOpacity(0.45),
+                                child: const Center(
+                                  child: SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                          Colors.white),
                                     ),
                                   ),
+                                ),
+                              ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -888,8 +922,8 @@ class ProfilePage extends ConsumerWidget {
 
                     // Borrar el token de sesión segura y sesión de rutas al cerrar sesión
                     const secureStorage = FlutterSecureStorage();
-                    await secureStorage.deleteAll(); // Limpiar TODO (sesión, token api, passwords)
-                    
+                    await secureStorage.deleteAll(); // Borra full
+
                     final prefs = await SharedPreferences.getInstance();
                     await prefs.clear(); // Limpiar token y variable isDemoUser
 

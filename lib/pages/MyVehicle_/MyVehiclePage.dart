@@ -5,10 +5,6 @@ import 'package:mark_v3/pages/Error_/ConnectionErrorPage.dart';
 import 'package:mark_v3/pages/Error_/ServerErrorPage.dart';
 import 'package:mark_v3/pages/Error_/MyVehicleErrorPage.dart';
 import 'package:mark_v3/pages/MyVehicle_/EditVehiclePage.dart';
-import 'package:mark_v3/pages/inspeccion/SeleccionPlantillasPage.dart';
-import 'package:mark_v3/pages/MaintenancePage.dart';
-import 'package:mark_v3/widgets/vehicle_commands_sheet.dart';
-import 'package:mark_v3/widgets/vehicle_alerts_sheet.dart';
 import 'package:mark_v3/providers/Vehicles_/my_vehicle_provider.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
 import 'package:mark_v3/widgets/app_skeleton.dart';
@@ -37,46 +33,22 @@ class MyVehiclePage extends ConsumerStatefulWidget {
 }
 
 class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
-  late int inspectionsPermission;
   int _selectedVehicleIndex = 0;
   bool _hasAppliedInitialVehicle = false;
 
   @override
   void initState() {
     super.initState();
-    inspectionsPermission = widget.inspectionsPermission.isNotEmpty
-        ? int.tryParse(widget.inspectionsPermission) ?? 0
-        : 0;
-
     Future.microtask(() {
       ref.read(myVehicleProvider.notifier).loadVehicles(widget.idCollaborator);
     });
   }
 
-  bool _hasPermission(int permissionValue, int actionBit) {
-    return (permissionValue & actionBit) == actionBit ||
-        (permissionValue & 1) == 1;
-  }
-
   bool get _canEditVehicle =>
       MarkApiClient.instance.flota.can('vehiculo', 'editar');
 
-  void _inspectVehicle(Vehicle vehicle) {
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => SeleccionPlantillasPage(
-          userId: widget.userId,
-          vehicle: vehicle,
-          idMainAccount: widget.idMainAccount,
-          idCollaborator: widget.idCollaborator,
-        ),
-      ),
-    );
-  }
-
   void _editVehicle(Vehicle vehicle) async {
-    final result = await Navigator.push(
+    await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => EditVehiclePage(
@@ -88,7 +60,7 @@ class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
       ),
     );
 
-    if (result == true && mounted) {
+    if (mounted) {
       ref.read(myVehicleProvider.notifier).loadVehicles(widget.idCollaborator);
     }
   }
@@ -199,7 +171,6 @@ class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
       maxScaleFactor: 1.15,
     );
     final isSmallScreen = mediaQuery.size.width < 360;
-    final canInspect = _hasPermission(inspectionsPermission, 2);
 
     if (state.vehicles.isNotEmpty) {
       if (!_hasAppliedInitialVehicle && widget.initialVehicleId != null) {
@@ -248,14 +219,11 @@ class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
                         // Header superior estilo Apple
                         _buildHeader(context),
                         const SizedBox(height: 14),
-                        if (state.vehicles.length > 1)
-                          _buildVehicleSelector(state.vehicles),
                         if (state.vehicles.isNotEmpty)
                           Padding(
                             padding: const EdgeInsets.only(bottom: 24),
                             child: _buildVehicleShowcase(
                               state.vehicles[_selectedVehicleIndex],
-                              canInspect,
                             ),
                           ),
                         const SizedBox(height: 16),
@@ -264,91 +232,6 @@ class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
                   ),
                 ),
         ),
-      ),
-    );
-  }
-
-  Widget _buildVehicleSelector(List<Vehicle> vehicles) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      height: 38,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        physics: const BouncingScrollPhysics(),
-        itemCount: vehicles.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (context, index) {
-          final v = vehicles[index];
-          final isSelected = index == _selectedVehicleIndex;
-          final title = v.economic.isNotEmpty
-              ? v.economic
-              : (v.plates.isNotEmpty ? v.plates : 'Unidad ${index + 1}');
-
-          return Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(10),
-              onTap: () {
-                setState(() {
-                  _selectedVehicleIndex = index;
-                });
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 200),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-                decoration: BoxDecoration(
-                  color: isSelected ? const Color(0xFF0284C7) : Colors.white,
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(
-                    color: isSelected
-                        ? const Color(0xFF0284C7)
-                        : const Color(0xFFE2E8F0),
-                    width: 1,
-                  ),
-                  boxShadow: isSelected
-                      ? [
-                          BoxShadow(
-                            color: const Color(0xFF0284C7).withOpacity(0.25),
-                            blurRadius: 6,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : [
-                          BoxShadow(
-                            color: const Color(0xFF0F172A).withOpacity(0.02),
-                            blurRadius: 4,
-                            offset: const Offset(0, 1),
-                          ),
-                        ],
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(
-                      Icons.directions_car_filled_rounded,
-                      size: 14,
-                      color:
-                          isSelected ? Colors.white : const Color(0xFF64748B),
-                    ),
-                    const SizedBox(width: 6),
-                    Text(
-                      title,
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight:
-                            isSelected ? FontWeight.w700 : FontWeight.w500,
-                        color: isSelected
-                            ? Colors.white
-                            : const Color(0xFF334155),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        },
       ),
     );
   }
@@ -430,12 +313,12 @@ class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
   }
 
   // --- SHOWCASE COMPLETO DEL VEHÍCULO ESTILO APPLE ---
-  Widget _buildVehicleShowcase(Vehicle vehicle, bool canInspect) {
+  Widget _buildVehicleShowcase(Vehicle vehicle) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // 1. HERO SHOWCASE CARD
-        _buildHeroSection(vehicle, canInspect),
+        _buildHeroSection(vehicle),
         const SizedBox(height: 16),
 
         // 2. SECCIONES INSET GROUPED DE ESPECIFICACIONES
@@ -579,7 +462,7 @@ class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
   }
 
   // --- HERO HEADER DEL VEHÍCULO ESTILO APPLE ---
-  Widget _buildHeroSection(Vehicle vehicle, bool canInspect) {
+  Widget _buildHeroSection(Vehicle vehicle) {
     final statusColor = _getStatusColor(vehicle.Status);
     final statusBg = _getStatusBg(vehicle.Status);
     final statusBorder = _getStatusBorder(vehicle.Status);
@@ -715,229 +598,158 @@ class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
                 Padding(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Image.asset(
-                    'assets/car.png',
-                    fit: BoxFit.contain,
-                  ),
+                  child: vehicle.photo.trim().isNotEmpty
+                      ? GestureDetector(
+                          onTap: () {
+                            _showVehicleImagePreview(
+                              context,
+                              imageUrl: vehicle.photo.trim(),
+                              title: '${vehicle.make} ${vehicle.model}'.trim(),
+                              plates: vehicle.placas,
+                            );
+                          },
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(12),
+                            child: Image.network(
+                              vehicle.photo.trim(),
+                              fit: BoxFit.contain,
+                              loadingBuilder: (context, child, progress) {
+                                if (progress == null) return child;
+                                return const Center(
+                                  child: SizedBox(
+                                    width: 32,
+                                    height: 32,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2.5,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Color(0xFF0284C7),
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              },
+                              errorBuilder: (context, error, stackTrace) {
+                                return Image.asset(
+                                  'assets/car.png',
+                                  fit: BoxFit.contain,
+                                );
+                              },
+                            ),
+                          ),
+                        )
+                      : Image.asset(
+                          'assets/car.png',
+                          fit: BoxFit.contain,
+                        ),
                 ),
+                if (vehicle.photo.trim().isNotEmpty)
+                  Positioned(
+                    top: 10,
+                    right: 10,
+                    child: GestureDetector(
+                      onTap: () {
+                        _showVehicleImagePreview(
+                          context,
+                          imageUrl: vehicle.photo.trim(),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.92),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: const Color(0xFFE2E8F0),
+                            width: 0.8,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: const Color(0xFF0F172A).withOpacity(0.06),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.zoom_in_rounded,
+                              size: 14,
+                              color: Color(0xFF0284C7),
+                            ),
+                            SizedBox(width: 4),
+                            Text(
+                              'Ampliar',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF0284C7),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
               ],
             ),
           ),
 
-          // Botones de acción rápida estilo Apple (Editar / Inspeccionar)
-          if (canEditVehicle || canInspect) ...[
+          // Botón de acción rápida estilo Apple (Editar)
+          if (canEditVehicle) ...[
             const SizedBox(height: 16),
-            Row(
-              children: [
-                if (canEditVehicle) ...[
-                  Expanded(
-                    child: SizedBox(
-                      height: 46,
-                      child: DecoratedBox(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(14),
-                          gradient: const LinearGradient(
-                            colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
-                            begin: Alignment.topLeft,
-                            end: Alignment.bottomRight,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF0284C7).withOpacity(0.24),
-                              blurRadius: 10,
-                              offset: const Offset(0, 3),
-                            ),
-                          ],
-                        ),
-                        child: ElevatedButton(
-                          onPressed: () => _editVehicle(vehicle),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.transparent,
-                            shadowColor: Colors.transparent,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(horizontal: 10),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(14),
-                            ),
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.edit_rounded,
-                                  size: 16, color: Colors.white),
-                              SizedBox(width: 6),
-                              Text(
-                                'Editar',
-                                style: TextStyle(
-                                  fontSize: 13.5,
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                  letterSpacing: 0.1,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
+            SizedBox(
+              width: double.infinity,
+              height: 46,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
                   ),
-                ],
-                if (canEditVehicle && canInspect)
-                  const SizedBox(width: 10),
-                if (canInspect) ...[
-                  Expanded(
-                    child: SizedBox(
-                      height: 46,
-                      child: OutlinedButton(
-                        onPressed: () => _inspectVehicle(vehicle),
-                        style: OutlinedButton.styleFrom(
-                          backgroundColor: const Color(0xFFF1F5F9),
-                          foregroundColor: const Color(0xFF0F172A),
-                          side: const BorderSide(
-                            color: Color(0xFFE2E8F0),
-                            width: 1.0,
-                          ),
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(14),
-                          ),
-                        ),
-                        child: const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              Icons.assignment_turned_in_rounded,
-                              size: 16,
-                              color: Color(0xFF0284C7),
-                            ),
-                            SizedBox(width: 6),
-                            Text(
-                              'Inspeccionar',
-                              style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F172A),
-                                letterSpacing: 0.1,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFF0284C7).withOpacity(0.24),
+                      blurRadius: 10,
+                      offset: const Offset(0, 3),
                     ),
-                  ),
-                ],
-              ],
-            ),
-            const SizedBox(height: 10),
-          ] else ...[
-            const SizedBox(height: 16),
-          ],
-          Row(
-            children: [
-              Expanded(
-                child: SizedBox(
-                  height: 42,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      VehicleCommandsSheet.show(
-                        context,
-                        idVehic: int.tryParse(vehicle.id) ?? 0,
-                        vehicleName: vehicle.economic.isNotEmpty
-                            ? vehicle.economic
-                            : vehicle.plates,
-                        plates: vehicle.plates,
-                      );
-                    },
-                    icon: const Icon(
-                      Icons.power_settings_new_rounded,
-                      size: 15,
-                      color: Color(0xFFDC2626),
-                    ),
-                    label: const Text(
-                      'Comandos',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFFDC2626),
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: const Color(0xFFFEF2F2),
-                      side: const BorderSide(color: Color(0xFFFECACA)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
+                  ],
                 ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: SizedBox(
-                  height: 42,
-                  child: OutlinedButton.icon(
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => MaintenancePage(
-                            vehicle: vehicle.toJson(),
-                          ),
-                        ),
-                      );
-                    },
-                    icon: const Icon(
-                      Icons.build_rounded,
-                      size: 15,
-                      color: Color(0xFF0369A1),
-                    ),
-                    label: const Text(
-                      'Servicios',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF0369A1),
-                      ),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: const Color(0xFFF0F9FF),
-                      side: const BorderSide(color: Color(0xFFBAE6FD)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
-              SizedBox(
-                height: 42,
-                child: OutlinedButton(
-                  onPressed: () {
-                    VehicleAlertsSheet.show(
-                      context,
-                      idVehic: int.tryParse(vehicle.id) ?? 0,
-                      title: 'Alertas · ${vehicle.economic}',
-                    );
-                  },
-                  style: OutlinedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFFFBEB),
-                    side: const BorderSide(color: Color(0xFFFDE68A)),
+                child: ElevatedButton(
+                  onPressed: () => _editVehicle(vehicle),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.transparent,
+                    shadowColor: Colors.transparent,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: 10),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
+                      borderRadius: BorderRadius.circular(14),
                     ),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
                   ),
-                  child: const Icon(
-                    Icons.notifications_active_rounded,
-                    size: 16,
-                    color: Color(0xFFD97706),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(Icons.edit_rounded, size: 16, color: Colors.white),
+                      SizedBox(width: 6),
+                      Text(
+                        'Editar',
+                        style: TextStyle(
+                          fontSize: 13.5,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ],
       ),
     );
@@ -1154,6 +966,106 @@ class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
           ),
         ],
       ),
+    );
+  }
+
+  void _showVehicleImagePreview(
+    BuildContext context, {
+    required String imageUrl,
+    String? title,
+    String? plates,
+  }) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: EdgeInsets.zero,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              GestureDetector(
+                onTap: () => Navigator.of(dialogContext).pop(),
+                child: Container(
+                  color: Colors.black87,
+                  width: double.infinity,
+                  height: double.infinity,
+                ),
+              ),
+              Center(
+                child: FractionallySizedBox(
+                  widthFactor: 0.90,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0F172A),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: Colors.white, width: 3.5),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.4),
+                          blurRadius: 20,
+                          spreadRadius: 3,
+                        ),
+                      ],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(16.5),
+                      child: InteractiveViewer(
+                        panEnabled: true,
+                        minScale: 0.8,
+                        maxScale: 4.0,
+                        child: Image.network(
+                          imageUrl,
+                          fit: BoxFit.contain,
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
+                            return const Padding(
+                              padding: EdgeInsets.all(40.0),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 36,
+                                  height: 36,
+                                  child: CircularProgressIndicator(
+                                    valueColor: AlwaysStoppedAnimation<Color>(
+                                      Colors.white,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                          errorBuilder: (_, __, ___) => const Padding(
+                            padding: EdgeInsets.all(40.0),
+                            child: Center(
+                              child: Icon(
+                                Icons.broken_image_rounded,
+                                size: 48,
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              Positioned(
+                top: 40,
+                right: 20,
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.close_rounded,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }

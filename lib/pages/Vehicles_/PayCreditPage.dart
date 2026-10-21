@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -182,8 +182,15 @@ class _PayCreditPageState extends ConsumerState<PayCreditPage> {
 
     try {
       final service = VehiclesconService();
-      final int? insertedPaymentId = await service.insertRegistrarPagos(
-          int.parse(widget.creditoId!), montoStr);
+      final double montoDouble = double.tryParse(montoStr) ?? 0.0;
+      final fechaHoy = DateFormat('yyyy-MM-dd').format(DateTime.now());
+      final int creditIdInt = int.tryParse(widget.creditoId ?? '0') ?? 0;
+      await service.pagarCuotaCredito(
+        idPago: creditIdInt,
+        monto: montoDouble,
+        fecha: fechaHoy,
+      );
+      final int insertedPaymentId = creditIdInt;
 
       // Siguiente fecha de corte
       DateTime? nextDate;
@@ -272,9 +279,10 @@ class _PayCreditPageState extends ConsumerState<PayCreditPage> {
     } catch (e) {
       debugPrint('Error al registrar pago: $e');
       if (mounted) {
+        final errorMsg = e.toString().replaceFirst('Exception: ', '').trim();
         SnackbarTop.showError(
           context,
-          'Error al registrar el pago. Intenta de nuevo más tarde.',
+          errorMsg.isNotEmpty ? errorMsg : 'Error al registrar el pago. Intenta de nuevo más tarde.',
         );
       }
     } finally {

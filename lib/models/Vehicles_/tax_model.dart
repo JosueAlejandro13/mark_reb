@@ -8,6 +8,7 @@ class TaxModel {
   final int estado;
   final String vehicleId;
   final String docUrl;
+  final List<dynamic> fotos;
 
   TaxModel({
     required this.id,
@@ -19,6 +20,7 @@ class TaxModel {
     required this.estado,
     required this.vehicleId,
     required this.docUrl,
+    this.fotos = const [],
   });
 
   factory TaxModel.fromMap(Map<String, dynamic> map) {
@@ -32,6 +34,7 @@ class TaxModel {
       estado: map['estado'] is int ? map['estado'] : int.tryParse(map['estado']?.toString() ?? '0') ?? 0,
       vehicleId: map['vehicle_id']?.toString() ?? map['idvehic']?.toString() ?? '',
       docUrl: map['doc_url']?.toString() ?? '',
+      fotos: map['fotos'] is List ? (map['fotos'] as List) : const [],
     );
   }
 
@@ -46,6 +49,7 @@ class TaxModel {
       'estado': estado,
       'vehicle_id': vehicleId,
       'doc_url': docUrl,
+      'fotos': fotos,
     };
   }
 

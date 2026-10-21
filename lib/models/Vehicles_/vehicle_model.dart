@@ -1,3 +1,5 @@
+import 'package:mark_v3/services/mark_api_client.dart';
+
 // Modelo de Vehículo
 class Vehicle {
   final String id;
@@ -23,7 +25,10 @@ class Vehicle {
   final String idStatus;
   final String odom;
   final String dep;
+  final String photo;
   final Map<String, dynamic> raw;
+
+  String get foto => photo;
 
   Vehicle({
     required this.id,
@@ -49,6 +54,7 @@ class Vehicle {
     required this.idStatus,
     required this.odom,
     this.dep = '',
+    this.photo = '',
     this.raw = const {},
   });
 
@@ -86,6 +92,13 @@ class Vehicle {
     final fuelType =
         (map['tipoCombustibleNombre'] ?? map['combustible'] ?? '').toString();
 
+    final rawFoto = (map['foto'] ?? map['photo'] ?? '').toString().trim();
+    final photoValue = rawFoto.isNotEmpty
+        ? (rawFoto.startsWith('http://') || rawFoto.startsWith('https://')
+            ? rawFoto
+            : MarkApiClient.instance.resolveAssetUrl(rawFoto))
+        : '';
+
     return Vehicle(
       id: idValue,
       placas: platesValue,
@@ -110,6 +123,7 @@ class Vehicle {
       idStatus: (map['idStatus'] ?? map['idEstatus'] ?? '')?.toString() ?? '',
       odom: odomValue,
       dep: map['dep']?.toString() ?? '',
+      photo: photoValue,
       raw: map,
     );
   }
@@ -141,6 +155,8 @@ class Vehicle {
       'idStatus': idStatus,
       'odom': odom,
       'dep': dep,
+      'photo': photo,
+      'foto': photo,
     };
   }
 

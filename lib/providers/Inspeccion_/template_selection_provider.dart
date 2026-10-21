@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -102,8 +102,13 @@ class TemplateSelectionNotifier extends Notifier<TemplateSelectionState> {
       }
 
       final List<PlantillaItem> items = [];
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
       for (final p in rawPlantillas) {
-        int daysRemaining = -1;
+        int daysRemaining = 0;
+        bool isReady = true;
+
         try {
           final lastInspection = await _service.obtenerUltimaInspeccion(
             vehicle.id,
@@ -121,9 +126,37 @@ class TemplateSelectionNotifier extends Notifier<TemplateSelectionState> {
             }
 
             if (lastDate != null) {
-              final int periodicity = p['periodicity'] ?? 0;
-              final nextDate = lastDate.add(Duration(days: periodicity));
-              daysRemaining = nextDate.difference(DateTime.now()).inDays;
+              final int periodicity = p['periodicity'] is int
+                  ? p['periodicity']
+                  : (lastInspection['periodicity'] is int
+                      ? lastInspection['periodicity']
+                      : 1);
+
+              final lastDay =
+                  DateTime(lastDate.year, lastDate.month, lastDate.day);
+
+              if (periodicity <= 1) {
+                // Periodicidad diaria (preoperativa): Si ya se hizo hoy o fecha futura
+                if (today.isAtSameMomentAs(lastDay) || today.isBefore(lastDay)) {
+                  isReady = false;
+                  daysRemaining = 1;
+                } else {
+                  isReady = true;
+                  daysRemaining = 0;
+                }
+              } else {
+                // Periodicidad mayor a 1 día
+                final nextAllowedDate =
+                    lastDay.add(Duration(days: periodicity));
+                final diffDays = nextAllowedDate.difference(today).inDays;
+                if (diffDays > 0) {
+                  isReady = false;
+                  daysRemaining = diffDays;
+                } else {
+                  isReady = true;
+                  daysRemaining = 0;
+                }
+              }
             }
           }
         } catch (e) {
@@ -133,7 +166,7 @@ class TemplateSelectionNotifier extends Notifier<TemplateSelectionState> {
         items.add(PlantillaItem(
           raw: p,
           daysRemaining: daysRemaining,
-          isReady: daysRemaining < 0,
+          isReady: isReady,
         ));
       }
 

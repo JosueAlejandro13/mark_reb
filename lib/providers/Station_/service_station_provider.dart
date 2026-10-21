@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:mark_v3/services/ConnectionStation_/StationCon_service.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
 
 // Autor: Josue Hernandez - Migrado a Riverpod
 class ServiceStationState {
@@ -370,6 +371,18 @@ class ServiceStationNotifier extends Notifier<ServiceStationState> {
     required String idCollaborator,
     required int liters,
   }) async {
+    final session = MarkApiClient.instance.currentSession;
+    final rol = session?.rol.toLowerCase().trim() ?? '';
+    final isPreventa = session?.isPreventa == true || rol == 'preventa' || rol == 'vendedor';
+
+    if (isPreventa) {
+      state = state.copyWith(
+        errorMessage:
+            'Tu perfil de preventa no cuenta con autorización para registrar reabastecimientos de combustible.',
+      );
+      return false;
+    }
+
     if (state.stationData == null || state.vehicleConfig == null) {
       state = state.copyWith(
         errorMessage: 'Faltan datos de la estación o del vehículo.',

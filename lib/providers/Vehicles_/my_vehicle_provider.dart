@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -89,5 +89,20 @@ class MyVehicleNotifier extends Notifier<MyVehicleState> {
 
   Future<void> refresh(String collaboratorId) async {
     await loadVehicles(collaboratorId);
+  }
+
+  Future<bool> updateVehiclePhoto({
+    required dynamic vehicleId,
+    required String filePath,
+    required String collaboratorId,
+  }) async {
+    try {
+      await _service.updateVehiclePhoto(vehicleId, filePath);
+      await loadVehicles(collaboratorId);
+      return true;
+    } catch (e) {
+      debugPrint('Error al actualizar foto del vehículo: $e');
+      rethrow;
+    }
   }
 }

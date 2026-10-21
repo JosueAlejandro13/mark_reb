@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
 
@@ -24,20 +26,61 @@ class InspeccionconService {
     List<Map<String, dynamic>> items,
   ) async {
     try {
-      // Mapear los items al formato oficial de la guía de Nelson:
+      // Mapear los items al formato oficial de la guía de Nelson (Pág. 7 y 14):
       // items: [{idItem, ok: true · false · "na", comentario, foto}]
-      final mappedItems = items.map((it) {
+      final List<Map<String, dynamic>> mappedItems = [];
+
+      for (final it in items) {
         final okVal = it['status'] == 1 || it['ok'] == true;
         final isNa = it['status'] == 3 || it['ok'] == 'na';
-        return {
+        String? fotoUuid;
+
+        final imgPath = it['imgUrl']?.toString();
+        if (imgPath != null && imgPath.isNotEmpty) {
+          final isUuid = RegExp(
+                  r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
+              .hasMatch(imgPath);
+
+          if (isUuid) {
+            fotoUuid = imgPath;
+          } else {
+            final f = File(imgPath);
+            if (f.existsSync()) {
+              fotoUuid = const Uuid().v4();
+              try {
+                // Subir cada foto con a=foto (multipart, tipo 1 = foto) según la guía (Pág. 10 y 14)
+                await _client.uploadPhoto(
+                  uuid: fotoUuid,
+                  tipo: 1,
+                  filePath: imgPath,
+                );
+              } catch (e) {
+                debugPrint('Aviso: no se pudo subir foto previa a inspección: $e');
+              }
+            }
+          }
+        }
+
+        mappedItems.add({
           'idItem': it['idItem'] ?? it['id'] ?? 0,
           'ok': isNa ? 'na' : okVal,
           if (it['comment'] != null && it['comment'].toString().isNotEmpty)
             'comentario': it['comment'],
-          if (it['imgUrl'] != null && it['imgUrl'].toString().isNotEmpty)
-            'foto': it['imgUrl'],
-        };
-      }).toList();
+          if (fotoUuid != null && fotoUuid.isNotEmpty) 'foto': fotoUuid,
+        });
+      }
+
+      // Parsear lat y lng de location
+      double? lat;
+      double? lng;
+      if (location.contains(',')) {
+        final parts = location.split(',');
+        lat = double.tryParse(parts[0].trim());
+        lng = double.tryParse(parts[1].trim());
+      }
+
+      // Estatus general estricto de la guía (1: Excelente, 2: Con detalles, 3: Fallida)
+      final int validStatus = (status >= 1 && status <= 3) ? status : 2;
 
       final acciones = [
         {
@@ -45,8 +88,12 @@ class InspeccionconService {
           'tipo': 'inspeccion',
           'idVehic': int.tryParse(idVehic) ?? 0,
           'idPlantilla': int.tryParse(idTemplateInspection) ?? 1,
-          'estatus': status, // 1: Excelente, 2: Con detalles, 3: Fallida
+          'estatus': validStatus,
           'obs': obs,
+          if (lat != null && lng != null) ...{
+            'lat': lat,
+            'lng': lng,
+          },
           'items': mappedItems,
           'fecHor': startDate
               .toIso8601String()
@@ -64,6 +111,19 @@ class InspeccionconService {
             : 'Acción rechazada por el servidor.';
         throw Exception(errorTexto);
       }
+
+      // Guardar registro local en SharedPreferences para evitar inspecciones duplicadas
+      // inmediatamente en la app antes de que el servidor actualice su lectura
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setString(
+          'last_inspection_${idVehic}_$idTemplateInspection',
+          DateTime.now().toIso8601String(),
+        );
+      } catch (e) {
+        debugPrint('Aviso: no se pudo guardar fecha local de inspección: $e');
+      }
+
       return null;
     } catch (e) {
       debugPrint('Error al crear la inspección en InspeccionconService: $e');
@@ -173,7 +233,7 @@ class InspeccionconService {
     }
   }
 
-  /// Obtener última inspección del vehículo
+  /// Obtener última inspección del vehículo considerando backend (ultima, historial, plantillas) y caché local
   Future<Map<String, dynamic>?> obtenerUltimaInspeccion(
     String idVehic,
     String idTemplateInspection,
@@ -182,12 +242,86 @@ class InspeccionconService {
     try {
       final intVehic = int.tryParse(idVehic) ?? 0;
       final res = await _client.getInspecciones(intVehic);
+      
+      DateTime? latestDate;
+      int periodicity = 1;
+
+      // 1. Revisar si el backend entrega 'ultima' directamente
       final ultima = res['ultima'];
       if (ultima is Map<String, dynamic>) {
+        final rawDate = ultima['fecha'] ?? ultima['fecHor'] ?? ultima['date'];
+        if (rawDate != null) {
+          latestDate = DateTime.tryParse(rawDate.toString());
+        }
+      }
+
+      // 2. Revisar si viene en 'historial' o 'inspecciones'
+      final historial = res['historial'] ?? res['inspecciones'] ?? res['data'];
+      if (historial is List && historial.isNotEmpty) {
+        for (final item in historial) {
+          if (item is Map<String, dynamic>) {
+            final tplId = item['idPlantilla']?.toString() ?? item['plantillaId']?.toString();
+            // Si la inspección es de esta plantilla o general
+            if (tplId == null || tplId == idTemplateInspection) {
+              final rawDate = item['fecha'] ?? item['fecHor'] ?? item['endDate'] ?? item['fechaHora'];
+              if (rawDate != null) {
+                final d = DateTime.tryParse(rawDate.toString());
+                if (d != null) {
+                  if (latestDate == null || d.isAfter(latestDate)) {
+                    latestDate = d;
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 3. Revisar en las plantillas si la plantilla reporta 'lastInspectionDate' / 'ultimaFecha'
+      final plantillas = res['plantillas'];
+      if (plantillas is List) {
+        for (final p in plantillas) {
+          if (p is Map<String, dynamic> &&
+              (p['id']?.toString() == idTemplateInspection ||
+               p['idPlantilla']?.toString() == idTemplateInspection)) {
+            final pPer = p['periodicidad'] ?? p['periodicity'];
+            if (pPer != null) {
+              periodicity = int.tryParse(pPer.toString()) ?? periodicity;
+            }
+            final rawDate = p['ultimaFecha'] ?? p['lastInspectionDate'] ?? p['fechaUltima'];
+            if (rawDate != null) {
+              final d = DateTime.tryParse(rawDate.toString());
+              if (d != null) {
+                if (latestDate == null || d.isAfter(latestDate)) {
+                  latestDate = d;
+                }
+              }
+            }
+          }
+        }
+      }
+
+      // 4. Revisar respaldo local en SharedPreferences por si el backend aún no ha sincronizado la lectura
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final localDateStr = prefs.getString('last_inspection_${idVehic}_$idTemplateInspection');
+        if (localDateStr != null) {
+          final localDate = DateTime.tryParse(localDateStr);
+          if (localDate != null) {
+            if (latestDate == null || localDate.isAfter(latestDate)) {
+              latestDate = localDate;
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Aviso al leer SharedPreferences para última inspección: $e');
+      }
+
+      if (latestDate != null) {
         return {
-          'startDate': DateTime.tryParse(ultima['fecha'] ?? '') ?? DateTime.now(),
-          'endDate': DateTime.tryParse(ultima['fecha'] ?? '') ?? DateTime.now(),
-          'periodicity': 1,
+          'startDate': latestDate,
+          'endDate': latestDate,
+          'periodicity': periodicity,
         };
       }
       return null;

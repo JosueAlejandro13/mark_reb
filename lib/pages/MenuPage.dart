@@ -7,6 +7,7 @@ import 'package:mark_v3/pages/Vehicles_/vehicles_page.dart';
 import 'package:mark_v3/pages/reports_page.dart';
 import 'package:mark_v3/pages/tasks_page.dart';
 import 'package:mark_v3/providers/Routes_/routes_provider.dart';
+import 'package:mark_v3/models/Routes_/driver_day_models.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
 
 class MenuPage extends ConsumerWidget {
@@ -52,16 +53,28 @@ class MenuPage extends ConsumerWidget {
     // Obtener sesión activa para validar roles y permisos (Ronda 133)
     final apiSession = MarkApiClient.instance.currentSession;
     final session = ref.watch(routesProvider).session ?? apiSession;
-    final isUsuarioOnly = session?.rol == 'usuario';
-    final isChofer = session?.rol == 'chofer';
-    final canSeeRutas = !isUsuarioOnly && (session?.permisos.rutas ?? true);
+    final rol = (session?.rol ?? '').trim().toLowerCase();
+    final isUsuarioOnly = rol == 'usuario';
+    final isPreventa =
+        session?.isPreventa == true || rol == 'preventa' || rol == 'vendedor';
+    final isChofer =
+        rol == 'chofer' || (!isPreventa && !isUsuarioOnly && rol.isNotEmpty);
+    final canSeeRutas = !isUsuarioOnly &&
+        (session?.permisos.rutas == true ||
+            isPreventa ||
+            isChofer ||
+            (session?.permisos.pedidos ?? false));
     final canSeeTareas = session?.flota.can('tareas', 'ver') ?? true;
     final canSeeReportes = session?.flota.can('reportes', 'ver') ?? true;
     final canManageVehicles =
         (session?.flota.can('vehiculo', 'editar') ?? false) || isUsuarioOnly;
+    final canRegisterFuel = !isPreventa &&
+        (isChofer || isUsuarioOnly || (session?.flota.can('combustible', 'crear') ?? true));
 
-    // Armar items dinámicos de Telemetría
-    final List<Widget> telemetriaTiles = [
+    // =========================================================================
+    // 1. SECCIÓN: GESTIÓN Y MONITOREO DE FLOTA (Rastreo, Vehículos y Tareas)
+    // =========================================================================
+    final List<Widget> flotaTiles = [
       _buildAppleListTile(
         icon: Icons.satellite_alt_rounded,
         iconGradient: const [
@@ -69,7 +82,9 @@ class MenuPage extends ConsumerWidget {
           Color(0xFF38BDF8),
         ],
         title: 'Rastreo Satelital',
-        subtitle: 'Localización GPS en vivo y estado telemático',
+        subtitle: isUsuarioOnly
+            ? 'Localización GPS en vivo de toda la flota'
+            : 'Localización GPS en vivo y estado telemático',
         badgeText: 'GPS',
         badgeColor: const Color(0xFFE0F2FE),
         badgeTextColor: const Color(0xFF0369A1),
@@ -82,83 +97,19 @@ class MenuPage extends ConsumerWidget {
           );
         },
       ),
-      if (canSeeRutas)
-        _buildAppleListTile(
-          icon: Icons.alt_route_rounded,
-          iconGradient: const [
-            Color(0xFF0369A1),
-            Color(0xFF0284C7),
-          ],
-          title: 'Rutas y Trayectos',
-          subtitle: 'Historial de recorridos, paradas y entregas',
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => RoutesPage(
-                  idCollaborator: idCollaborator,
-                  idMainAccount: idMainAccount,
-                ),
-              ),
-            );
-          },
-        ),
-      _buildAppleListTile(
-        icon: Icons.local_gas_station_rounded,
-        iconGradient: const [
-          Color(0xFF0891B2),
-          Color(0xFF06B6D4),
-        ],
-        title: 'Reabastecimiento',
-        subtitle: 'Tickets de combustible, volumen y costos',
-        onTap: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (context) => ServiceStationForm(
-                idMainAccount: idMainAccount,
-                idCollaborator: idCollaborator,
-              ),
-            ),
-          );
-        },
-      ),
-      if (canSeeReportes)
-        _buildAppleListTile(
-          icon: Icons.insert_chart_rounded,
-          iconGradient: const [
-            Color(0xFF2563EB),
-            Color(0xFF60A5FA),
-          ],
-          title: 'Reportes Operativos',
-          subtitle: 'Rendimiento, distancias, viajes e incidencias',
-          badgeText: 'Métricas',
-          badgeColor: const Color(0xFFEFF6FF),
-          badgeTextColor: const Color(0xFF1D4ED8),
-          onTap: () {
-            Navigator.push(
-              context,
-              MaterialPageRoute(
-                builder: (context) => const ReportsPage(),
-              ),
-            );
-          },
-        ),
-    ];
-
-    // Armar items dinámicos de Gestión (Unificado: Mis Vehículos)
-    final List<Widget> gestionTiles = [
       _buildAppleListTile(
         icon: Icons.directions_car_rounded,
         iconGradient: const [
-          Color(0xFF0284C7),
-          Color(0xFF38BDF8),
+          Color(0xFF4F46E5),
+          Color(0xFF818CF8),
         ],
-        title: 'Mis Vehículos',
-        subtitle: 'Padrón de unidades, ficha técnica y documentación',
+        title: isChofer ? 'Mi Vehículo' : 'Mis Vehículos',
+        subtitle: isUsuarioOnly
+            ? 'Padrón de unidades, ficha técnica y pólizas'
+            : 'Ficha técnica, tarjeta, póliza e inspecciones',
         badgeText: 'Flota',
-        badgeColor: const Color(0xFFE0F2FE),
-        badgeTextColor: const Color(0xFF0369A1),
+        badgeColor: const Color(0xFFEEF2FF),
+        badgeTextColor: const Color(0xFF4338CA),
         onTap: () {
           Navigator.push(
             context,
@@ -187,7 +138,9 @@ class MenuPage extends ConsumerWidget {
             Color(0xFF14B8A6),
           ],
           title: 'Tareas de Flota',
-          subtitle: 'Órdenes de trabajo, revisiones y asignaciones',
+          subtitle: isUsuarioOnly
+              ? 'Órdenes de trabajo, revisiones y asignaciones'
+              : 'Órdenes de trabajo y revisiones asignadas',
           badgeText: 'Tareas',
           badgeColor: const Color(0xFFCCFBF1),
           badgeTextColor: const Color(0xFF0F766E),
@@ -201,6 +154,92 @@ class MenuPage extends ConsumerWidget {
           },
         ),
     ];
+
+    // =========================================================================
+    // 2. SECCIÓN: OPERACIÓN Y LOGÍSTICA / REPORTES (Rutas, Combustible, Reportes)
+    // =========================================================================
+    final List<Widget> operacionTiles = [
+      if (canSeeRutas)
+        _buildAppleListTile(
+          icon: isPreventa ? Icons.storefront_rounded : Icons.alt_route_rounded,
+          iconGradient: isPreventa
+              ? const [
+                  Color(0xFF0284C7),
+                  Color(0xFF0369A1),
+                ]
+              : const [
+                  Color(0xFF0369A1),
+                  Color(0xFF0284C7),
+                ],
+          title: isPreventa ? 'Rutas de Preventa' : 'Rutas y Trayectos',
+          subtitle: isPreventa
+              ? 'Visitas a clientes, catálogo y levantamiento de pedidos'
+              : 'Historial de recorridos, paradas y entregas',
+          badgeText: isPreventa ? 'Preventa' : 'Rutas',
+          badgeColor: const Color(0xFFE0F2FE),
+          badgeTextColor: const Color(0xFF0369A1),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => RoutesPage(
+                  idCollaborator: idCollaborator,
+                  idMainAccount: idMainAccount,
+                ),
+              ),
+            );
+          },
+        ),
+      if (canRegisterFuel)
+        _buildAppleListTile(
+          icon: Icons.local_gas_station_rounded,
+          iconGradient: const [
+            Color(0xFF0891B2),
+            Color(0xFF06B6D4),
+          ],
+          title: 'Reabastecimiento',
+          subtitle: isUsuarioOnly
+              ? 'Control de carga de combustible, tickets y costos'
+              : 'Tickets de combustible, volumen y costos',
+          badgeText: 'Combustible',
+          badgeColor: const Color(0xFFECFEFF),
+          badgeTextColor: const Color(0xFF0E7490),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => ServiceStationForm(
+                  idMainAccount: idMainAccount,
+                  idCollaborator: idCollaborator,
+                ),
+              ),
+            );
+          },
+        ),
+      if (canSeeReportes)
+        _buildAppleListTile(
+          icon: Icons.insert_chart_rounded,
+          iconGradient: const [
+            Color(0xFF2563EB),
+            Color(0xFF60A5FA),
+          ],
+          title: 'Reportes Operativos',
+          subtitle: 'Rendimiento, distancias, viajes e incidencias',
+          badgeText: 'Métricas',
+          badgeColor: const Color(0xFFEFF6FF),
+          badgeTextColor: const Color(0xFF1D4ED8),
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ReportsPage(),
+              ),
+            );
+          },
+        ),
+    ];
+
+    final totalModules = flotaTiles.length + operacionTiles.length;
 
     return MediaQuery(
       data: mediaQuery.copyWith(textScaler: clampedScaler),
@@ -218,52 +257,74 @@ class MenuPage extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── 1. Encabezado Estilo Apple (Large Title + Status Chip) ──
-                _buildAnimatedItem(_buildAppleHeader(), 0),
+                // ── 1. Encabezado Estilo Apple (Large Title + Subtítulo Adaptativo) ──
+                _buildAnimatedItem(
+                  _buildAppleHeader(
+                    isUsuarioOnly: isUsuarioOnly,
+                    isChofer: isChofer,
+                  ),
+                  0,
+                ),
                 const SizedBox(height: 14),
 
-                // ── 2. Hero Card Estilo Apple Control Center / Wallet ────────
-                _buildAnimatedItem(_buildAppleHeroCard(), 1),
+                // ── 2. Hero Card Estilo Apple (Dinamizado por Rol) ───────────
+                _buildAnimatedItem(
+                  _buildAppleHeroCard(
+                    session: session,
+                    isUsuarioOnly: isUsuarioOnly,
+                    isChofer: isChofer,
+                    totalModules: totalModules,
+                  ),
+                  1,
+                ),
                 const SizedBox(height: 22),
 
-                // ── 3. Sección Telemetría y Logística (Apple Grouped List) ───
+                // ── 3. Sección Gestión y Monitoreo de Flota ─────────────────
                 _buildAnimatedItem(
                   _buildAppleSectionHeader(
-                    title: 'TELEMETRÍA Y LOGÍSTICA',
-                    badge: '${telemetriaTiles.length} MÓDULOS',
+                    title: 'GESTIÓN Y MONITOREO DE FLOTA',
+                    badge: '${flotaTiles.length} MÓDULOS',
                   ),
                   2,
                 ),
                 const SizedBox(height: 7),
                 _buildAnimatedItem(
                   _buildAppleGroupedCard(
-                    children: telemetriaTiles,
+                    children: flotaTiles,
                   ),
                   3,
                 ),
                 _buildAppleSectionFooter(
-                  'Monitorea unidades en ruta, métricas de consumo y desempeño telemático.',
+                  isUsuarioOnly
+                      ? 'Supervisa la ubicación en vivo de las unidades, revisa pólizas y asigna tareas.'
+                      : 'Consulta la telemetría de tu unidad, documentación oficial y tareas asignadas.',
                 ),
                 const SizedBox(height: 20),
 
-                // ── 4. Sección Gestión Vehicular y Flota (Apple Grouped List) ─
-                _buildAnimatedItem(
-                  _buildAppleSectionHeader(
-                    title: 'GESTIÓN DE VEHÍCULOS Y FLOTA',
-                    badge: '${gestionTiles.length} MÓDULOS',
+                // ── 4. Sección Operación / Logística (Adaptativa por rol) ─────
+                if (operacionTiles.isNotEmpty) ...[
+                  _buildAnimatedItem(
+                    _buildAppleSectionHeader(
+                      title: canSeeRutas
+                          ? 'LOGÍSTICA Y OPERACIÓN'
+                          : 'OPERACIÓN Y REPORTES',
+                      badge: '${operacionTiles.length} MÓDULOS',
+                    ),
+                    4,
                   ),
-                  4,
-                ),
-                const SizedBox(height: 7),
-                _buildAnimatedItem(
-                  _buildAppleGroupedCard(
-                    children: gestionTiles,
+                  const SizedBox(height: 7),
+                  _buildAnimatedItem(
+                    _buildAppleGroupedCard(
+                      children: operacionTiles,
+                    ),
+                    5,
                   ),
-                  5,
-                ),
-                _buildAppleSectionFooter(
-                  'Administra permisos, pólizas oficiales, revisiones mecánicas y tareas asignadas.',
-                ),
+                  _buildAppleSectionFooter(
+                    canSeeRutas
+                        ? 'Monitorea el avance de ruta, abastecimiento de combustible e indicadores telemáticos.'
+                        : 'Registro de combustible, control de gastos y análisis de desempeño de la flota.',
+                  ),
+                ],
 
                 // Espacio inferior para evitar solapamiento con la barra de navegación flotante
                 const SizedBox(height: 95),
@@ -275,16 +336,25 @@ class MenuPage extends ConsumerWidget {
     );
   }
 
-  // ── 1. ENCABEZADO APPLE (LARGE TITLE + STATUS PILL) ─────────────────────────
-  Widget _buildAppleHeader() {
+  // ── 1. ENCABEZADO APPLE (LARGE TITLE + SUBTÍTULO ADAPTATIVO POR ROL) ────────
+  Widget _buildAppleHeader({
+    required bool isUsuarioOnly,
+    required bool isChofer,
+  }) {
+    final subtitle = isUsuarioOnly
+        ? 'Supervisión de flota y telemetría'
+        : (isChofer
+            ? 'Centro de operación y chofer'
+            : 'Centro de operaciones y flota');
+
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        const Column(
+        Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               'Menú',
               style: TextStyle(
                 fontSize: 27,
@@ -294,10 +364,10 @@ class MenuPage extends ConsumerWidget {
                 height: 1.1,
               ),
             ),
-            SizedBox(height: 2),
+            const SizedBox(height: 2),
             Text(
-              'Centro de operaciones y flota',
-              style: TextStyle(
+              subtitle,
+              style: const TextStyle(
                 fontSize: 12.5,
                 color: Color(0xFF64748B),
                 fontWeight: FontWeight.w400,
@@ -306,13 +376,52 @@ class MenuPage extends ConsumerWidget {
             ),
           ],
         ),
-        // Pill de estado al estilo Apple
       ],
     );
   }
 
-  // ── 2. HERO CARD APPLE (ESTILO WALLET / CONTROL CENTER) ─────────────────────
-  Widget _buildAppleHeroCard() {
+  // ── 2. HERO CARD APPLE DINAMIZADO SEGÚN EL ROL (CONTROL CENTER / WALLET) ──
+  Widget _buildAppleHeroCard({
+    required DriverSession? session,
+    required bool isUsuarioOnly,
+    required bool isChofer,
+    required int totalModules,
+  }) {
+    // Configuración visual y descriptiva según el rol del usuario
+    final IconData heroIcon;
+    final String tagText;
+    final String titleText;
+    final String descriptionText;
+    final String rolePillText;
+    final IconData rolePillIcon;
+
+    if (isUsuarioOnly) {
+      heroIcon = Icons.local_shipping_rounded;
+      tagText = 'SUPERVISIÓN Y CONTROL';
+      titleText = 'Control Central de Flota';
+      descriptionText =
+          'Supervisión telemática en tiempo real, administración de unidades, combustible y tareas de mantenimiento.';
+      rolePillText = 'Supervisor';
+      rolePillIcon = Icons.admin_panel_settings_rounded;
+    } else if (isChofer) {
+      heroIcon = Icons.alt_route_rounded;
+      tagText = 'OPERACIÓN EN RUTA';
+      titleText = 'Mi Jornada y Unidad';
+      descriptionText =
+          'Gestión de rutas de reparto, abastecimiento de combustible y telemetría de tu unidad asignada.';
+      rolePillText = 'Chofer';
+      rolePillIcon = Icons.badge_rounded;
+    } else {
+      // Preventa u otro perfil comercial
+      heroIcon = Icons.storefront_rounded;
+      tagText = 'OPERACIÓN COMERCIAL';
+      titleText = 'Gestión Comercial';
+      descriptionText =
+          'Levantamiento de pedidos, prospección de clientes y catálogo de productos disponibles.';
+      rolePillText = 'Preventa';
+      rolePillIcon = Icons.shopping_bag_rounded;
+    }
+
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
@@ -373,7 +482,7 @@ class MenuPage extends ConsumerWidget {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      // Squircle translúcido para el ícono principal
+                      // Squircle translúcido para el ícono principal adaptativo
                       Container(
                         width: 40,
                         height: 40,
@@ -385,8 +494,8 @@ class MenuPage extends ConsumerWidget {
                             width: 1.0,
                           ),
                         ),
-                        child: const Icon(
-                          Icons.alt_route_rounded,
+                        child: Icon(
+                          heroIcon,
                           color: Colors.white,
                           size: 21,
                         ),
@@ -399,7 +508,7 @@ class MenuPage extends ConsumerWidget {
                             Row(
                               children: [
                                 Text(
-                                  'SISTEMA TELEMÁTICO',
+                                  tagText,
                                   style: TextStyle(
                                     fontSize: 9.5,
                                     fontWeight: FontWeight.w700,
@@ -430,11 +539,11 @@ class MenuPage extends ConsumerWidget {
                               ],
                             ),
                             const SizedBox(height: 2),
-                            const Text(
-                              'Gestión Integral de Flota',
+                            Text(
+                              titleText,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
+                              style: const TextStyle(
                                 fontSize: 15,
                                 fontWeight: FontWeight.w700,
                                 color: Colors.white,
@@ -448,7 +557,7 @@ class MenuPage extends ConsumerWidget {
                   ),
                   const SizedBox(height: 9),
                   Text(
-                    'Acceso centralizado a telemetría GPS, logística en ruta, combustible y documentación oficial de vehículos.',
+                    descriptionText,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
@@ -460,22 +569,22 @@ class MenuPage extends ConsumerWidget {
                   ),
                   const SizedBox(height: 12),
 
-                  // Píldoras de métricas estilo Apple
+                  // Píldoras de métricas estilo Apple adaptativas
                   Row(
                     children: [
                       _buildAppleStatCapsule(
                         icon: Icons.gps_fixed_rounded,
-                        label: 'GPS Activo',
+                        label: isUsuarioOnly ? 'GPS Flota' : 'GPS Activo',
                       ),
                       const SizedBox(width: 7),
                       _buildAppleStatCapsule(
                         icon: Icons.grid_view_rounded,
-                        label: '5 Módulos',
+                        label: '$totalModules Módulos',
                       ),
                       const SizedBox(width: 7),
                       _buildAppleStatCapsule(
-                        icon: Icons.lock_outline_rounded,
-                        label: 'Conexión TLS',
+                        icon: rolePillIcon,
+                        label: rolePillText,
                       ),
                     ],
                   ),

@@ -4,6 +4,7 @@ class CirculationCardModel {
   final String fecExpedicion;
   final String fecVencimiento;
   final String monto;
+  final List<dynamic> fotos;
 
   CirculationCardModel({
     required this.id,
@@ -11,6 +12,7 @@ class CirculationCardModel {
     required this.fecExpedicion,
     required this.fecVencimiento,
     required this.monto,
+    this.fotos = const [],
   });
 
   factory CirculationCardModel.fromMap(Map<String, dynamic> map) {
@@ -22,6 +24,7 @@ class CirculationCardModel {
       fecExpedicion: map['fecExpedicion']?.toString() ?? '',
       fecVencimiento: map['fecVencimiento']?.toString() ?? '',
       monto: map['monto']?.toString() ?? '0',
+      fotos: map['fotos'] is List ? (map['fotos'] as List) : const [],
     );
   }
 
@@ -32,6 +35,7 @@ class CirculationCardModel {
       'fecExpedicion': fecExpedicion,
       'fecVencimiento': fecVencimiento,
       'monto': monto,
+      'fotos': fotos,
     };
   }
 }

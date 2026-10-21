@@ -9,6 +9,7 @@ class InsuranceModel {
   final String fechaVencimiento;
   final String observaciones;
   final String docUrl;
+  final List<dynamic> fotos;
 
   InsuranceModel({
     required this.id,
@@ -21,6 +22,7 @@ class InsuranceModel {
     required this.fechaVencimiento,
     required this.observaciones,
     required this.docUrl,
+    this.fotos = const [],
   });
 
   factory InsuranceModel.fromMap(Map<String, dynamic> map) {
@@ -37,6 +39,7 @@ class InsuranceModel {
       fechaVencimiento: map['fechaVencimiento']?.toString() ?? '',
       observaciones: map['observaciones']?.toString() ?? '',
       docUrl: map['doc_url']?.toString() ?? '',
+      fotos: map['fotos'] is List ? (map['fotos'] as List) : const [],
     );
   }
 
@@ -52,6 +55,7 @@ class InsuranceModel {
       'fechaVencimiento': fechaVencimiento,
       'observaciones': observaciones,
       'doc_url': docUrl,
+      'fotos': fotos,
     };
   }
 }

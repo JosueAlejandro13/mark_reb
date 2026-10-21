@@ -214,10 +214,19 @@ class EditVehicleNotifier extends Notifier<EditVehicleState> {
           combustibleItem['id']?.toString() ?? '0';
 
       final statusItem = estadosVehiculo.firstWhere(
-        (s) => s['name'] == vehicle.Status,
-        orElse: () => {'id': '0'},
+        (s) =>
+            s['id']?.toString() == vehicle.idStatus ||
+            s['name']?.toString().toLowerCase() ==
+                vehicle.Status.toLowerCase() ||
+            s['status']?.toString().toLowerCase() ==
+                vehicle.Status.toLowerCase() ||
+            s['name']?.toString().toLowerCase() ==
+                vehicle.Status.toLowerCase(),
+        orElse: () => estadosVehiculo.isNotEmpty
+            ? estadosVehiculo.first
+            : {'id': '1', 'name': 'Activo'},
       );
-      final selectedStatus = statusItem['id']?.toString() ?? '0';
+      final selectedStatus = statusItem['id']?.toString() ?? '1';
 
       state = state.copyWith(
         isLoading: false,
@@ -384,7 +393,14 @@ class EditVehicleNotifier extends Notifier<EditVehicleState> {
   }) async {
     state = state.copyWith(isChangingStatus: true, clearError: true);
     try {
-      final selectedStatusInt = int.tryParse(newStatus) ?? -1;
+      final statusItem = state.estadosVehiculo.firstWhere(
+        (s) => s['id']?.toString() == newStatus,
+        orElse: () => {'id': newStatus, 'name': newStatus},
+      );
+      final statusName = statusItem['name']?.toString() ?? newStatus;
+      final statusId = statusItem['id']?.toString() ?? newStatus;
+
+      final selectedStatusInt = int.tryParse(statusId) ?? -1;
       final vehicleStatusInt =
           int.tryParse(vehicle.idStatus.toString()) ?? -1;
 
@@ -394,13 +410,18 @@ class EditVehicleNotifier extends Notifier<EditVehicleState> {
           vehicle.id.toString(),
           observations,
           DateTime.now(),
-          newStatus,
+          statusName,
           "0",
           "0",
         );
       }
 
-      await _dbService.updatevehicleStatus(newStatus, vehicle.id.toString());
+      await _dbService.updatevehicleStatus(
+        statusId,
+        vehicle.id.toString(),
+        statusName: statusName,
+        obs: observations,
+      );
 
       try {
         const nameNotice = "vehicle_status_changed";
@@ -419,7 +440,7 @@ class EditVehicleNotifier extends Notifier<EditVehicleState> {
 
           final userEmail = state.profile['email']?.toString() ?? '';
           final formattedMessage = message
-              .replaceAll("{new_status}", newStatus)
+              .replaceAll("{new_status}", statusName)
               .replaceAll("{user}", userEmail)
               .replaceAll("{observations}", observations);
 

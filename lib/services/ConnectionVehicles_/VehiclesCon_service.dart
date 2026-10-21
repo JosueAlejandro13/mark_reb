@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
 
 /// Servicio de Gestión de Flota y Vehículos migrado a Mark V3.1
@@ -30,6 +31,10 @@ class VehiclesconService {
         final vin = (v['vin'] ?? '').toString();
         final color = (v['color'] ?? '').toString();
 
+        final rawFoto = (v['foto'] ?? v['photo'] ?? '').toString().trim();
+        final fotoUrl =
+            rawFoto.isNotEmpty ? _client.resolveAssetUrl(rawFoto) : '';
+
         return {
           'id': id,
           'idVehic': id,
@@ -51,8 +56,9 @@ class VehiclesconService {
           'Status': estatus,
           'Estado': estatus,
           'idStatus': (v['idEstatus'] ?? v['idStatus'] ?? 1).toString(),
-          'photo': v['foto'] ?? '',
-          'foto': v['foto'] ?? '',
+          'photo': fotoUrl,
+          'foto': fotoUrl,
+          'rawFoto': rawFoto,
           'vin': vin,
           'engineNumber': vin,
           'lat': gps['lat']?.toString() ?? '0',
@@ -87,8 +93,15 @@ class VehiclesconService {
       final list = cats['aseguradoras'] ?? cats['companias'] ?? [];
       if (list is List) {
         return list.map((item) {
-          if (item is Map<String, dynamic>) return item;
-          return {'id': item.toString(), 'name': item.toString()};
+          if (item is Map) {
+            final val = (item['nombre'] ?? item['name'] ?? item['aseguradora'] ?? '').toString().trim();
+            return <String, dynamic>{
+              'id': item['id']?.toString() ?? '',
+              'name': val,
+              'nombre': val,
+            };
+          }
+          return <String, dynamic>{'id': item.toString(), 'name': item.toString(), 'nombre': item.toString()};
         }).toList();
       }
       return [];
@@ -104,8 +117,16 @@ class VehiclesconService {
       final list = cats['coberturas'] ?? [];
       if (list is List) {
         return list.map((item) {
-          if (item is Map<String, dynamic>) return item;
-          return {'id': item.toString(), 'type': item.toString()};
+          if (item is Map) {
+            final val = (item['nombre'] ?? item['name'] ?? item['type'] ?? item['cobertura'] ?? '').toString().trim();
+            return <String, dynamic>{
+              'id': item['id']?.toString() ?? '',
+              'name': val,
+              'nombre': val,
+              'type': val,
+            };
+          }
+          return <String, dynamic>{'id': item.toString(), 'name': item.toString(), 'nombre': item.toString(), 'type': item.toString()};
         }).toList();
       }
       return [];
@@ -121,8 +142,16 @@ class VehiclesconService {
       final list = cats['hologramas'] ?? [];
       if (list is List) {
         return list.map((item) {
-          if (item is Map<String, dynamic>) return item;
-          return {'id': item.toString(), 'hologram': item.toString()};
+          if (item is Map) {
+            final val = (item['nombre'] ?? item['name'] ?? item['hologram'] ?? '').toString().trim();
+            return <String, dynamic>{
+              'id': item['id']?.toString() ?? '',
+              'name': val,
+              'nombre': val,
+              'hologram': val,
+            };
+          }
+          return <String, dynamic>{'id': item.toString(), 'name': item.toString(), 'nombre': item.toString(), 'hologram': item.toString()};
         }).toList();
       }
       return [];
@@ -135,11 +164,19 @@ class VehiclesconService {
   Future<List<Map<String, dynamic>>> obtenerStatus() async {
     try {
       final cats = await _client.getCatalogos();
-      final list = cats['estatus'] ?? [];
+      final list = cats['estatusVehiculo'] ?? cats['estatus'] ?? [];
       if (list is List) {
         return list.map((item) {
-          if (item is Map<String, dynamic>) return item;
-          return {'id': item.toString(), 'status': item.toString()};
+          if (item is Map) {
+            final val = (item['nombre'] ?? item['name'] ?? item['status'] ?? '').toString().trim();
+            return <String, dynamic>{
+              'id': item['id']?.toString() ?? '',
+              'name': val,
+              'nombre': val,
+              'status': val,
+            };
+          }
+          return <String, dynamic>{'id': item.toString(), 'name': item.toString(), 'nombre': item.toString(), 'status': item.toString()};
         }).toList();
       }
       return [];
@@ -147,6 +184,43 @@ class VehiclesconService {
       debugPrint('Error al obtener status: $e');
       return [];
     }
+  }
+
+  Future<List<Map<String, dynamic>>> obtenerTiposIncidencia() async {
+    try {
+      final cats = await _client.getCatalogos();
+      final list = cats['tiposIncidencia'] ?? [];
+      if (list is List && list.isNotEmpty) {
+        return list.map((item) {
+          if (item is Map<String, dynamic>) {
+            return {
+              'id': int.tryParse(item['id']?.toString() ?? '1') ?? 1,
+              'nombre':
+                  (item['nombre'] ?? item['name'] ?? '').toString().trim(),
+            };
+          }
+          if (item is Map) {
+            return {
+              'id': int.tryParse(item['id']?.toString() ?? '1') ?? 1,
+              'nombre':
+                  (item['nombre'] ?? item['name'] ?? '').toString().trim(),
+            };
+          }
+          return {'id': 1, 'nombre': item.toString().trim()};
+        }).toList();
+      }
+    } catch (e) {
+      debugPrint('Error al obtener tipos de incidencia: $e');
+    }
+    return [
+      {'id': 1, 'nombre': 'Mecánicas y Mantenimiento'},
+      {'id': 2, 'nombre': 'Operativas'},
+      {'id': 3, 'nombre': 'Seguridad y Emergencias'},
+      {'id': 4, 'nombre': 'Rutas y Entregas'},
+      {'id': 5, 'nombre': 'Administrativas'},
+      {'id': 6, 'nombre': 'Tecnológicas'},
+      {'id': 7, 'nombre': 'Conducta del Conductor'},
+    ];
   }
 
   // ===========================================================================
@@ -186,8 +260,9 @@ class VehiclesconService {
     String numTarjeta,
     DateTime fecExpedicion,
     DateTime fecVencimiento,
-    double monto,
-  ) async {
+    double monto, {
+    List<String> fotos = const [],
+  }) async {
     try {
       final acciones = [
         {
@@ -199,11 +274,16 @@ class VehiclesconService {
           'expedicion': fecExpedicion.toIso8601String().substring(0, 10),
           'vence': fecVencimiento.toIso8601String().substring(0, 10),
           'monto': monto,
-          'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+          'fotos': fotos,
+          'fecHor': DateTime.now()
+              .toIso8601String()
+              .replaceFirst('T', ' ')
+              .substring(0, 19),
         }
       ];
       final res = await _client.sendActions(acciones);
-      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      if (res.isNotEmpty &&
+          (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
         final avisos = res.first['avisos'] as List? ?? [];
         final errorTexto = avisos.isNotEmpty
             ? avisos.first['texto']?.toString()
@@ -223,8 +303,9 @@ class VehiclesconService {
     String numTarjeta,
     String fecExpedicion,
     String fecVencimiento,
-    double monto,
-  ) async {
+    double monto, {
+    List<String> fotos = const [],
+  }) async {
     await crearTarjetaCirculacion(
       idVehic.toString(),
       idUs.toString(),
@@ -232,6 +313,7 @@ class VehiclesconService {
       DateTime.tryParse(fecExpedicion) ?? DateTime.now(),
       DateTime.tryParse(fecVencimiento) ?? DateTime.now(),
       monto,
+      fotos: fotos,
     );
   }
 
@@ -258,6 +340,7 @@ class VehiclesconService {
             'montoTenencia': doc['tenencia']?.toString() ?? '0',
             'montoRefrendo': doc['refrendo']?.toString() ?? '0',
             'semaforo': doc['semaforo'] ?? 'vigente',
+            'fotos': doc['fotos'] ?? [],
           }
         ];
       }
@@ -275,8 +358,9 @@ class VehiclesconService {
     String fechaPago,
     String fechaExpiracion,
     double montoTenencia,
-    double montoRefrendo,
-  ) async {
+    double montoRefrendo, {
+    List<String> fotos = const [],
+  }) async {
     try {
       final acciones = [
         {
@@ -289,11 +373,16 @@ class VehiclesconService {
           'vence': fechaExpiracion,
           'tenencia': montoTenencia,
           'refrendo': montoRefrendo,
-          'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+          'fotos': fotos,
+          'fecHor': DateTime.now()
+              .toIso8601String()
+              .replaceFirst('T', ' ')
+              .substring(0, 19),
         }
       ];
       final res = await _client.sendActions(acciones);
-      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      if (res.isNotEmpty &&
+          (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
         final avisos = res.first['avisos'] as List? ?? [];
         final errorTexto = avisos.isNotEmpty
             ? avisos.first['texto']?.toString()
@@ -314,8 +403,9 @@ class VehiclesconService {
     String fechaPago,
     String fechaExpiracion,
     double montoTenencia,
-    double montoRefrendo,
-  ) async {
+    double montoRefrendo, {
+    List<String> fotos = const [],
+  }) async {
     await crearImpuesto(
       idVehic,
       idUs,
@@ -324,6 +414,7 @@ class VehiclesconService {
       fechaExpiracion,
       montoTenencia,
       montoRefrendo,
+      fotos: fotos,
     );
   }
 
@@ -344,11 +435,12 @@ class VehiclesconService {
         return [
           {
             'id': doc['id'] ?? idVehic,
-            'idHolograma': doc['holograma'] ?? '',
+            'idHolograma': doc['idHolograma']?.toString() ?? doc['holograma'] ?? '',
             'fecVerificacion': doc['fecha'] ?? '',
             'proximaVerific': doc['proxima'] ?? '',
             'monto': doc['monto']?.toString() ?? '0',
             'semaforo': doc['semaforo'] ?? 'vigente',
+            'fotos': doc['fotos'] ?? [],
           }
         ];
       }
@@ -366,8 +458,9 @@ class VehiclesconService {
     String fecVerificacion,
     String proximaVerific,
     double monto,
-    String status,
-  ) async {
+    String status, {
+    List<String> fotos = const [],
+  }) async {
     try {
       final acciones = [
         {
@@ -379,11 +472,16 @@ class VehiclesconService {
           'fecha': fecVerificacion,
           'proxima': proximaVerific,
           'monto': monto,
-          'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+          'fotos': fotos,
+          'fecHor': DateTime.now()
+              .toIso8601String()
+              .replaceFirst('T', ' ')
+              .substring(0, 19),
         }
       ];
       final res = await _client.sendActions(acciones);
-      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      if (res.isNotEmpty &&
+          (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
         final avisos = res.first['avisos'] as List? ?? [];
         final errorTexto = avisos.isNotEmpty
             ? avisos.first['texto']?.toString()
@@ -403,8 +501,10 @@ class VehiclesconService {
     String idHolograma,
     String fecVerificacion,
     String proximaVerific,
-    double monto,
-  ) async {
+    double monto, {
+    String status = 'Activo',
+    List<String> fotos = const [],
+  }) async {
     await crearVerificacion(
       idVehic,
       idHolograma,
@@ -412,11 +512,13 @@ class VehiclesconService {
       fecVerificacion,
       proximaVerific,
       monto,
-      'Activo',
+      status,
+      fotos: fotos,
     );
   }
 
-  Future<void> eliminarVerificacionesPorVehiculo(String idVehic, String idUs) async {
+  Future<void> eliminarVerificacionesPorVehiculo(
+      String idVehic, String idUs) async {
     debugPrint('eliminarVerificacionesPorVehiculo solicitado para $idVehic');
   }
 
@@ -434,14 +536,15 @@ class VehiclesconService {
           {
             'id': doc['id'] ?? idVehic,
             'polizaNum': doc['poliza'] ?? '',
-            'idCompania': doc['aseguradora'] ?? '',
-            'idTipoCobertura': doc['cobertura'] ?? '',
+            'idCompania': doc['idAseguradora']?.toString() ?? doc['aseguradora'] ?? '',
+            'idTipoCobertura': doc['idCobertura']?.toString() ?? doc['cobertura'] ?? '',
             'fechaInicio': doc['inicio'] ?? '',
             'fechaVencimiento': doc['vence'] ?? '',
             'deducible': doc['deducible']?.toString() ?? '0',
             'monto': doc['monto']?.toString() ?? '0',
             'observaciones': doc['obs'] ?? '',
             'semaforo': doc['semaforo'] ?? 'vigente',
+            'fotos': doc['fotos'] ?? [],
           }
         ];
       }
@@ -462,8 +565,9 @@ class VehiclesconService {
     String fechaVencimiento,
     String deducible,
     String monto,
-    String observaciones,
-  ) async {
+    String observaciones, {
+    List<String> fotos = const [],
+  }) async {
     try {
       final acciones = [
         {
@@ -479,11 +583,16 @@ class VehiclesconService {
           'deducible': double.tryParse(deducible) ?? 0,
           'monto': double.tryParse(monto) ?? 0,
           'obs': observaciones,
-          'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+          'fotos': fotos,
+          'fecHor': DateTime.now()
+              .toIso8601String()
+              .replaceFirst('T', ' ')
+              .substring(0, 19),
         }
       ];
       final res = await _client.sendActions(acciones);
-      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      if (res.isNotEmpty &&
+          (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
         final avisos = res.first['avisos'] as List? ?? [];
         final errorTexto = avisos.isNotEmpty
             ? avisos.first['texto']?.toString()
@@ -507,8 +616,9 @@ class VehiclesconService {
     String fecVencimiento,
     double deducible,
     double monto,
-    String observaciones,
-  ) async {
+    String observaciones, {
+    List<String> fotos = const [],
+  }) async {
     await crearSeguro(
       idVehic,
       idCompania,
@@ -520,6 +630,7 @@ class VehiclesconService {
       deducible.toString(),
       monto.toString(),
       observaciones,
+      fotos: fotos,
     );
   }
 
@@ -559,11 +670,15 @@ class VehiclesconService {
           'idPago': idPago,
           'monto': monto,
           'fecha': fecha,
-          'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+          'fecHor': DateTime.now()
+              .toIso8601String()
+              .replaceFirst('T', ' ')
+              .substring(0, 19),
         }
       ];
       final res = await _client.sendActions(acciones);
-      if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+      if (res.isNotEmpty &&
+          (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
         final avisos = res.first['avisos'] as List? ?? [];
         final errorTexto = avisos.isNotEmpty
             ? avisos.first['texto']?.toString()
@@ -576,8 +691,80 @@ class VehiclesconService {
     }
   }
 
+  static const List<Map<String, dynamic>> defaultFinanceEntities = [
+    {'id': '1', 'name': 'BBVA', 'nombre': 'BBVA'},
+    {'id': '2', 'name': 'Santander', 'nombre': 'Santander'},
+    {'id': '3', 'name': 'Banorte', 'nombre': 'Banorte'},
+    {'id': '4', 'name': 'Scotiabank', 'nombre': 'Scotiabank'},
+    {'id': '5', 'name': 'Citibanamex', 'nombre': 'Citibanamex'},
+    {'id': '6', 'name': 'HSBC', 'nombre': 'HSBC'},
+    {'id': '7', 'name': 'NR Finance (Credi Nissan)', 'nombre': 'NR Finance (Credi Nissan)'},
+    {'id': '8', 'name': 'Volkswagen Financial Services', 'nombre': 'Volkswagen Financial Services'},
+    {'id': '9', 'name': 'Toyota Financial Services', 'nombre': 'Toyota Financial Services'},
+    {'id': '10', 'name': 'GM Financial', 'nombre': 'GM Financial'},
+    {'id': '11', 'name': 'Ford Credit', 'nombre': 'Ford Credit'},
+    {'id': '12', 'name': 'Stellantis Financial', 'nombre': 'Stellantis Financial'},
+    {'id': '13', 'name': 'Banco Inbursa', 'nombre': 'Banco Inbursa'},
+    {'id': '14', 'name': 'Banregio', 'nombre': 'Banregio'},
+    {'id': '15', 'name': 'Afirme', 'nombre': 'Afirme'},
+    {'id': '16', 'name': 'CI Banco', 'nombre': 'CI Banco'},
+    {'id': '17', 'name': 'Creditas', 'nombre': 'Creditas'},
+    {'id': '18', 'name': 'Autofin Monterrey', 'nombre': 'Autofin Monterrey'},
+    {'id': '19', 'name': 'Financiera Bepensa', 'nombre': 'Financiera Bepensa'},
+    {'id': '20', 'name': 'Arrendadora / Crédito Interno', 'nombre': 'Arrendadora / Crédito Interno'},
+    {'id': '21', 'name': 'Otra Institución', 'nombre': 'Otra Institución'},
+  ];
+
   Future<List<Map<String, dynamic>>> obtenerCreditos(String idUs) async {
-    return [];
+    try {
+      final cats = await _client.getCatalogos();
+      final list = cats['financieras'] ??
+          cats['entidadesFinancieras'] ??
+          cats['creditos'] ??
+          cats['bancos'] ??
+          cats['institucionesFinancieras'] ??
+          cats['arrendadoras'];
+      if (list is List && list.isNotEmpty) {
+        final parsed = <Map<String, dynamic>>[];
+        final seen = <String>{};
+        for (final item in list) {
+          if (item is Map) {
+            final val = (item['nombre'] ??
+                    item['name'] ??
+                    item['financiera'] ??
+                    item['banco'] ??
+                    '')
+                .toString()
+                .trim();
+            final id = (item['id'] ??
+                    item['idFinanciera'] ??
+                    item['idCompania'] ??
+                    val)
+                .toString()
+                .trim();
+            if (val.isNotEmpty && !seen.contains(id)) {
+              seen.add(id);
+              parsed.add({
+                'id': id,
+                'name': val,
+                'nombre': val,
+              });
+            }
+          } else if (item != null) {
+            final val = item.toString().trim();
+            if (val.isNotEmpty && !seen.contains(val)) {
+              seen.add(val);
+              parsed.add({'id': val, 'name': val, 'nombre': val});
+            }
+          }
+        }
+        if (parsed.isNotEmpty) return parsed;
+      }
+      return defaultFinanceEntities;
+    } catch (e) {
+      debugPrint('Error en obtenerCreditos: $e');
+      return defaultFinanceEntities;
+    }
   }
 
   Future<int> crearCredito(
@@ -593,7 +780,42 @@ class VehiclesconService {
     String comisionApertura,
     DateTime dateFirstPayment,
   ) async {
-    return 1;
+    try {
+      final acciones = [
+        {
+          'uuid': const Uuid().v4(),
+          'tipo': 'credito',
+          'idVehic': int.tryParse(idVehic) ?? 0,
+          'idCompania': idCompania,
+          'fechaInicio': fechaInicio.toIso8601String().substring(0, 10),
+          'monto': double.tryParse(monto) ?? 0.0,
+          'enganche': double.tryParse(enganche) ?? 0.0,
+          'interes': double.tryParse(interes) ?? 0.0,
+          'plazo': int.tryParse(plazo) ?? 0,
+          'comision': double.tryParse(comision) ?? 0.0,
+          'comisionApertura': double.tryParse(comisionApertura) ?? 0.0,
+          'dateFirstPayment':
+              dateFirstPayment.toIso8601String().substring(0, 10),
+          'fecHor': DateTime.now()
+              .toIso8601String()
+              .replaceFirst('T', ' ')
+              .substring(0, 19),
+        }
+      ];
+      final res = await _client.sendActions(acciones);
+      if (res.isNotEmpty &&
+          (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+        final avisos = res.first['avisos'] as List? ?? [];
+        final errorTexto = avisos.isNotEmpty
+            ? avisos.first['texto']?.toString()
+            : 'Acción rechazada por el servidor.';
+        throw Exception(errorTexto);
+      }
+      return 1;
+    } catch (e) {
+      debugPrint('Error en crearCredito: $e');
+      rethrow;
+    }
   }
 
   Future<void> actualizarCredito(
@@ -608,9 +830,49 @@ class VehiclesconService {
     String comision,
     String comisionApertura,
     String dateFirstPayment,
-  ) async {}
+  ) async {
+    await crearCredito(
+      idUs,
+      idVehic,
+      idCompania,
+      DateTime.tryParse(fechaInicio) ?? DateTime.now(),
+      monto,
+      enganche,
+      interes,
+      plazo,
+      comision,
+      comisionApertura,
+      DateTime.tryParse(dateFirstPayment) ?? DateTime.now(),
+    );
+  }
 
-  Future<void> eliminarCredito(String idUs, String idVehic) async {}
+  Future<void> eliminarCredito(String idUs, String idVehic) async {
+    try {
+      final acciones = [
+        {
+          'uuid': const Uuid().v4(),
+          'tipo': 'eliminarCredito',
+          'idVehic': int.tryParse(idVehic) ?? 0,
+          'fecHor': DateTime.now()
+              .toIso8601String()
+              .replaceFirst('T', ' ')
+              .substring(0, 19),
+        }
+      ];
+      final res = await _client.sendActions(acciones);
+      if (res.isNotEmpty &&
+          (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+        final avisos = res.first['avisos'] as List? ?? [];
+        final errorTexto = avisos.isNotEmpty
+            ? avisos.first['texto']?.toString()
+            : 'Acción rechazada por el servidor.';
+        throw Exception(errorTexto);
+      }
+    } catch (e) {
+      debugPrint('Error en eliminarCredito: $e');
+      rethrow;
+    }
+  }
 
   Future<List<Map<String, dynamic>>> getPaymentHistory(String idCredit) async {
     return [];
@@ -628,7 +890,14 @@ class VehiclesconService {
   ) async {}
 
   Future<int?> insertRegistrarPagos(int idCredit, String monto) async {
-    return 1;
+    final double montoDouble = double.tryParse(monto) ?? 0.0;
+    final fechaHoy = DateTime.now().toIso8601String().substring(0, 10);
+    await pagarCuotaCredito(
+      idPago: idCredit,
+      monto: montoDouble,
+      fecha: fechaHoy,
+    );
+    return idCredit;
   }
 
   Future<void> eliminarPayCredit(String idUs, String idCredit) async {}
@@ -650,12 +919,18 @@ class VehiclesconService {
       'tipo': 'odometro',
       'idVehic': idVehic,
       'valor': valor,
-      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+      'fecHor': DateTime.now()
+          .toIso8601String()
+          .replaceFirst('T', ' ')
+          .substring(0, 19),
     };
     final res = await _client.sendActions([action]);
-    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+    if (res.isNotEmpty &&
+        (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
       final avisos = res.first['avisos'] as List? ?? [];
-      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al corregir odómetro.');
+      throw Exception(avisos.isNotEmpty
+          ? avisos.first['texto']
+          : 'Error al corregir odómetro.');
     }
   }
 
@@ -673,12 +948,18 @@ class VehiclesconService {
       if (obs != null && obs.isNotEmpty) 'obs': obs,
       if (proximaRevision != null && proximaRevision.isNotEmpty)
         'proximaRevision': proximaRevision,
-      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+      'fecHor': DateTime.now()
+          .toIso8601String()
+          .replaceFirst('T', ' ')
+          .substring(0, 19),
     };
     final res = await _client.sendActions([action]);
-    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+    if (res.isNotEmpty &&
+        (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
       final avisos = res.first['avisos'] as List? ?? [];
-      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al cambiar estatus.');
+      throw Exception(avisos.isNotEmpty
+          ? avisos.first['texto']
+          : 'Error al cambiar estatus.');
     }
   }
 
@@ -695,40 +976,80 @@ class VehiclesconService {
       'tipo': 'problema',
       'idVehic': idVehic,
       'titulo': titulo,
-      if (descripcion != null && descripcion.isNotEmpty) 'descripcion': descripcion,
+      if (descripcion != null && descripcion.isNotEmpty)
+        'descripcion': descripcion,
       if (prioridad != null && prioridad.isNotEmpty) 'prioridad': prioridad,
       if (vence != null && vence.isNotEmpty) 'vence': vence,
       if (idResponsable != null) 'idResponsable': idResponsable,
-      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+      'fecHor': DateTime.now()
+          .toIso8601String()
+          .replaceFirst('T', ' ')
+          .substring(0, 19),
     };
     final res = await _client.sendActions([action]);
-    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+    if (res.isNotEmpty &&
+        (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
       final avisos = res.first['avisos'] as List? ?? [];
-      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al reportar problema.');
+      throw Exception(avisos.isNotEmpty
+          ? avisos.first['texto']
+          : 'Error al reportar problema.');
     }
   }
 
   Future<void> registrarIncidenciaVehiculo({
     required int idVehic,
-    required String tipoIncidencia,
+    required dynamic tipoIncidencia,
     required int severidad, // 1-3
     required String nombre,
     String? obs,
+    double? lat,
+    double? lng,
   }) async {
+    final int tipoIncidenciaId = tipoIncidencia is int
+        ? tipoIncidencia
+        : (int.tryParse(tipoIncidencia.toString()) ?? 1);
+
+    double? finalLat = lat;
+    double? finalLng = lng;
+
+    if (finalLat == null || finalLng == null) {
+      try {
+        final pos = await Geolocator.getLastKnownPosition()
+            .timeout(const Duration(seconds: 2), onTimeout: () => null);
+        if (pos != null) {
+          finalLat = pos.latitude;
+          finalLng = pos.longitude;
+        }
+      } catch (_) {}
+    }
+
+    final nowStr = DateTime.now()
+        .toIso8601String()
+        .replaceFirst('T', ' ')
+        .substring(0, 19);
+
     final action = {
       'uuid': const Uuid().v4(),
       'tipo': 'incidenciaVehiculo',
       'idVehic': idVehic,
-      'tipoIncidencia': tipoIncidencia,
+      'tipoIncidencia': tipoIncidenciaId,
       'severidad': severidad,
       'nombre': nombre,
       if (obs != null && obs.isNotEmpty) 'obs': obs,
-      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+      if (finalLat != null && finalLng != null) ...{
+        'lat': finalLat,
+        'lng': finalLng,
+      },
+      'fecha': nowStr,
+      'fecHor': nowStr,
     };
     final res = await _client.sendActions([action]);
-    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+    if (res.isNotEmpty &&
+        (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
       final avisos = res.first['avisos'] as List? ?? [];
-      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al registrar incidencia.');
+      throw Exception(avisos.isNotEmpty
+          ? avisos.first['texto']
+          : 'Error al registrar incidencia.');
     }
   }
 
@@ -747,12 +1068,18 @@ class VehiclesconService {
       'cantidad': cantidad,
       if (estacion != null) 'estacion': estacion,
       if (costo != null) 'costo': costo,
-      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+      'fecHor': DateTime.now()
+          .toIso8601String()
+          .replaceFirst('T', ' ')
+          .substring(0, 19),
     };
     final res = await _client.sendActions([action]);
-    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+    if (res.isNotEmpty &&
+        (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
       final avisos = res.first['avisos'] as List? ?? [];
-      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al registrar combustible.');
+      throw Exception(avisos.isNotEmpty
+          ? avisos.first['texto']
+          : 'Error al registrar combustible.');
     }
   }
 
@@ -767,29 +1094,45 @@ class VehiclesconService {
       'idPago': idPago,
       'monto': monto,
       'fecha': fecha,
-      'fecHor': DateTime.now().toIso8601String().replaceFirst('T', ' ').substring(0, 19),
+      'fecHor': DateTime.now()
+          .toIso8601String()
+          .replaceFirst('T', ' ')
+          .substring(0, 19),
     };
     final res = await _client.sendActions([action]);
-    if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
+    if (res.isNotEmpty &&
+        (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
       final avisos = res.first['avisos'] as List? ?? [];
-      throw Exception(avisos.isNotEmpty ? avisos.first['texto'] : 'Error al registrar pago de crédito.');
+      throw Exception(avisos.isNotEmpty
+          ? avisos.first['texto']
+          : 'Error al registrar pago de crédito.');
     }
   }
 
   // Métodos legacy de Management Control para compatibilidad con vistas de documentos existentes
-  Future<void> insertManagementControlTJ(String idUs, String idVehic, DateTime fec) async {}
-  Future<void> updateManagementControlTJ(int idUs, int idVehic, String fec) async {}
+  Future<void> insertManagementControlTJ(
+      String idUs, String idVehic, DateTime fec) async {}
+  Future<void> updateManagementControlTJ(
+      int idUs, int idVehic, String fec) async {}
   Future<void> deleteManagementControlTJ(String idUs, String idVehic) async {}
-  Future<void> insertManagementControlTax(String idUs, String idVehic, DateTime fec) async {}
-  Future<void> updateManagementControlTax(String idUs, String idVehic, String fec) async {}
+  Future<void> insertManagementControlTax(
+      String idUs, String idVehic, DateTime fec) async {}
+  Future<void> updateManagementControlTax(
+      String idUs, String idVehic, String fec) async {}
   Future<void> deleteManagementControlTax(String idUs, String idVehic) async {}
-  Future<void> insertManagementControlVf(String idUs, String idVehic, DateTime fec) async {}
-  Future<void> updateManagementControlVf(String idUs, String idVehic, String fec) async {}
+  Future<void> insertManagementControlVf(
+      String idUs, String idVehic, DateTime fec) async {}
+  Future<void> updateManagementControlVf(
+      String idUs, String idVehic, String fec) async {}
   Future<void> deleteManagementControlVf(String idUs, String idVehic) async {}
-  Future<void> insertManagementControlINS(String idUs, String idVehic, DateTime fec) async {}
-  Future<void> updateManagementControlINS(String idUs, String idVehic, String fec) async {}
+  Future<void> insertManagementControlINS(
+      String idUs, String idVehic, DateTime fec) async {}
+  Future<void> updateManagementControlINS(
+      String idUs, String idVehic, String fec) async {}
   Future<void> deleteManagementControlINS(String idUs, String idVehic) async {}
-  Future<void> insertManagementControlCd(String idUs, String idVehic, DateTime fec) async {}
-  Future<void> updateManagementControlCd(String idUs, String idVehic, DateTime fec) async {}
+  Future<void> insertManagementControlCd(
+      String idUs, String idVehic, DateTime fec) async {}
+  Future<void> updateManagementControlCd(
+      String idUs, String idVehic, DateTime fec) async {}
   Future<void> deleteManagementControlCd(String idUs, String idVehic) async {}
 }

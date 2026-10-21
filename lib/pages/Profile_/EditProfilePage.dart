@@ -1,9 +1,11 @@
-﻿import 'dart:io';
+import 'dart:io';
 import 'package:easy_mask/easy_mask.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:loading_animation_widget/loading_animation_widget.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
 import 'package:mark_v3/pages/Error_/ConnectionErrorPage.dart';
 import 'package:mark_v3/pages/Error_/ServerErrorPage.dart';
 import 'package:mark_v3/pages/Error_/ProfileErrorPage.dart';
@@ -73,9 +75,9 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     _firstNameController.text =
         (data['firstName'] ?? data['nombre'] ?? '').toString();
     _lastNameController.text =
-        (data['LastName'] ?? data['lastName'] ?? data['apellido'] ?? '').toString();
-    _emailController.text =
-        (data['email'] ?? data['correo'] ?? '').toString();
+        (data['LastName'] ?? data['lastName'] ?? data['apellido'] ?? '')
+            .toString();
+    _emailController.text = (data['email'] ?? data['correo'] ?? '').toString();
     _phoneController.text =
         (data['phone'] ?? data['telefono'] ?? '').toString();
     _mobilPhoneController.text =
@@ -102,7 +104,8 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
     _employeeNumController.text =
         (data['employeeNum'] ?? data['numEmpleado'] ?? '').toString();
     _idJobTitleController.text =
-        (data['idJobTitle'] ?? data['jobTitle'] ?? data['puesto'] ?? '').toString();
+        (data['idJobTitle'] ?? data['jobTitle'] ?? data['puesto'] ?? '')
+            .toString();
   }
 
   Future<void> _selectDate(BuildContext context) async {
@@ -159,6 +162,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
       dateOfBirth: _dateOfBirthController.text.trim(),
       employeeNum: _employeeNumController.text.trim(),
       idJobTitle: _idJobTitleController.text.trim(),
+      newPhotoFile: ref.read(profileProvider).imageFile,
     );
 
     if (!mounted) return;
@@ -254,7 +258,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
               : GestureDetector(
                   onTap: () => FocusScope.of(context).unfocus(),
                   behavior: HitTestBehavior.translucent,
-                    child: SingleChildScrollView(
+                  child: SingleChildScrollView(
                     physics: const BouncingScrollPhysics(),
                     padding: EdgeInsets.symmetric(
                       horizontal: isSmallScreen ? 12.0 : 16.0,
@@ -271,43 +275,6 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                             _buildHeader(context),
                             const SizedBox(height: 8),
 
-                            // Banner si el usuario no tiene permisos para editar perfil (Nelson doc Pág. 7 y 11)
-                            if (state.userData != null && state.userData!['puedeEditar'] != true)
-                              Container(
-                                margin: const EdgeInsets.only(bottom: 12),
-                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFEFF6FF),
-                                  borderRadius: BorderRadius.circular(14),
-                                  border: Border.all(
-                                    color: const Color(0xFFBFDBFE),
-                                    width: 1,
-                                  ),
-                                ),
-                                child: Row(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    const Icon(
-                                      Icons.lock_outline_rounded,
-                                      size: 18,
-                                      color: Color(0xFF0284C7),
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        'Modo solo lectura: Tu rol no cuenta con permisos administrativos para modificar datos del colaborador. Solicita la actualización a tu supervisor.',
-                                        style: TextStyle(
-                                          fontSize: 12,
-                                          color: const Color(0xFF1E3A8A).withOpacity(0.9),
-                                          fontWeight: FontWeight.w500,
-                                          height: 1.35,
-                                        ),
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-
                             // Avatar Hero estilo Apple ID
                             _buildProfileAvatarHero(state),
                             const SizedBox(height: 12),
@@ -323,7 +290,10 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                                         controller: _firstNameController,
                                         label: 'Nombre',
                                         icon: Icons.person_outline_rounded,
-                                        enabled: (state.userData?['puedeEditar'] == true) && !state.isSaving,
+                                        enabled:
+                                            (state.userData?['puedeEditar'] ==
+                                                    true) &&
+                                                !state.isSaving,
                                         validator: (val) =>
                                             val == null || val.trim().isEmpty
                                                 ? 'Ingresa tu nombre'
@@ -336,7 +306,10 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                                         controller: _lastNameController,
                                         label: 'Apellido',
                                         icon: Icons.badge_outlined,
-                                        enabled: (state.userData?['puedeEditar'] == true) && !state.isSaving,
+                                        enabled:
+                                            (state.userData?['puedeEditar'] ==
+                                                    true) &&
+                                                !state.isSaving,
                                         validator: (val) =>
                                             val == null || val.trim().isEmpty
                                                 ? 'Ingresa tu apellido'
@@ -361,14 +334,17 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                             _buildSectionTitle('CONTACTO Y DOMICILIO'),
                             _buildAppleGroupContainer(
                               children: [
-                                 Row(
+                                Row(
                                   children: [
                                     Expanded(
                                       child: _buildMaskedPhoneField(
                                         controller: _phoneController,
                                         label: 'Tel. Fijo',
                                         icon: Icons.phone_outlined,
-                                        enabled: (state.userData?['puedeEditar'] == true) && !state.isSaving,
+                                        enabled:
+                                            (state.userData?['puedeEditar'] ==
+                                                    true) &&
+                                                !state.isSaving,
                                       ),
                                     ),
                                     const SizedBox(width: 10),
@@ -377,7 +353,10 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                                         controller: _mobilPhoneController,
                                         label: 'Tel. Móvil',
                                         icon: Icons.phone_iphone_rounded,
-                                        enabled: (state.userData?['puedeEditar'] == true) && !state.isSaving,
+                                        enabled:
+                                            (state.userData?['puedeEditar'] ==
+                                                    true) &&
+                                                !state.isSaving,
                                       ),
                                     ),
                                   ],
@@ -387,7 +366,9 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                                   controller: _addressController,
                                   label: 'Dirección Registrada',
                                   icon: Icons.location_on_outlined,
-                                  enabled: (state.userData?['puedeEditar'] == true) && !state.isSaving,
+                                  enabled: (state.userData?['puedeEditar'] ==
+                                          true) &&
+                                      !state.isSaving,
                                   validator: (val) =>
                                       val == null || val.trim().isEmpty
                                           ? 'Ingresa tu dirección'
@@ -402,7 +383,9 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                               children: [
                                 _buildDateField(
                                   context,
-                                  enabled: (state.userData?['puedeEditar'] == true) && !state.isSaving,
+                                  enabled: (state.userData?['puedeEditar'] ==
+                                          true) &&
+                                      !state.isSaving,
                                 ),
                                 const SizedBox(height: 12),
                                 Row(
@@ -518,7 +501,6 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   // --- AVATAR HERO ESTILO APPLE ID ---
   Widget _buildProfileAvatarHero(EditProfileState state) {
     final profileState = ref.watch(profileProvider);
-    final profileNotifier = ref.read(profileProvider.notifier);
     final canEdit = (state.userData?['puedeEditar'] == true);
 
     final rawPhoto = (state.userData?['photo'] ??
@@ -528,10 +510,9 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         .toString()
         .trim();
     final photoUrl = rawPhoto.isNotEmpty
-        ? (rawPhoto.startsWith('http')
-            ? rawPhoto
-            : 'http://192.168.1.75/markv3.1/${rawPhoto.startsWith('/') ? rawPhoto.substring(1) : rawPhoto}')
+        ? MarkApiClient.instance.resolveAssetUrl(rawPhoto)
         : '';
+    final hasPhoto = profileState.imageFile != null || photoUrl.isNotEmpty;
 
     final initials = (_firstNameController.text.isNotEmpty
             ? _firstNameController.text[0]
@@ -554,20 +535,13 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                   const SizedBox(width: 44),
                 GestureDetector(
                   onTap: () {
-                    if (profileState.imageFile != null || photoUrl.isNotEmpty) {
-                      _showImagePreviewDialog(
-                        context,
-                        file: profileState.imageFile,
-                        networkUrl: photoUrl.isNotEmpty ? photoUrl : null,
-                      );
-                    } else if (canEdit) {
-                      profileNotifier.pickImage();
-                    } else {
-                      SnackbarTop.showWarning(
-                        context,
-                        'Edición de fotografía restringida por permisos corporativos.',
-                      );
-                    }
+                    _showPhotoSourceSheet(
+                      context: context,
+                      canEdit: canEdit,
+                      hasPhoto: hasPhoto,
+                      file: profileState.imageFile,
+                      networkUrl: photoUrl.isNotEmpty ? photoUrl : null,
+                    );
                   },
                   child: Stack(
                     alignment: Alignment.bottomRight,
@@ -595,34 +569,52 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                           ],
                         ),
                         child: ClipOval(
-                          child: profileState.imageFile != null
-                              ? Image.file(
-                                  profileState.imageFile!,
-                                  fit: BoxFit.cover,
-                                )
-                              : (photoUrl.isNotEmpty)
-                                  ? Image.network(
-                                      photoUrl,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              profileState.imageFile != null
+                                  ? Image.file(
+                                      profileState.imageFile!,
                                       fit: BoxFit.cover,
-                                      loadingBuilder:
-                                          (context, child, progress) {
-                                        if (progress == null) return child;
-                                        return const Center(
-                                          child: SizedBox(
-                                            width: 22,
-                                            height: 22,
-                                            child: CircularProgressIndicator(
-                                              strokeWidth: 2.0,
-                                              valueColor:
-                                                  AlwaysStoppedAnimation<Color>(
-                                                      Color(0xFF0284C7)),
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                      errorBuilder:
-                                          (context, error, stackTrace) {
-                                        return Center(
+                                    )
+                                  : (photoUrl.isNotEmpty)
+                                      ? Image.network(
+                                          photoUrl,
+                                          fit: BoxFit.cover,
+                                          loadingBuilder:
+                                              (context, child, progress) {
+                                            if (progress == null) return child;
+                                            return const Center(
+                                              child: SizedBox(
+                                                width: 22,
+                                                height: 22,
+                                                child: CircularProgressIndicator(
+                                                  strokeWidth: 2.0,
+                                                  valueColor:
+                                                      AlwaysStoppedAnimation<Color>(
+                                                          Color(0xFF0284C7)),
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                          errorBuilder:
+                                              (context, error, stackTrace) {
+                                            return Center(
+                                              child: Text(
+                                                initials.isNotEmpty
+                                                    ? initials.toUpperCase()
+                                                    : '👤',
+                                                style: const TextStyle(
+                                                  fontSize: 26,
+                                                  fontWeight: FontWeight.w800,
+                                                  color: Color(0xFF0284C7),
+                                                  letterSpacing: -0.5,
+                                                ),
+                                              ),
+                                            );
+                                          },
+                                        )
+                                      : Center(
                                           child: Text(
                                             initials.isNotEmpty
                                                 ? initials.toUpperCase()
@@ -634,28 +626,36 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                                               letterSpacing: -0.5,
                                             ),
                                           ),
-                                        );
-                                      },
-                                    )
-                                  : Center(
-                                      child: Text(
-                                        initials.isNotEmpty
-                                            ? initials.toUpperCase()
-                                            : '👤',
-                                        style: const TextStyle(
-                                          fontSize: 26,
-                                          fontWeight: FontWeight.w800,
-                                          color: Color(0xFF0284C7),
-                                          letterSpacing: -0.5,
                                         ),
+                              if (profileState.isUploadingPhoto)
+                                Container(
+                                  color: Colors.black.withOpacity(0.45),
+                                  child: const Center(
+                                    child: SizedBox(
+                                      width: 24,
+                                      height: 24,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2.2,
+                                        valueColor: AlwaysStoppedAnimation<Color>(
+                                            Colors.white),
                                       ),
                                     ),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                       GestureDetector(
                         onTap: () {
                           if (canEdit) {
-                            profileNotifier.pickImage();
+                            _showPhotoSourceSheet(
+                              context: context,
+                              canEdit: canEdit,
+                              hasPhoto: hasPhoto,
+                              file: profileState.imageFile,
+                              networkUrl: photoUrl.isNotEmpty ? photoUrl : null,
+                            );
                           } else {
                             SnackbarTop.showWarning(
                               context,
@@ -704,7 +704,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                 if (profileState.imageFile != null && canEdit) ...[
                   const SizedBox(width: 12),
                   GestureDetector(
-                    onTap: () => profileNotifier.removeImage(),
+                    onTap: () => ref.read(profileProvider.notifier).removeImage(),
                     child: Container(
                       width: 32,
                       height: 32,
@@ -773,6 +773,167 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
         ),
       ),
     );
+  }
+
+  Future<void> _showPhotoSourceSheet({
+    required BuildContext context,
+    required bool canEdit,
+    required bool hasPhoto,
+    File? file,
+    String? networkUrl,
+  }) async {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
+          ),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+                const Text(
+                  'Foto de perfil',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                if (hasPhoto)
+                  ListTile(
+                    leading: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.fullscreen_rounded,
+                        color: Color(0xFF0284C7),
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Ver fotografía actual',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showImagePreviewDialog(
+                        context,
+                        file: file,
+                        networkUrl: networkUrl,
+                      );
+                    },
+                  ),
+                if (canEdit) ...[
+                  ListTile(
+                    leading: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDF4),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.camera_alt_rounded,
+                        color: Color(0xFF16A34A),
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Tomar foto con la cámara',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickAndUploadPhoto(ImageSource.camera);
+                    },
+                  ),
+                  ListTile(
+                    leading: Container(
+                      width: 36,
+                      height: 36,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEFF6FF),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Icon(
+                        Icons.photo_library_rounded,
+                        color: Color(0xFF0284C7),
+                        size: 20,
+                      ),
+                    ),
+                    title: const Text(
+                      'Elegir de la galería',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _pickAndUploadPhoto(ImageSource.gallery);
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickAndUploadPhoto(ImageSource source) async {
+    final notifier = ref.read(profileProvider.notifier);
+    try {
+      final ok = await notifier.changeProfilePhoto(source: source);
+      if (ok && mounted) {
+        SnackbarTop.showSuccess(
+          context,
+          'Fotografía de perfil actualizada en el servidor.',
+        );
+        ref.read(editProfileProvider.notifier).loadUserData(
+              collaboratorId: widget.idCollaborator,
+              idMainAccount: widget.idMainAccount,
+            );
+      }
+    } catch (e) {
+      if (mounted) {
+        SnackbarTop.showError(
+          context,
+          'Error al subir la fotografía: ${e.toString().replaceFirst('Exception: ', '')}',
+        );
+      }
+    }
   }
 
   void _showImagePreviewDialog(
@@ -1203,30 +1364,7 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
   Widget _buildSaveButton(EditProfileState state) {
     final bool puedeEditar = state.userData?['puedeEditar'] == true;
     if (!puedeEditar) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF1F5F9),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: const Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.lock_rounded, size: 16, color: Color(0xFF64748B)),
-            SizedBox(width: 8),
-            Text(
-              'Edición restringida por permisos corporativos',
-              style: TextStyle(
-                color: Color(0xFF64748B),
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ],
-        ),
-      );
+      return const SizedBox.shrink();
     }
 
     return SizedBox(

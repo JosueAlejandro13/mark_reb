@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mark_v3/models/Vehicles_/vehicle_model.dart';
 import 'package:mark_v3/pages/Error_/ConnectionErrorPage.dart';
@@ -8,6 +8,7 @@ import 'package:mark_v3/pages/inspeccion/MyInspectVehiclePage.dart';
 import 'package:mark_v3/providers/Inspeccion_/template_selection_provider.dart';
 import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:mark_v3/widgets/vehicle_skeleton.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
 
 /// Pantalla de Selección de Plantillas — Diseño Apple Inset Grouped Ejecutivo
 class SeleccionPlantillasPage extends ConsumerStatefulWidget {
@@ -45,6 +46,18 @@ class _SeleccionPlantillasPageState
   }
 
   void _onTemplateTap(PlantillaItem item) async {
+    final canCreate =
+        MarkApiClient.instance.currentSession?.flota.can('inspeccion', 'crear') ??
+            true;
+    if (!canCreate) {
+      SnackbarTop.showError(
+        context,
+        "Tu perfil no permite hacer inspecciones.",
+        title: "Permiso denegado",
+      );
+      return;
+    }
+
     if (item.isReady) {
       final result = await Navigator.push(
         context,

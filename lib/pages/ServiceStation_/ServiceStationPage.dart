@@ -8,6 +8,8 @@ import 'package:mark_v3/pages/Error_/ServerErrorPage.dart';
 import 'package:mark_v3/pages/Error_/unexpectedErrorPage.dart';
 import 'package:mark_v3/pages/ServiceStation_/ServiceStatioRagePage.dart';
 import 'package:mark_v3/providers/Station_/service_station_provider.dart';
+import 'package:mark_v3/providers/Routes_/routes_provider.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
 import 'package:mark_v3/widgets/app_skeleton.dart';
 import 'package:mark_v3/widgets/loading_action_button.dart';
 import 'package:mark_v3/widgets/snackbar_top.dart';
@@ -671,6 +673,56 @@ class _ServiceStationFormState extends ConsumerState<ServiceStationForm> {
 
   @override
   Widget build(BuildContext context) {
+    final apiSession = MarkApiClient.instance.currentSession;
+    final session = ref.watch(routesProvider).session ?? apiSession;
+    final rol = (session?.rol ?? '').trim().toLowerCase();
+    final isPreventa = session?.isPreventa == true || rol == 'preventa' || rol == 'vendedor';
+
+    if (isPreventa) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF2F2F7),
+        appBar: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back_ios_new, color: Color(0xFF1C1C1E)),
+            onPressed: () => Navigator.pop(context),
+          ),
+          title: const Text('Combustible', style: TextStyle(color: Color(0xFF1C1C1E), fontWeight: FontWeight.bold)),
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: Colors.amber.withOpacity(0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(Icons.local_gas_station_outlined, size: 56, color: Colors.amber),
+                ),
+                const SizedBox(height: 20),
+                const Text(
+                  'Acceso no disponible',
+                  style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF1C1C1E)),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 10),
+                const Text(
+                  'Tu usuario es de preventa. El registro de combustible solo está disponible para choferes o personal operativo de flota.',
+                  style: TextStyle(fontSize: 15, color: Color(0xFF8E8E93)),
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
     final state = ref.watch(serviceStationProvider);
 
     // Manejo de errores de conexión y servidor

@@ -1,22 +1,31 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:google_mlkit_text_recognition/google_mlkit_text_recognition.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
-import 'package:mark_v3/services/ConnectionNotification_/NotificationCon_service.dart';
-import 'package:mark_v3/services/ConnectionVehicles_/VehiclesCon_service.dart';
+import 'package:uuid/uuid.dart';
+
+import 'package:mark_v3/models/Vehicles_/tax_model.dart';
 import 'package:mark_v3/pages/Error_/ConnectionErrorPage.dart';
 import 'package:mark_v3/pages/Error_/ServerErrorPage.dart';
 import 'package:mark_v3/pages/Error_/unexpectedErrorPage.dart';
+import 'package:mark_v3/providers/Vehicles_/tax_provider.dart';
+import 'package:mark_v3/services/ConnectionNotification_/NotificationCon_service.dart';
+import 'package:mark_v3/services/ConnectionVehicles_/VehiclesCon_service.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
+import 'package:mark_v3/widgets/apple_detail_row.dart';
+import 'package:mark_v3/widgets/apple_empty_state.dart';
+import 'package:mark_v3/widgets/apple_group_card.dart';
+import 'package:mark_v3/widgets/apple_section_title.dart';
 import 'package:mark_v3/widgets/app_skeleton.dart';
+import 'package:mark_v3/widgets/doc_foto_widget.dart';
 import 'package:mark_v3/widgets/loading_action_button.dart';
 import 'package:mark_v3/widgets/snackbar_top.dart';
-
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:mark_v3/models/Vehicles_/tax_model.dart';
-import 'package:mark_v3/providers/Vehicles_/tax_provider.dart';
-import 'package:mark_v3/services/mark_api_client.dart';
 
 // Autor: Josue Hernandez
 class TaxesPage extends ConsumerStatefulWidget {
@@ -41,6 +50,25 @@ class TaxesPage extends ConsumerStatefulWidget {
 
 class _TaxesPageState extends ConsumerState<TaxesPage> {
   String _typeSource = '';
+  bool _isDisposed = false;
+  bool _isEditing = false;
+  bool _isLoading = false;
+  int? _editingTaxId;
+
+  final _formKey = GlobalKey<FormState>();
+  final _yearController = TextEditingController();
+  final _paymentDateController = TextEditingController();
+  final _expiryDateController = TextEditingController();
+  final _tenancyController = TextEditingController();
+  final _renewalController = TextEditingController();
+
+  DateTime? _selectedPaymentDate;
+  DateTime? _selectedExpiryDate;
+
+  // Fotografías del comprobante fiscal y estado de OCR
+  File? _frontImage;
+  File? _backImage;
+  bool _isScanningOcr = false;
 
   final NumberFormat _currencyFormat = NumberFormat.currency(
     locale: 'es_MX',
@@ -55,11 +83,23 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
     Future.microtask(() => _refreshData());
   }
 
+  @override
+  void dispose() {
+    _isDisposed = true;
+    _yearController.dispose();
+    _paymentDateController.dispose();
+    _expiryDateController.dispose();
+    _tenancyController.dispose();
+    _renewalController.dispose();
+    super.dispose();
+  }
+
   Future<void> _fetchTypeSource() async {
+    if (_isDisposed || !mounted) return;
     try {
       final Map<String, dynamic> data =
           await NotificationService().gettypSource('vehic_taxs');
-      if (mounted && data.containsKey('id')) {
+      if (!_isDisposed && mounted && data.containsKey('id')) {
         setState(() {
           _typeSource = data['id'].toString();
         });
@@ -70,13 +110,14 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
   }
 
   Future<void> _refreshData() async {
+    if (_isDisposed || !mounted) return;
     await ref.read(taxProvider.notifier).loadTaxes(
           vehicleId: widget.vehicle['id'].toString(),
           userId: widget.idMainAccount.toString(),
         );
   }
 
-  // --- PERMISOS BITWISE Y FLOTA (Nelson doc) ---
+  // --- PERMISOS BITWISE Y FLOTA ---
   bool get _canEdit =>
       MarkApiClient.instance.flota.can('tenencia', 'editar') ||
       ((int.tryParse(widget.taxesPermission) ?? 0) & 8 == 8);
@@ -135,15 +176,754 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
     return null;
   }
 
-  String _formatApiDate(DateTime date) {
-    return DateFormat('yyyy-MM-dd').format(date);
-  }
-
   int _calculateDaysDifference(DateTime targetDate) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final target = DateTime(targetDate.year, targetDate.month, targetDate.day);
     return target.difference(today).inDays;
+  }
+
+  // =========================================================================
+  // CAPTURA Y ESCANEO OCR DE COMPROBANTES FISCALES
+  // =========================================================================
+  Future<void> _pickAndScanFrontImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 88,
+        maxWidth: 1920,
+      );
+
+      if (pickedFile == null) return;
+
+      setState(() {
+        _frontImage = File(pickedFile.path);
+        _isScanningOcr = true;
+      });
+
+      final inputImage = InputImage.fromFilePath(pickedFile.path);
+      final textRecognizer =
+          TextRecognizer(script: TextRecognitionScript.latin);
+      final RecognizedText recognizedText =
+          await textRecognizer.processImage(inputImage);
+      await textRecognizer.close();
+
+      if (!mounted) return;
+
+      _applyOcrResults(recognizedText);
+
+      setState(() {
+        _isScanningOcr = false;
+      });
+
+      SnackbarTop.showSuccess(
+        context,
+        'Comprobante escaneado con éxito. Revisa los datos detectados.',
+      );
+    } catch (e) {
+      debugPrint('Error en OCR de tenencia vehicular: $e');
+      if (mounted) {
+        setState(() {
+          _isScanningOcr = false;
+        });
+        SnackbarTop.showWarning(
+          context,
+          'No se pudieron extraer datos automáticamente. Puedes completarlos manualmente.',
+        );
+      }
+    }
+  }
+
+  Future<void> _pickBackImage(ImageSource source) async {
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: source,
+        imageQuality: 88,
+        maxWidth: 1920,
+      );
+
+      if (pickedFile == null) return;
+
+      setState(() {
+        _backImage = File(pickedFile.path);
+      });
+    } catch (e) {
+      debugPrint('Error al capturar reverso: $e');
+    }
+  }
+
+  void _showPhotoSourceDialog({required bool isFront}) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 38,
+                height: 4.5,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFCBD5E1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              Text(
+                isFront
+                    ? 'Capturar Comprobante Fiscal'
+                    : 'Capturar Respaldo / Sello Digital',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                isFront
+                    ? 'El frente se escaneará con IA para autocompletar ejercicio, fechas e importes.'
+                    : 'Adjunta una fotografía de respaldo o detalle complementario.',
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(height: 18),
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE0F2FE),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.camera_alt_rounded,
+                      color: Color(0xFF0284C7)),
+                ),
+                title: const Text(
+                  'Tomar Fotografía con Cámara',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (isFront) {
+                    _pickAndScanFrontImage(ImageSource.camera);
+                  } else {
+                    _pickBackImage(ImageSource.camera);
+                  }
+                },
+              ),
+              ListTile(
+                leading: Container(
+                  width: 40,
+                  height: 40,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEFF6FF),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(Icons.photo_library_rounded,
+                      color: Color(0xFF2563EB)),
+                ),
+                title: const Text(
+                  'Seleccionar de la Galería',
+                  style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13.5),
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  if (isFront) {
+                    _pickAndScanFrontImage(ImageSource.gallery);
+                  } else {
+                    _pickBackImage(ImageSource.gallery);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- MOTOR HEURÍSTICO OCR PARA COMPROBANTES DE TENENCIA Y REFRENDO ---
+  void _applyOcrResults(RecognizedText recognizedText) {
+    final fullText = recognizedText.text;
+
+    // 1. Extraer Año / Ejercicio Fiscal
+    _extractYearFromOcr(fullText, recognizedText);
+
+    // 2. Extraer Fecha de Pago
+    final detectedPago = _extractDateByKeywords(
+      fullText,
+      recognizedText,
+      [
+        'FECHA DE PAGO',
+        'FECHA PAGO',
+        'PAGADO EL',
+        'FECHA DE EMISION',
+        'FECHA EMISION',
+        'FECHA DE OPERACION',
+        'FECHA DE APLICACION',
+        'PAGO',
+        'FECHA',
+      ],
+    );
+    if (detectedPago != null) {
+      setState(() {
+        _selectedPaymentDate = detectedPago;
+        _paymentDateController.text =
+            DateFormat('dd / MM / yyyy').format(detectedPago);
+
+        if (_selectedExpiryDate == null) {
+          final nextYear = DateTime(detectedPago.year + 1, 3, 31);
+          _selectedExpiryDate = nextYear;
+          _expiryDateController.text =
+              DateFormat('dd / MM / yyyy').format(nextYear);
+        }
+      });
+    }
+
+    // 3. Extraer Fecha de Expiración / Vigencia
+    final detectedExpiry = _extractDateByKeywords(
+      fullText,
+      recognizedText,
+      [
+        'FECHA DE VENCIMIENTO',
+        'FECHA LIMITE',
+        'VENCIMIENTO',
+        'VIGENCIA HASTA',
+        'VIGENCIA',
+        'VENCE',
+        'HASTA',
+      ],
+    );
+    if (detectedExpiry != null) {
+      setState(() {
+        _selectedExpiryDate = detectedExpiry;
+        _expiryDateController.text =
+            DateFormat('dd / MM / yyyy').format(detectedExpiry);
+      });
+    }
+
+    // 4. Extraer Desglose de Montos (Tenencia y Refrendo)
+    _extractAmountsFromOcr(fullText, recognizedText);
+  }
+
+  void _extractYearFromOcr(String fullText, RecognizedText recognizedText) {
+    final yearRegex = RegExp(
+      r'(?:EJERCICIO|PERIODO|AÑO|A\u00D1O|FISCAL)\s*[:.\-]?\s*(20[1-3][0-9])',
+      caseSensitive: false,
+    );
+    final match = yearRegex.firstMatch(fullText);
+    if (match != null) {
+      final y = match.group(1);
+      if (y != null && y.isNotEmpty) {
+        setState(() => _yearController.text = y);
+        return;
+      }
+    }
+
+    // Búsqueda en bloques de texto
+    for (final block in recognizedText.blocks) {
+      for (final line in block.lines) {
+        final upper = line.text.toUpperCase();
+        if (upper.contains('EJERCICIO') ||
+            upper.contains('TENENCIA') ||
+            upper.contains('REFRENDO') ||
+            upper.contains('PERIODO')) {
+          final m4 = RegExp(r'\b(20[1-3][0-9])\b').firstMatch(line.text);
+          if (m4 != null) {
+            setState(() => _yearController.text = m4.group(1)!);
+            return;
+          }
+        }
+      }
+    }
+  }
+
+  DateTime? _extractDateByKeywords(
+    String fullText,
+    RecognizedText recognizedText,
+    List<String> keywords,
+  ) {
+    final dateRegex =
+        RegExp(r'\b(\d{1,2})[\/\.\-](\d{1,2})[\/\.\-](\d{2,4})\b');
+    final dateIsoRegex =
+        RegExp(r'\b(\d{4})[\/\.\-](\d{1,2})[\/\.\-](\d{1,2})\b');
+
+    for (final block in recognizedText.blocks) {
+      for (int i = 0; i < block.lines.length; i++) {
+        final line = block.lines[i].text.toUpperCase();
+        for (final kw in keywords) {
+          if (line.contains(kw)) {
+            var m = dateRegex.firstMatch(block.lines[i].text);
+            if (m != null) {
+              final d = int.tryParse(m.group(1)!);
+              final mo = int.tryParse(m.group(2)!);
+              var y = int.tryParse(m.group(3)!);
+              if (d != null &&
+                  mo != null &&
+                  y != null &&
+                  mo >= 1 &&
+                  mo <= 12 &&
+                  d >= 1 &&
+                  d <= 31) {
+                if (y < 100) y += 2000;
+                return DateTime(y, mo, d);
+              }
+            }
+            var mIso = dateIsoRegex.firstMatch(block.lines[i].text);
+            if (mIso != null) {
+              final y = int.tryParse(mIso.group(1)!);
+              final mo = int.tryParse(mIso.group(2)!);
+              final d = int.tryParse(mIso.group(3)!);
+              if (d != null &&
+                  mo != null &&
+                  y != null &&
+                  mo >= 1 &&
+                  mo <= 12 &&
+                  d >= 1 &&
+                  d <= 31) {
+                return DateTime(y, mo, d);
+              }
+            }
+
+            if (i + 1 < block.lines.length) {
+              final nextText = block.lines[i + 1].text;
+              m = dateRegex.firstMatch(nextText);
+              if (m != null) {
+                final d = int.tryParse(m.group(1)!);
+                final mo = int.tryParse(m.group(2)!);
+                var y = int.tryParse(m.group(3)!);
+                if (d != null &&
+                  mo != null &&
+                  y != null &&
+                  mo >= 1 &&
+                  mo <= 12 &&
+                  d >= 1 &&
+                  d <= 31) {
+                  if (y < 100) y += 2000;
+                  return DateTime(y, mo, d);
+                }
+              }
+              mIso = dateIsoRegex.firstMatch(nextText);
+              if (mIso != null) {
+                final y = int.tryParse(mIso.group(1)!);
+                final mo = int.tryParse(mIso.group(2)!);
+                final d = int.tryParse(mIso.group(3)!);
+                if (d != null &&
+                  mo != null &&
+                  y != null &&
+                  mo >= 1 &&
+                  mo <= 12 &&
+                  d >= 1 &&
+                  d <= 31) {
+                  return DateTime(y, mo, d);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  void _extractAmountsFromOcr(String fullText, RecognizedText recognizedText) {
+    final currencyRegex =
+        RegExp(r'\$?\s*([0-9]{1,4}(?:[,\.][0-9]{2,3})*(?:\.[0-9]{2}))');
+
+    double? foundTenancy;
+    double? foundRenewal;
+
+    for (final block in recognizedText.blocks) {
+      for (int i = 0; i < block.lines.length; i++) {
+        final lineText = block.lines[i].text.toUpperCase();
+
+        if (foundTenancy == null &&
+            (lineText.contains('TENENCIA') || lineText.contains('USO DE VEHICULOS')) &&
+            !lineText.contains('SUBSIDIO') &&
+            !lineText.contains('TOTAL')) {
+          final m = currencyRegex.firstMatch(block.lines[i].text);
+          if (m != null) {
+            final val = double.tryParse(m.group(1)!.replaceAll(',', ''));
+            if (val != null && val >= 0) foundTenancy = val;
+          } else if (i + 1 < block.lines.length) {
+            final mNext = currencyRegex.firstMatch(block.lines[i + 1].text);
+            if (mNext != null) {
+              final val = double.tryParse(mNext.group(1)!.replaceAll(',', ''));
+              if (val != null && val >= 0) foundTenancy = val;
+            }
+          }
+        }
+
+        if (foundRenewal == null &&
+            (lineText.contains('REFRENDO') ||
+                lineText.contains('DERECHO') ||
+                lineText.contains('CONTROL VEHICULAR')) &&
+            !lineText.contains('TOTAL')) {
+          final m = currencyRegex.firstMatch(block.lines[i].text);
+          if (m != null) {
+            final val = double.tryParse(m.group(1)!.replaceAll(',', ''));
+            if (val != null && val >= 0) foundRenewal = val;
+          } else if (i + 1 < block.lines.length) {
+            final mNext = currencyRegex.firstMatch(block.lines[i + 1].text);
+            if (mNext != null) {
+              final val = double.tryParse(mNext.group(1)!.replaceAll(',', ''));
+              if (val != null && val >= 0) foundRenewal = val;
+            }
+          }
+        }
+      }
+    }
+
+    setState(() {
+      if (foundTenancy != null) {
+        _tenancyController.text = foundTenancy.toStringAsFixed(2);
+      }
+      if (foundRenewal != null) {
+        _renewalController.text = foundRenewal.toStringAsFixed(2);
+      }
+    });
+  }
+
+  Future<void> _selectDate(
+    BuildContext context, {
+    required String title,
+    DateTime? initialDate,
+    required ValueChanged<DateTime> onDateSelected,
+  }) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate ?? DateTime.now(),
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+      helpText: title,
+      builder: (context, child) {
+        return Theme(
+          data: Theme.of(context).copyWith(
+            colorScheme: const ColorScheme.light(
+              primary: Color(0xFF0284C7),
+              onPrimary: Colors.white,
+              onSurface: Color(0xFF0F172A),
+            ),
+          ),
+          child: child!,
+        );
+      },
+    );
+
+    if (picked != null) {
+      onDateSelected(picked);
+    }
+  }
+
+  void _startEditing(TaxModel impuesto) {
+    setState(() {
+      _isEditing = true;
+      _editingTaxId = impuesto.id;
+      _yearController.text = impuesto.year;
+      _selectedPaymentDate = _parseDateSafe(impuesto.fechaPago);
+      _paymentDateController.text = _selectedPaymentDate != null
+          ? DateFormat('dd / MM / yyyy').format(_selectedPaymentDate!)
+          : (impuesto.fechaPago.isNotEmpty ? impuesto.fechaPago : '');
+      _selectedExpiryDate = _parseDateSafe(impuesto.fechaExpiracion);
+      _expiryDateController.text = _selectedExpiryDate != null
+          ? DateFormat('dd / MM / yyyy').format(_selectedExpiryDate!)
+          : (impuesto.fechaExpiracion.isNotEmpty ? impuesto.fechaExpiracion : '');
+      _tenancyController.text = impuesto.montoTenencia;
+      _renewalController.text = impuesto.montoRefrendo;
+      _frontImage = null;
+      _backImage = null;
+    });
+  }
+
+  void _startCreating() {
+    setState(() {
+      _isEditing = true;
+      _editingTaxId = null;
+      _yearController.text = DateTime.now().year.toString();
+      _selectedPaymentDate = DateTime.now();
+      _paymentDateController.text =
+          DateFormat('dd / MM / yyyy').format(DateTime.now());
+      _selectedExpiryDate = DateTime(DateTime.now().year, 12, 31);
+      _expiryDateController.text =
+          DateFormat('dd / MM / yyyy').format(_selectedExpiryDate!);
+      _tenancyController.text = '0.00';
+      _renewalController.text = '0.00';
+      _frontImage = null;
+      _backImage = null;
+    });
+  }
+
+  // =========================================================================
+  // SUBMIT FORMULARIO (CREAR O ACTUALIZAR)
+  // =========================================================================
+  Future<void> _submitForm({required bool isEditing}) async {
+    if (!_formKey.currentState!.validate()) {
+      return;
+    }
+
+    if (_selectedPaymentDate == null) {
+      SnackbarTop.showInfo(
+        context,
+        'Por favor selecciona la fecha de pago.',
+      );
+      return;
+    }
+
+    if (_selectedExpiryDate == null) {
+      SnackbarTop.showInfo(
+        context,
+        'Por favor selecciona la fecha de expiración.',
+      );
+      return;
+    }
+
+    if (_selectedPaymentDate!.isAfter(_selectedExpiryDate!)) {
+      SnackbarTop.showInfo(
+        context,
+        'La fecha de pago no puede ser posterior a la fecha de expiración.',
+      );
+      return;
+    }
+
+    setState(() {
+      _isLoading = true;
+    });
+
+    final int year =
+        int.tryParse(_yearController.text.trim()) ?? DateTime.now().year;
+    final String formattedPaymentDate =
+        DateFormat('yyyy-MM-dd').format(_selectedPaymentDate!);
+    final String formattedExpiryDate =
+        DateFormat('yyyy-MM-dd').format(_selectedExpiryDate!);
+    final double tenancyAmount =
+        double.tryParse(_tenancyController.text.trim()) ?? 0.0;
+    final double renewalAmount =
+        double.tryParse(_renewalController.text.trim()) ?? 0.0;
+
+    final vehicleId = widget.vehicle['id'].toString();
+    final plates = widget.vehicle['placas']?.toString() ??
+        widget.vehicle['plate']?.toString() ??
+        '';
+
+    try {
+      // 1. Subir fotografías a la API si se capturaron
+      final List<String> photoUuids = [];
+      if (_frontImage != null) {
+        final uuidFront = const Uuid().v4();
+        final ok = await MarkApiClient.instance.uploadPhoto(
+          uuid: uuidFront,
+          tipo: 1,
+          filePath: _frontImage!.path,
+        );
+        if (ok) {
+          photoUuids.add(uuidFront);
+        }
+      }
+
+      if (_backImage != null &&
+          (_frontImage == null || _frontImage!.path != _backImage!.path)) {
+        final uuidBack = const Uuid().v4();
+        final ok = await MarkApiClient.instance.uploadPhoto(
+          uuid: uuidBack,
+          tipo: 1,
+          filePath: _backImage!.path,
+        );
+        if (ok) {
+          photoUuids.add(uuidBack);
+        }
+      }
+
+      if (isEditing) {
+        // --- ACTUALIZACIÓN DE IMPUESTO ---
+        await VehiclesconService().actualizarImpuesto(
+          vehicleId,
+          widget.idMainAccount,
+          year,
+          formattedPaymentDate,
+          formattedExpiryDate,
+          tenancyAmount,
+          renewalAmount,
+          fotos: photoUuids,
+        );
+
+        // Notificación de actualización
+        try {
+          const nameNotice = 'vehicle_tax_payment_updated';
+          final noticeTemplate =
+              await NotificationService().getNoticeByName(nameNotice);
+
+          if (noticeTemplate != null) {
+            String message = '';
+            final rawMsg = noticeTemplate['message'];
+            if (rawMsg is List<int>) {
+              try {
+                message = utf8.decode(rawMsg);
+              } catch (_) {
+                message = rawMsg.toString();
+              }
+            } else {
+              message = rawMsg?.toString() ?? '';
+            }
+
+            final formattedMessage = message
+                .replaceAll('{tax_period}', year.toString())
+                .replaceAll('{vehicle_plate}', plates)
+                .replaceAll('{payment_date}', _paymentDateController.text)
+                .replaceAll('{due_date}', _expiryDateController.text);
+
+            final title = (noticeTemplate['title']?.toString() ?? '')
+                .replaceAll('{vehicle_plate}', plates);
+
+            final finalMessage =
+                '$title|$formattedMessage|${noticeTemplate['icon'] ?? ''}';
+
+            final currentTaxes = ref.read(taxProvider).taxes;
+            final int idImpuesto =
+                currentTaxes.isNotEmpty ? currentTaxes.first.id : (_editingTaxId ?? 0);
+
+            await NotificationService().insertNotification({
+              'typeSource': _typeSource,
+              'idOrigin': idImpuesto,
+              'typEvent': 2,
+              'date': DateTime.now().toIso8601String(),
+              'message': finalMessage,
+              'colNotice': 'tax_Edit',
+              'idMainAcoount': widget.idMainAccount,
+              'codUsGenerator': widget.userId,
+              'idDev': widget.userId,
+            });
+          }
+        } catch (notifErr) {
+          debugPrint('Error en notificación de actualización de impuesto: $notifErr');
+        }
+
+        // Actualizar control de gestión
+        await VehiclesconService().updateManagementControlTax(
+          widget.idMainAccount,
+          vehicleId,
+          formattedExpiryDate,
+        );
+
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _isEditing = false;
+            _frontImage = null;
+            _backImage = null;
+          });
+          SnackbarTop.showSuccess(
+            context,
+            'Impuesto actualizado exitosamente.',
+          );
+          _refreshData();
+        }
+      } else {
+        // --- CREACIÓN DE IMPUESTO ---
+        final int idImpuesto = await VehiclesconService().crearImpuesto(
+          vehicleId,
+          widget.idMainAccount,
+          year,
+          formattedPaymentDate,
+          formattedExpiryDate,
+          tenancyAmount,
+          renewalAmount,
+          fotos: photoUuids,
+        );
+
+        // Notificación de nuevo impuesto
+        try {
+          const nameNotice = 'vehicle_tax_payment_added';
+          final noticeTemplate =
+              await NotificationService().getNoticeByName(nameNotice);
+
+          if (noticeTemplate != null) {
+            String message = '';
+            final rawMsg = noticeTemplate['message'];
+            if (rawMsg is List<int>) {
+              try {
+                message = utf8.decode(rawMsg);
+              } catch (_) {
+                message = rawMsg.toString();
+              }
+            } else {
+              message = rawMsg?.toString() ?? '';
+            }
+
+            final formattedMessage = message
+                .replaceAll('{tax_period}', year.toString())
+                .replaceAll('{vehicle_plate}', plates)
+                .replaceAll('{payment_date}', _paymentDateController.text)
+                .replaceAll('{due_date}', _expiryDateController.text);
+
+            final title = (noticeTemplate['title']?.toString() ?? '')
+                .replaceAll('{vehicle_plate}', plates);
+
+            final finalMessage =
+                '$title|$formattedMessage|${noticeTemplate['icon'] ?? ''}';
+
+            await NotificationService().insertNotification({
+              'typeSource': _typeSource,
+              'idOrigin': idImpuesto,
+              'typEvent': 1,
+              'date': DateTime.now().toIso8601String(),
+              'message': finalMessage,
+              'colNotice': 'tax_New',
+              'idMainAcoount': widget.idMainAccount,
+              'codUsGenerator': widget.userId,
+              'idDev': widget.userId,
+            });
+          }
+        } catch (notifErr) {
+          debugPrint('Error en notificación de creación de impuesto: $notifErr');
+        }
+
+        // Insertar control de gestión
+        await VehiclesconService().insertManagementControlTax(
+          widget.idMainAccount,
+          vehicleId,
+          _selectedExpiryDate!,
+        );
+
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+            _isEditing = false;
+            _frontImage = null;
+            _backImage = null;
+          });
+          SnackbarTop.showSuccess(
+            context,
+            'Impuesto registrado exitosamente.',
+          );
+          _refreshData();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error al guardar impuesto: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+        SnackbarTop.showError(
+          context,
+          isEditing
+              ? 'Error al actualizar el impuesto. Intente nuevamente.'
+              : 'Error al registrar el impuesto. Intente nuevamente.',
+        );
+      }
+    }
   }
 
   @override
@@ -188,7 +968,7 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
                 children: [
                   _buildHeader(context, taxState),
                   const SizedBox(height: 12),
-                  if (!_canEdit && !_canCreate)
+                  if (!_canEdit && !_canCreate && !_isEditing)
                     Container(
                       margin: const EdgeInsets.only(bottom: 12),
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -223,18 +1003,21 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
                         ],
                       ),
                     ),
-                  Builder(
-                    builder: (context) {
-                      if (taxState.isLoading) {
-                        return _buildSkeleton(isSmallScreen);
-                      } else if (taxState.taxes.isEmpty) {
-                        return _buildEmptyState();
-                      } else {
-                        final impuesto = taxState.taxes.first;
-                        return _buildTaxDetails(impuesto);
-                      }
-                    },
-                  ),
+                  if (_isEditing)
+                    _buildFormSection(isSmallScreen)
+                  else
+                    Builder(
+                      builder: (context) {
+                        if (taxState.isLoading) {
+                          return _buildSkeleton(isSmallScreen);
+                        } else if (taxState.taxes.isEmpty) {
+                          return _buildEmptyState();
+                        } else {
+                          final impuesto = taxState.taxes.first;
+                          return _buildTaxDetails(impuesto);
+                        }
+                      },
+                    ),
                 ],
               ),
             ),
@@ -258,13 +1041,23 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
         ? '$make $model · Placas: $plates'
         : 'Placas: $plates';
 
+    final headerTitle = _isEditing
+        ? (_editingTaxId != null ? 'Editar Impuesto' : 'Registrar Impuesto')
+        : 'Impuestos Vehiculares';
+
     return Row(
       children: [
         Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: () => Navigator.pop(context),
+            onTap: () {
+              if (_isEditing) {
+                setState(() => _isEditing = false);
+              } else {
+                Navigator.pop(context);
+              }
+            },
             child: Container(
               width: 38,
               height: 38,
@@ -298,9 +1091,9 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Impuestos Vehiculares',
-                style: TextStyle(
+              Text(
+                headerTitle,
+                style: const TextStyle(
                   fontSize: 21,
                   fontWeight: FontWeight.w800,
                   color: Color(0xFF0F172A),
@@ -322,7 +1115,7 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
           ),
         ),
         const SizedBox(width: 8),
-        _buildHeaderActionMenu(context, taxState),
+        if (!_isEditing) _buildHeaderActionMenu(context, taxState),
       ],
     );
   }
@@ -412,12 +1205,11 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
         itemBuilder: (context) => menuItems,
         onSelected: (action) {
           if (action == 'edit') {
-            _openTaxFormModal(
-                isEditing: true, initialData: taxState.taxes.first);
+            _startEditing(taxState.taxes.first);
           } else if (action == 'delete') {
             _showDeleteConfirmationDialog();
           } else if (action == 'create') {
-            _openTaxFormModal(isEditing: false);
+            _startCreating();
           }
         },
       ),
@@ -539,70 +1331,6 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
   }
 
   // =========================================================================
-  // ESTADO DE ERROR ESTILO APPLE
-  // =========================================================================
-  Widget _buildErrorState() {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 40),
-      child: Center(
-        child: Column(
-          children: [
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: const Color(0xFFFEE2E2),
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(
-                Icons.error_outline_rounded,
-                color: Color(0xFFEF4444),
-                size: 26,
-              ),
-            ),
-            const SizedBox(height: 12),
-            const Text(
-              'Error al cargar los impuestos',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF0F172A),
-              ),
-            ),
-            const SizedBox(height: 4),
-            const Text(
-              'Comprueba tu conexión o intenta nuevamente.',
-              style: TextStyle(
-                fontSize: 12,
-                color: Color(0xFF64748B),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0284C7),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
-              ),
-              onPressed: _refreshData,
-              icon: const Icon(Icons.refresh_rounded, size: 16),
-              label: const Text(
-                'Reintentar',
-                style: TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // =========================================================================
   // ESTADO VACÍO (SIN IMPUESTOS REGISTRADOS)
   // =========================================================================
   Widget _buildEmptyState() {
@@ -610,85 +1338,21 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
         widget.vehicle['plate']?.toString() ??
         'este vehículo';
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 24.0),
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 32),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-          boxShadow: [
-            BoxShadow(
-              color: const Color(0xFF0F172A).withOpacity(0.03),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Column(
-          children: [
-            Container(
-              width: 64,
-              height: 64,
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFFE0F2FE), Color(0xFFBAE6FD)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: Colors.white, width: 2.0),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0284C7).withOpacity(0.12),
-                    blurRadius: 10,
-                    offset: const Offset(0, 4),
-                  ),
-                ],
-              ),
-              child: const Icon(
-                Icons.receipt_long_rounded,
-                color: Color(0xFF0284C7),
-                size: 32,
-              ),
-            ),
-            const SizedBox(height: 16),
-            const Text(
-              'Sin Impuestos Registrados',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                color: Color(0xFF0F172A),
-                letterSpacing: -0.3,
-              ),
-            ),
-            const SizedBox(height: 6),
-            Text(
-              'No se encontraron pagos fiscales (tenencia o refrendo) registrados para $plates.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(
-                fontSize: 12.5,
-                color: Color(0xFF64748B),
-                height: 1.4,
-              ),
-            ),
-            if (_canCreate) ...[
-              const SizedBox(height: 24),
-              LoadingActionButton(
-                text: 'Registrar Impuesto',
-                icon: Icons.add_circle_outline_rounded,
-                isLoading: false,
-                height: 46,
-                borderRadius: 14,
-                onPressed: () => _openTaxFormModal(isEditing: false),
-              ),
-            ],
-          ],
-        ),
-      ),
+    return AppleEmptyState(
+      icon: Icons.receipt_long_rounded,
+      title: 'Sin Impuestos Registrados',
+      description:
+          'No se encontraron pagos fiscales (tenencia o refrendo) registrados para $plates.',
+      action: _canCreate
+          ? LoadingActionButton(
+              text: 'Registrar Impuesto',
+              icon: Icons.add_circle_outline_rounded,
+              isLoading: false,
+              height: 46,
+              borderRadius: 14,
+              onPressed: _startCreating,
+            )
+          : null,
     );
   }
 
@@ -710,7 +1374,6 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
 
     final parsedExpiry = _parseDateSafe(impuesto.fechaExpiracion);
 
-    // Evaluación del estatus de vigencia
     int daysRemaining = 0;
     bool isExpired = false;
     bool isToday = false;
@@ -750,73 +1413,85 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
         badgeBg = const Color(0xFF10B981).withOpacity(0.25);
         badgeColor = const Color(0xFF6EE7B7);
         badgeText = 'VIGENTE';
-        badgeIcon = Icons.check_circle_rounded;
+        badgeIcon = Icons.verified_rounded;
+      }
+    }
+
+    final List<int> fotoIds = [];
+    for (final f in impuesto.fotos) {
+      int? p;
+      if (f is int) {
+        p = f;
+      } else if (f is Map && f['id'] != null) {
+        p = int.tryParse(f['id'].toString());
+      } else {
+        p = int.tryParse(f.toString());
+      }
+      if (p != null && !fotoIds.contains(p)) {
+        fotoIds.add(p);
       }
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 1. TARJETA DIGITAL APPLE WALLET HERO
+        // 1. HERO CARD ESTILO APPLE WALLET
         Container(
           width: double.infinity,
           decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(22),
             gradient: const LinearGradient(
               colors: [
                 Color(0xFF0F172A),
-                Color(0xFF0F2B48),
-                Color(0xFF0284C7),
+                Color(0xFF1E293B),
+                Color(0xFF0369A1),
               ],
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
             ),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(
-              color: Colors.white.withOpacity(0.12),
-              width: 1.0,
-            ),
             boxShadow: [
               BoxShadow(
-                color: const Color(0xFF0F172A).withOpacity(0.18),
+                color: const Color(0xFF0284C7).withOpacity(0.25),
                 blurRadius: 18,
                 offset: const Offset(0, 8),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(22),
             child: Stack(
               children: [
+                // Patrón sutil de fondo
                 Positioned(
-                  top: -40,
                   right: -30,
+                  top: -30,
                   child: Container(
-                    width: 170,
-                    height: 170,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Colors.white.withOpacity(0.06),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  bottom: -60,
-                  left: -40,
-                  child: Container(
-                    width: 190,
-                    height: 190,
+                    width: 160,
+                    height: 160,
                     decoration: BoxDecoration(
                       shape: BoxShape.circle,
                       color: Colors.white.withOpacity(0.04),
                     ),
                   ),
                 ),
+                Positioned(
+                  left: -40,
+                  bottom: -40,
+                  child: Container(
+                    width: 140,
+                    height: 140,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: const Color(0xFF38BDF8).withOpacity(0.08),
+                    ),
+                  ),
+                ),
                 Padding(
-                  padding: const EdgeInsets.all(18),
+                  padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Fila Superior: Marca oficial y Badge
+                      // Fila Superior: Marca y Placas
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -827,23 +1502,23 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
                                   width: 32,
                                   height: 32,
                                   decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.14),
+                                    color: Colors.white.withOpacity(0.12),
                                     borderRadius: BorderRadius.circular(9),
                                   ),
                                   child: const Icon(
-                                    Icons.account_balance_rounded,
+                                    Icons.receipt_long_rounded,
                                     color: Colors.white,
                                     size: 18,
                                   ),
                                 ),
-                                const SizedBox(width: 8),
-                                Expanded(
+                                const SizedBox(width: 10),
+                                Flexible(
                                   child: Column(
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
                                       Text(
-                                        'IMPUESTO VEHICULAR',
+                                        'TENENCIA Y REFRENDO',
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,
                                         style: TextStyle(
@@ -1243,9 +1918,687 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
             ),
           ],
         ),
+        const SizedBox(height: 14),
+
+        // 4. FOTOGRAFÍAS REGISTRADAS DEL COMPROBANTE FISCAL
+        if (fotoIds.isNotEmpty) ...[
+          _buildSectionTitle('FOTOGRAFÍAS DEL COMPROBANTE'),
+          _buildAppleGroupContainer(
+            children: [
+              SizedBox(
+                height: 130,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  itemCount: fotoIds.length,
+                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  itemBuilder: (context, index) {
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        width: 190,
+                        color: const Color(0xFFF1F5F9),
+                        child: DocFotoWidget(
+                          idFoto: fotoIds[index],
+                          width: 190,
+                          height: 130,
+                          fit: BoxFit.cover,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+              const Row(
+                children: [
+                  Icon(Icons.touch_app_outlined,
+                      size: 14, color: Color(0xFF0284C7)),
+                  SizedBox(width: 6),
+                  Text(
+                    'Toca cualquier imagen para verla en pantalla completa.',
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+        ],
 
         const SizedBox(height: 32),
       ],
+    );
+  }
+
+  // =========================================================================
+  // VISTA DE FORMULARIO DE PÁGINA COMPLETA ESTILO APPLE
+  // =========================================================================
+  Widget _buildFormSection(bool isSmallScreen) {
+    final isEditing = _editingTaxId != null;
+
+    return Form(
+      key: _formKey,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // 1. CARDS DE CAPTURA DE FOTOS ESTILO APPLE (FRENTE Y REVERSO)
+          _buildSectionTitle('COMPROBANTE FISCAL'),
+          _buildAppleGroupContainer(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _buildPhotoBox(
+                      title: 'Comprobante Frente',
+                      tag: 'IA OCR',
+                      image: _frontImage,
+                      isScanning: _isScanningOcr,
+                      onTap: () => _showPhotoSourceDialog(isFront: true),
+                      onRemove: () => setState(() => _frontImage = null),
+                      isRequired: true,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _buildPhotoBox(
+                      title: 'Comprobante Reverso',
+                      tag: 'OPCIONAL',
+                      image: _backImage,
+                      isScanning: false,
+                      onTap: () => _showPhotoSourceDialog(isFront: false),
+                      onRemove: () => setState(() => _backImage = null),
+                      isRequired: false,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF0F9FF),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFBAE6FD)),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 24,
+                      height: 24,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF0284C7),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.info_outline_rounded,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Expanded(
+                      child: Text(
+                        'El escaneo con IA extraerá automáticamente el ejercicio, fechas e importes de tenencia y refrendo. Podrás revisar o editar cualquier dato antes de guardar.',
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF0369A1),
+                          height: 1.35,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+
+          // 2. DATOS DEL IMPUESTO
+          _buildSectionTitle('DATOS DEL IMPUESTO FISCAL'),
+          _buildAppleGroupContainer(
+            children: [
+              // Ejercicio Fiscal
+              _buildFieldLabel('Año / Ejercicio Fiscal *'),
+              TextFormField(
+                controller: _yearController,
+                keyboardType: TextInputType.number,
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly,
+                  LengthLimitingTextInputFormatter(4),
+                ],
+                style: const TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0F172A),
+                ),
+                decoration: _buildInputDecoration(
+                  hint: 'ej. ${DateTime.now().year}',
+                  prefixIcon: Icons.calendar_month_rounded,
+                ),
+                validator: (v) {
+                  if (v == null || v.trim().isEmpty) {
+                    return 'Ingresa el año del ejercicio.';
+                  }
+                  if (v.trim().length != 4) {
+                    return 'Debe ser un año de 4 dígitos.';
+                  }
+                  return null;
+                },
+              ),
+              const SizedBox(height: 14),
+
+              // Fechas (Pago y Expiración)
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildFieldLabel('Fecha de Pago *'),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () {
+                            _selectDate(
+                              context,
+                              title: 'Fecha de Pago',
+                              initialDate: _selectedPaymentDate,
+                              onDateSelected: (date) {
+                                setState(() {
+                                  _selectedPaymentDate = date;
+                                  _paymentDateController.text =
+                                      DateFormat('dd / MM / yyyy')
+                                          .format(date);
+
+                                  if (_selectedExpiryDate == null) {
+                                    final nextYear =
+                                        DateTime(date.year + 1, 3, 31);
+                                    _selectedExpiryDate = nextYear;
+                                    _expiryDateController.text =
+                                        DateFormat('dd / MM / yyyy')
+                                            .format(nextYear);
+                                  }
+                                });
+                              },
+                            );
+                          },
+                          child: IgnorePointer(
+                            child: TextFormField(
+                              controller: _paymentDateController,
+                              readOnly: true,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF0F172A),
+                              ),
+                              decoration: _buildInputDecoration(
+                                hint: 'dd / mm / aaaa',
+                                prefixIcon: Icons.event_available_rounded,
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return 'Selecciona la fecha.';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildFieldLabel('Fecha de Expiración *'),
+                        InkWell(
+                          borderRadius: BorderRadius.circular(14),
+                          onTap: () {
+                            _selectDate(
+                              context,
+                              title: 'Fecha de Expiración',
+                              initialDate: _selectedExpiryDate,
+                              onDateSelected: (date) {
+                                setState(() {
+                                  _selectedExpiryDate = date;
+                                  _expiryDateController.text =
+                                      DateFormat('dd / MM / yyyy')
+                                          .format(date);
+                                });
+                              },
+                            );
+                          },
+                          child: IgnorePointer(
+                            child: TextFormField(
+                              controller: _expiryDateController,
+                              readOnly: true,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF0F172A),
+                              ),
+                              decoration: _buildInputDecoration(
+                                hint: 'dd / mm / aaaa',
+                                prefixIcon: Icons.event_busy_rounded,
+                              ),
+                              validator: (v) {
+                                if (v == null || v.trim().isEmpty) {
+                                  return 'Selecciona la fecha.';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // Montos (Tenencia y Refrendo)
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildFieldLabel('Monto Tenencia (MXN)'),
+                        TextFormField(
+                          controller: _tenancyController,
+                          keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'^\d+\.?\d{0,2}'),
+                            ),
+                          ],
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF0F172A),
+                          ),
+                          decoration: _buildInputDecoration(
+                            hint: '0.00',
+                            prefixIcon: Icons.attach_money_rounded,
+                          ),
+                          validator: (v) {
+                            if (v != null && v.trim().isNotEmpty) {
+                              final p = double.tryParse(v);
+                              if (p == null || p < 0) {
+                                return 'Monto inválido.';
+                              }
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildFieldLabel('Monto Refrendo (MXN)'),
+                        TextFormField(
+                          controller: _renewalController,
+                          keyboardType:
+                              const TextInputType.numberWithOptions(decimal: true),
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(
+                              RegExp(r'^\d+\.?\d{0,2}'),
+                            ),
+                          ],
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF0F172A),
+                          ),
+                          decoration: _buildInputDecoration(
+                            hint: '0.00',
+                            prefixIcon: Icons.attach_money_rounded,
+                          ),
+                          validator: (v) {
+                            if (v != null && v.trim().isNotEmpty) {
+                              final p = double.tryParse(v);
+                              if (p == null || p < 0) {
+                                return 'Monto inválido.';
+                              }
+                            }
+                            return null;
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 24),
+
+          // 3. BOTONES DE ACCIÓN
+          Row(
+            children: [
+              Expanded(
+                child: TextButton(
+                  style: TextButton.styleFrom(
+                    backgroundColor: const Color(0xFFF1F5F9),
+                    foregroundColor: const Color(0xFF475569),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                  ),
+                  onPressed: _isLoading
+                      ? null
+                      : () => setState(() => _isEditing = false),
+                  child: const Text(
+                    'Cancelar',
+                    style: TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 2,
+                child: LoadingActionButton(
+                  text: isEditing ? 'Guardar Cambios' : 'Registrar Impuesto',
+                  icon: isEditing ? Icons.check_rounded : Icons.add_rounded,
+                  isLoading: _isLoading,
+                  height: 48,
+                  borderRadius: 14,
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  onPressed: () => _submitForm(isEditing: isEditing),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 32),
+        ],
+      ),
+    );
+  }
+
+  // =========================================================================
+  // CAJA DE FOTOGRAFÍA ESTILO APPLE CARD
+  // =========================================================================
+  Widget _buildPhotoBox({
+    required String title,
+    required String tag,
+    required File? image,
+    required bool isScanning,
+    required VoidCallback onTap,
+    required VoidCallback onRemove,
+    required bool isRequired,
+  }) {
+    final hasImage = image != null;
+    final isOcrFront = tag == 'IA OCR';
+
+    return GestureDetector(
+      onTap: isScanning ? null : onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        height: 132,
+        decoration: BoxDecoration(
+          color: hasImage ? Colors.black : const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: hasImage
+                ? const Color(0xFF0284C7)
+                : (isOcrFront
+                    ? const Color(0xFFBAE6FD)
+                    : const Color(0xFFE2E8F0)),
+            width: hasImage ? 1.5 : 1.0,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0F172A).withOpacity(0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(15),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (hasImage) ...[
+                Image.file(
+                  image,
+                  fit: BoxFit.cover,
+                  width: double.infinity,
+                  height: double.infinity,
+                ),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.black.withOpacity(0.1),
+                        Colors.black.withOpacity(0.65),
+                      ],
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 8,
+                  left: 8,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF10B981),
+                      borderRadius: BorderRadius.circular(8),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withOpacity(0.2),
+                          blurRadius: 4,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.check_circle_rounded,
+                            size: 11, color: Colors.white),
+                        const SizedBox(width: 4),
+                        Text(
+                          isOcrFront ? 'Frente listo' : 'Reverso listo',
+                          style: const TextStyle(
+                            fontSize: 10,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Positioned(
+                  top: 6,
+                  right: 6,
+                  child: GestureDetector(
+                    onTap: onRemove,
+                    child: Container(
+                      width: 26,
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(0.6),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: Colors.white.withOpacity(0.3), width: 1),
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.close_rounded,
+                          color: Colors.white,
+                          size: 14,
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  bottom: 8,
+                  left: 8,
+                  right: 8,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withOpacity(0.22),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.cached_rounded,
+                            size: 12, color: Colors.white),
+                        SizedBox(width: 4),
+                        Text(
+                          'Cambiar',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ] else ...[
+                Positioned(
+                  top: 8,
+                  right: 8,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: isOcrFront
+                          ? const Color(0xFFE0F2FE)
+                          : const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isOcrFront
+                            ? const Color(0xFFBAE6FD)
+                            : const Color(0xFFE2E8F0),
+                        width: 0.8,
+                      ),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isOcrFront) ...[
+                          const Icon(Icons.auto_awesome,
+                              size: 10, color: Color(0xFF0284C7)),
+                          const SizedBox(width: 3),
+                        ],
+                        Text(
+                          tag,
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: 0.4,
+                            color: isOcrFront
+                                ? const Color(0xFF0284C7)
+                                : const Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                Center(
+                  child: isScanning
+                      ? const Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 26,
+                              height: 26,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2.5,
+                                color: Color(0xFF0284C7),
+                              ),
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Escaneando IA...',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF0284C7),
+                              ),
+                            ),
+                          ],
+                        )
+                      : Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                color: isOcrFront
+                                    ? const Color(0xFFE0F2FE)
+                                    : const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Icon(
+                                isOcrFront
+                                    ? Icons.document_scanner_rounded
+                                    : Icons.add_a_photo_rounded,
+                                color: isOcrFront
+                                    ? const Color(0xFF0284C7)
+                                    : const Color(0xFF64748B),
+                                size: 19,
+                              ),
+                            ),
+                            const SizedBox(height: 7),
+                            Text(
+                              title,
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF0F172A),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              isOcrFront ? 'Toca para escanear' : 'Toca para agregar',
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
     );
   }
 
@@ -1256,75 +2609,78 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
     required String value,
     bool isHighlight = false,
   }) {
-    return Row(
-      children: [
-        Container(
-          width: 32,
-          height: 32,
-          decoration: BoxDecoration(
-            color:
-                isHighlight ? const Color(0xFFE0F2FE) : const Color(0xFFF8FAFC),
-            borderRadius: BorderRadius.circular(9),
-          ),
-          child: Icon(
-            icon,
-            size: 16,
-            color:
-                isHighlight ? const Color(0xFF0284C7) : const Color(0xFF64748B),
-          ),
-        ),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: isHighlight ? FontWeight.w700 : FontWeight.w500,
-              color: isHighlight
-                  ? const Color(0xFF0F172A)
-                  : const Color(0xFF475569),
-            ),
-          ),
-        ),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: isHighlight ? 14.5 : 13,
-            fontWeight: isHighlight ? FontWeight.w800 : FontWeight.w600,
-            color:
-                isHighlight ? const Color(0xFF0284C7) : const Color(0xFF0F172A),
-            letterSpacing: isHighlight ? -0.2 : 0,
-          ),
-        ),
-      ],
+    return AppleDetailRow(
+      icon: icon,
+      label: label,
+      value: value,
+      isHighlight: isHighlight,
     );
   }
 
-  // =========================================================================
-  // MODAL BOTTOM SHEET DE FORMULARIO APPLE (CREAR / EDITAR)
-  // =========================================================================
-  void _openTaxFormModal({
-    required bool isEditing,
-    TaxModel? initialData,
-  }) {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (bottomSheetContext) {
-        return _TaxFormModalSheet(
-          isEditing: isEditing,
-          initialData: initialData?.toMap(),
-          vehicle: widget.vehicle,
-          idMainAccount: widget.idMainAccount,
-          userId: widget.userId,
-          typeSource: _typeSource,
-          onSuccess: () {
-            _refreshData();
-          },
-        );
-      },
+  Widget _buildFieldLabel(String label) {
+    return Padding(
+      padding: const EdgeInsets.only(left: 2, bottom: 6),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 11.5,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF475569),
+          letterSpacing: 0.2,
+        ),
+      ),
     );
+  }
+
+  InputDecoration _buildInputDecoration({
+    required String hint,
+    required IconData prefixIcon,
+  }) {
+    return InputDecoration(
+      hintText: hint,
+      hintStyle: const TextStyle(
+        fontSize: 12.5,
+        color: Color(0xFF94A3B8),
+        fontWeight: FontWeight.w400,
+      ),
+      filled: true,
+      fillColor: const Color(0xFFF8FAFC),
+      prefixIcon: Icon(
+        prefixIcon,
+        color: const Color(0xFF0284C7),
+        size: 18,
+      ),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFEF4444)),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(14),
+        borderSide: const BorderSide(color: Color(0xFFEF4444), width: 1.5),
+      ),
+    );
+  }
+
+  // --- TÍTULO DE SECCIÓN INSET GROUPED ---
+  Widget _buildSectionTitle(String title) {
+    return AppleSectionTitle(title);
+  }
+
+  Widget _buildAppleGroupContainer({required List<Widget> children}) {
+    return AppleGroupCard(children: children);
   }
 
   // =========================================================================
@@ -1468,8 +2824,9 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
           impuestos.first.year.isNotEmpty ? impuestos.first.year : '';
       final String paymentD =
           impuestos.first.fechaPago.isNotEmpty ? impuestos.first.fechaPago : '';
-      final String expiryD =
-          impuestoDateString(impuestos.first.fechaExpiracion);
+      final String expiryD = impuestos.first.fechaExpiracion.isNotEmpty
+          ? impuestos.first.fechaExpiracion
+          : '';
 
       // 1. Eliminar impuesto en backend
       await VehiclesconService().eliminarImpuestosPorVehiculo(
@@ -1552,754 +2909,5 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
         );
       }
     }
-  }
-
-  String impuestoDateString(dynamic d) {
-    if (d == null) return '';
-    return d.toString();
-  }
-
-  // --- TÍTULO DE SECCIÓN INSET GROUPED ---
-  Widget _buildSectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 8, top: 12),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 11.5,
-          fontWeight: FontWeight.w700,
-          color: Color(0xFF64748B),
-          letterSpacing: 0.8,
-        ),
-      ),
-    );
-  }
-
-  // --- CONTENEDOR INSET GROUPED ESTILO APPLE ---
-  Widget _buildAppleGroupContainer({required List<Widget> children}) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(
-          color: const Color(0xFFE2E8F0),
-          width: 1.0,
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0F172A).withOpacity(0.03),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: children,
-      ),
-    );
-  }
-}
-
-// ===========================================================================
-// MODAL SHEET FORMULARIO APPLE PARA CREAR / EDITAR IMPUESTO
-// ===========================================================================
-class _TaxFormModalSheet extends StatefulWidget {
-  final bool isEditing;
-  final Map<String, dynamic>? initialData;
-  final Map<String, dynamic> vehicle;
-  final String idMainAccount;
-  final String userId;
-  final String typeSource;
-  final VoidCallback onSuccess;
-
-  const _TaxFormModalSheet({
-    required this.isEditing,
-    this.initialData,
-    required this.vehicle,
-    required this.idMainAccount,
-    required this.userId,
-    required this.typeSource,
-    required this.onSuccess,
-  });
-
-  @override
-  State<_TaxFormModalSheet> createState() => _TaxFormModalSheetState();
-}
-
-class _TaxFormModalSheetState extends State<_TaxFormModalSheet> {
-  final _formKey = GlobalKey<FormState>();
-  final _yearController = TextEditingController();
-  final _paymentDateController = TextEditingController();
-  final _expiryDateController = TextEditingController();
-  final _tenancyController = TextEditingController();
-  final _renewalController = TextEditingController();
-
-  DateTime? _selectedPaymentDate;
-  DateTime? _selectedExpiryDate;
-  bool _isLoading = false;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.isEditing && widget.initialData != null) {
-      final d = widget.initialData!;
-      _yearController.text = d['year']?.toString() ?? '';
-      _tenancyController.text = d['montoTenencia']?.toString() ?? '0';
-      _renewalController.text = d['montoRefrendo']?.toString() ?? '0';
-
-      _selectedPaymentDate = _parseDate(d['fechaPago']);
-      if (_selectedPaymentDate != null) {
-        _paymentDateController.text =
-            DateFormat('dd / MM / yyyy').format(_selectedPaymentDate!);
-      }
-
-      _selectedExpiryDate = _parseDate(d['fechaExpiracion']);
-      if (_selectedExpiryDate != null) {
-        _expiryDateController.text =
-            DateFormat('dd / MM / yyyy').format(_selectedExpiryDate!);
-      }
-    } else {
-      _yearController.text = DateTime.now().year.toString();
-    }
-  }
-
-  DateTime? _parseDate(dynamic date) {
-    if (date == null) return null;
-    if (date is DateTime) return date;
-    final str = date.toString().trim();
-    if (str.isEmpty) return null;
-
-    try {
-      return DateFormat('yyyy-MM-dd').parse(str);
-    } catch (_) {}
-
-    try {
-      return DateFormat('dd/MM/yyyy').parse(str);
-    } catch (_) {}
-
-    try {
-      return DateTime.parse(str);
-    } catch (_) {}
-
-    return null;
-  }
-
-  @override
-  void dispose() {
-    _yearController.dispose();
-    _paymentDateController.dispose();
-    _expiryDateController.dispose();
-    _tenancyController.dispose();
-    _renewalController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _selectDate(
-    BuildContext context, {
-    required String title,
-    DateTime? initialDate,
-    required ValueChanged<DateTime> onDateSelected,
-  }) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate ?? DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-      helpText: title,
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.light(
-              primary: Color(0xFF0284C7),
-              onPrimary: Colors.white,
-              onSurface: Color(0xFF0F172A),
-            ),
-          ),
-          child: child!,
-        );
-      },
-    );
-
-    if (picked != null) {
-      onDateSelected(picked);
-    }
-  }
-
-  Future<void> _submitForm() async {
-    if (!_formKey.currentState!.validate()) {
-      return;
-    }
-
-    if (_selectedPaymentDate == null) {
-      SnackbarTop.showInfo(
-        context,
-        'Por favor selecciona la fecha de pago.',
-      );
-      return;
-    }
-
-    if (_selectedExpiryDate == null) {
-      SnackbarTop.showInfo(
-        context,
-        'Por favor selecciona la fecha de expiración.',
-      );
-      return;
-    }
-
-    if (_selectedPaymentDate!.isAfter(_selectedExpiryDate!)) {
-      SnackbarTop.showInfo(
-        context,
-        'La fecha de pago no puede ser mayor que la fecha de expiración.',
-      );
-      return;
-    }
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    final int year =
-        int.tryParse(_yearController.text.trim()) ?? DateTime.now().year;
-    final String formattedPaymentDate =
-        DateFormat('yyyy-MM-dd').format(_selectedPaymentDate!);
-    final String formattedExpiryDate =
-        DateFormat('yyyy-MM-dd').format(_selectedExpiryDate!);
-    final double tenancyAmount =
-        double.tryParse(_tenancyController.text.trim()) ?? 0.0;
-    final double renewalAmount =
-        double.tryParse(_renewalController.text.trim()) ?? 0.0;
-
-    final vehicleId = widget.vehicle['id'].toString();
-    final plates = widget.vehicle['placas']?.toString() ??
-        widget.vehicle['plate']?.toString() ??
-        '';
-
-    try {
-      if (widget.isEditing) {
-        // --- ACTUALIZACIÓN DE IMPUESTO ---
-        await VehiclesconService().actualizarImpuesto(
-          vehicleId,
-          widget.idMainAccount,
-          year,
-          formattedPaymentDate,
-          formattedExpiryDate,
-          tenancyAmount,
-          renewalAmount,
-        );
-
-        // Notificación de actualización
-        try {
-          const nameNotice = 'vehicle_tax_payment_updated';
-          final noticeTemplate =
-              await NotificationService().getNoticeByName(nameNotice);
-
-          if (noticeTemplate != null) {
-            String message = '';
-            final rawMsg = noticeTemplate['message'];
-            if (rawMsg is List<int>) {
-              try {
-                message = utf8.decode(rawMsg);
-              } catch (_) {
-                message = rawMsg.toString();
-              }
-            } else {
-              message = rawMsg?.toString() ?? '';
-            }
-
-            final formattedMessage = message
-                .replaceAll('{tax_period}', year.toString())
-                .replaceAll('{vehicle_plate}', plates)
-                .replaceAll('{payment_date}', _paymentDateController.text)
-                .replaceAll('{due_date}', _expiryDateController.text);
-
-            final title = (noticeTemplate['title']?.toString() ?? '')
-                .replaceAll('{vehicle_plate}', plates);
-
-            final finalMessage =
-                '$title|$formattedMessage|${noticeTemplate['icon'] ?? ''}';
-
-            final int idImpuesto = widget.initialData != null
-                ? (int.tryParse(widget.initialData!['id']?.toString() ?? '0') ??
-                    0)
-                : 0;
-
-            await NotificationService().insertNotification({
-              'typeSource': widget.typeSource,
-              'idOrigin': idImpuesto,
-              'typEvent': 2,
-              'date': DateTime.now().toIso8601String(),
-              'message': finalMessage,
-              'colNotice': 'tax_Edit',
-              'idMainAcoount': widget.idMainAccount,
-              'codUsGenerator': widget.userId,
-              'idDev': widget.userId,
-            });
-          }
-        } catch (notifErr) {
-          debugPrint('Error en notificación de actualización: $notifErr');
-        }
-
-        // Actualizar control de gestión
-        await VehiclesconService().updateManagementControlTax(
-          widget.idMainAccount,
-          vehicleId,
-          formattedExpiryDate,
-        );
-
-        if (mounted) {
-          Navigator.of(context).pop();
-          widget.onSuccess();
-          SnackbarTop.showSuccess(
-            context,
-            'Impuesto actualizado exitosamente.',
-          );
-        }
-      } else {
-        // --- CREACIÓN DE IMPUESTO ---
-        final int idImpuesto = await VehiclesconService().crearImpuesto(
-          vehicleId,
-          widget.idMainAccount,
-          year,
-          formattedPaymentDate,
-          formattedExpiryDate,
-          tenancyAmount,
-          renewalAmount,
-        );
-
-        // Notificación de nuevo impuesto
-        try {
-          const nameNotice = 'vehicle_tax_payment_added';
-          final noticeTemplate =
-              await NotificationService().getNoticeByName(nameNotice);
-
-          if (noticeTemplate != null) {
-            String message = '';
-            final rawMsg = noticeTemplate['message'];
-            if (rawMsg is List<int>) {
-              try {
-                message = utf8.decode(rawMsg);
-              } catch (_) {
-                message = rawMsg.toString();
-              }
-            } else {
-              message = rawMsg?.toString() ?? '';
-            }
-
-            final formattedMessage = message
-                .replaceAll('{tax_period}', year.toString())
-                .replaceAll('{vehicle_plate}', plates)
-                .replaceAll('{payment_date}', _paymentDateController.text)
-                .replaceAll('{due_date}', _expiryDateController.text);
-
-            final title = (noticeTemplate['title']?.toString() ?? '')
-                .replaceAll('{vehicle_plate}', plates);
-
-            final finalMessage =
-                '$title|$formattedMessage|${noticeTemplate['icon'] ?? ''}';
-
-            await NotificationService().insertNotification({
-              'typeSource': widget.typeSource,
-              'idOrigin': idImpuesto,
-              'typEvent': 1,
-              'date': DateTime.now().toIso8601String(),
-              'message': finalMessage,
-              'colNotice': 'tax_New',
-              'idMainAcoount': widget.idMainAccount,
-              'codUsGenerator': widget.userId,
-              'idDev': widget.userId,
-            });
-          }
-        } catch (notifErr) {
-          debugPrint('Error en notificación de creación: $notifErr');
-        }
-
-        // Insertar control de gestión
-        await VehiclesconService().insertManagementControlTax(
-          widget.idMainAccount,
-          vehicleId,
-          _selectedExpiryDate!,
-        );
-
-        if (mounted) {
-          Navigator.of(context).pop();
-          widget.onSuccess();
-          SnackbarTop.showSuccess(
-            context,
-            'Impuesto creado exitosamente.',
-          );
-        }
-      }
-    } catch (e) {
-      debugPrint('Error al guardar impuesto: $e');
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-        SnackbarTop.showError(
-          context,
-          widget.isEditing
-              ? 'Error al actualizar el impuesto. Intente nuevamente.'
-              : 'Error al registrar el impuesto. Intente nuevamente.',
-        );
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.only(
-          topLeft: Radius.circular(24),
-          topRight: Radius.circular(24),
-        ),
-      ),
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 12,
-        bottom: bottomInset + 20,
-      ),
-      child: SafeArea(
-        top: false,
-        child: SingleChildScrollView(
-          child: Form(
-            key: _formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Indicador Cupertino superior
-                Center(
-                  child: Container(
-                    width: 38,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFCBD5E1),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-
-                // Encabezado del modal
-                Row(
-                  children: [
-                    Container(
-                      width: 38,
-                      height: 38,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE0F2FE),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Icon(
-                        Icons.receipt_long_rounded,
-                        color: Color(0xFF0284C7),
-                        size: 20,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            widget.isEditing
-                                ? 'Actualizar Impuesto'
-                                : 'Nuevo Impuesto Vehicular',
-                            style: const TextStyle(
-                              fontSize: 16.5,
-                              fontWeight: FontWeight.w800,
-                              color: Color(0xFF0F172A),
-                              letterSpacing: -0.3,
-                            ),
-                          ),
-                          const Text(
-                            'Ingresa los datos fiscales y montos oficiales',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF64748B),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 18),
-
-                // Campo: Año
-                _buildAppleTextField(
-                  label: 'AÑO DEL IMPUESTO',
-                  controller: _yearController,
-                  icon: Icons.calendar_today_rounded,
-                  keyboardType: TextInputType.number,
-                  maxLength: 4,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                  ],
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Ingresa el año fiscal.';
-                    }
-                    final int? val = int.tryParse(value.trim());
-                    if (val == null || val < 1990 || val > 2100) {
-                      return 'Ingresa un año válido.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 14),
-
-                // Campo: Fecha de Pago
-                _buildAppleDateField(
-                  label: 'FECHA DE PAGO',
-                  controller: _paymentDateController,
-                  icon: Icons.event_available_rounded,
-                  hintText: 'Selecciona la fecha de pago',
-                  onTap: () {
-                    _selectDate(
-                      context,
-                      title: 'Fecha de Pago',
-                      initialDate: _selectedPaymentDate,
-                      onDateSelected: (date) {
-                        setState(() {
-                          _selectedPaymentDate = date;
-                          _paymentDateController.text =
-                              DateFormat('dd / MM / yyyy').format(date);
-                        });
-                      },
-                    );
-                  },
-                ),
-                const SizedBox(height: 14),
-
-                // Campo: Fecha de Expiración
-                _buildAppleDateField(
-                  label: 'FECHA DE EXPIRACIÓN',
-                  controller: _expiryDateController,
-                  icon: Icons.event_busy_rounded,
-                  hintText: 'Selecciona la fecha de expiración',
-                  onTap: () {
-                    _selectDate(
-                      context,
-                      title: 'Fecha de Expiración',
-                      initialDate: _selectedExpiryDate,
-                      onDateSelected: (date) {
-                        setState(() {
-                          _selectedExpiryDate = date;
-                          _expiryDateController.text =
-                              DateFormat('dd / MM / yyyy').format(date);
-                        });
-                      },
-                    );
-                  },
-                ),
-                const SizedBox(height: 14),
-
-                // Campo: Monto Tenencia
-                _buildAppleTextField(
-                  label: 'MONTO DE TENENCIA (\$)',
-                  controller: _tenancyController,
-                  icon: Icons.attach_money_rounded,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Ingresa el monto de tenencia.';
-                    }
-                    final double? val = double.tryParse(value.trim());
-                    if (val == null || val < 0) {
-                      return 'Ingresa un monto válido.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 14),
-
-                // Campo: Monto Refrendo
-                _buildAppleTextField(
-                  label: 'MONTO DE REFRENDO (\$)',
-                  controller: _renewalController,
-                  icon: Icons.attach_money_rounded,
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                  validator: (value) {
-                    if (value == null || value.trim().isEmpty) {
-                      return 'Ingresa el monto de refrendo.';
-                    }
-                    final double? val = double.tryParse(value.trim());
-                    if (val == null || val < 0) {
-                      return 'Ingresa un monto válido.';
-                    }
-                    return null;
-                  },
-                ),
-                const SizedBox(height: 24),
-
-                // Botón de acción con estado de carga integrado
-                LoadingActionButton(
-                  text: widget.isEditing
-                      ? 'Actualizar Impuesto'
-                      : 'Guardar Impuesto',
-                  icon: widget.isEditing
-                      ? Icons.check_circle_rounded
-                      : Icons.add_circle_outline_rounded,
-                  isLoading: _isLoading,
-                  height: 48,
-                  borderRadius: 14,
-                  onPressed: _submitForm,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAppleTextField({
-    required String label,
-    required TextEditingController controller,
-    required IconData icon,
-    TextInputType keyboardType = TextInputType.text,
-    int? maxLength,
-    List<TextInputFormatter>? inputFormatters,
-    String? Function(String?)? validator,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF64748B),
-            letterSpacing: 0.6,
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextFormField(
-          controller: controller,
-          keyboardType: keyboardType,
-          maxLength: maxLength,
-          inputFormatters: inputFormatters,
-          validator: validator,
-          style: const TextStyle(
-            fontSize: 13.5,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF0F172A),
-          ),
-          decoration: InputDecoration(
-            counterText: '',
-            prefixIcon: Icon(icon, size: 18, color: const Color(0xFF0284C7)),
-            filled: true,
-            fillColor: const Color(0xFFF8FAFC),
-            contentPadding:
-                const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: Color(0xFF0284C7), width: 1.5),
-            ),
-            errorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFFEF4444)),
-            ),
-            focusedErrorBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(12),
-              borderSide:
-                  const BorderSide(color: Color(0xFFEF4444), width: 1.5),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildAppleDateField({
-    required String label,
-    required TextEditingController controller,
-    required IconData icon,
-    required String hintText,
-    required VoidCallback onTap,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 10.5,
-            fontWeight: FontWeight.w700,
-            color: Color(0xFF64748B),
-            letterSpacing: 0.6,
-          ),
-        ),
-        const SizedBox(height: 6),
-        InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: onTap,
-          child: IgnorePointer(
-            child: TextFormField(
-              controller: controller,
-              readOnly: true,
-              style: const TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF0F172A),
-              ),
-              decoration: InputDecoration(
-                hintText: hintText,
-                hintStyle: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF94A3B8),
-                  fontWeight: FontWeight.w400,
-                ),
-                prefixIcon:
-                    Icon(icon, size: 18, color: const Color(0xFF0284C7)),
-                suffixIcon: const Icon(
-                  Icons.arrow_drop_down_rounded,
-                  color: Color(0xFF64748B),
-                  size: 24,
-                ),
-                filled: true,
-                fillColor: const Color(0xFFF8FAFC),
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      const BorderSide(color: Color(0xFF0284C7), width: 1.5),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
   }
 }
