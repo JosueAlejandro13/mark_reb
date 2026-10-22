@@ -162,40 +162,49 @@ class LocationDisclosureSheet extends StatelessWidget {
 
     return MediaQuery(
       data: mediaQuery.copyWith(textScaler: clampedScaler),
-      // 1. Alineamos abajo (Alignment.bottomCenter) en lugar de Center
       child: Align(
-        alignment: Alignment.bottomCenter,
+        alignment: isTablet ? Alignment.center : Alignment.bottomCenter,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxWidth: isTablet ? 520 : double.infinity,
-            minHeight: mediaQuery.size.height * 0.88,
+            maxWidth: isTablet ? 500 : double.infinity,
+            maxHeight:
+                isTablet ? mediaQuery.size.height * 0.90 : double.infinity,
+            minHeight: isTablet ? 0 : mediaQuery.size.height * 0.88,
           ),
           child: Container(
             width: double.infinity,
-            decoration: const BoxDecoration(
+            margin: isTablet
+                ? const EdgeInsets.all(24)
+                : EdgeInsets.zero,
+            decoration: BoxDecoration(
               color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+              borderRadius: isTablet
+                  ? BorderRadius.circular(28)
+                  : const BorderRadius.vertical(top: Radius.circular(28)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 20,
-                  offset: Offset(0, -4),
+                  color: Colors.black.withOpacity(isTablet ? 0.22 : 0.12),
+                  blurRadius: isTablet ? 30 : 20,
+                  offset: Offset(0, isTablet ? 10 : -4),
                 ),
               ],
             ),
             // Padding general con buen espacio en el fondo
             padding: EdgeInsets.fromLTRB(
-              22,
-              28,
-              22,
-              bottomInset > 0 ? bottomInset + 16 : 28,
+              isTablet ? 28 : 22,
+              isTablet ? 32 : 28,
+              isTablet ? 28 : 22,
+              isTablet
+                  ? 28
+                  : (bottomInset > 0 ? bottomInset + 16 : 28),
             ),
-            child: SingleChildScrollView(
-              physics: const BouncingScrollPhysics(),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
+            child: IntrinsicHeight(
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
                   // ── 1. Icono oficial ──
                   Container(
                     width: 76,
@@ -402,8 +411,9 @@ class LocationDisclosureSheet extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Widget _buildBenefitItem({
     required IconData icon,

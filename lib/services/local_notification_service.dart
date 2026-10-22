@@ -111,8 +111,8 @@ class LocalNotificationService {
         pendingCount == 1 ? '1 registro' : '$pendingCount registros';
 
     final String title = pendingCount == 1
-        ? '☁️ 1 registro pendiente de sincronizar'
-        : '☁️ $pendingCount registros pendientes de sincronizar';
+        ? '1 registro pendiente de sincronizar'
+        : '$pendingCount registros pendientes de sincronizar';
 
     const String body =
         'Tus datos están guardados en el dispositivo y esperan conexión para enviarse al servidor.';
@@ -184,7 +184,7 @@ class LocalNotificationService {
     // Programar también un recordatorio futuro a través del sistema operativo
     // por si el usuario cierra la app o borra la notificación manualmente
     try {
-      const String reminderTitle = '⏰ Tus datos siguen guardados';
+      const String reminderTitle = 'Tus datos siguen guardados';
       final String reminderBody = pendingCount == 1
           ? 'Hay 1 registro pendiente de enviar al servidor. Abre Mark V3 cuando tengas conexión.'
           : 'Hay $pendingCount registros pendientes de enviar al servidor. Abre Mark V3 cuando tengas conexión.';

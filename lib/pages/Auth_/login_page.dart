@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lottie/lottie.dart';
 import 'package:mark_v3/providers/Auth_/login_provider.dart';
@@ -126,140 +126,149 @@ class _LoginPageState extends ConsumerState<LoginPage> {
           child: SafeArea(
             bottom: false,
             child: GestureDetector(
-              onTap: () => FocusScope.of(context).unfocus(),
-              behavior: HitTestBehavior.translucent,
-              child: Center(
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(
-                    maxWidth: isTablet ? 500 : double.infinity,
-                  ),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      return SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(
-                            minHeight: constraints.maxHeight,
-                          ),
-                          child: IntrinsicHeight(
-                            child: Column(
-                              children: [
-                                // ── Top Header: Logo a la izquierda + Animación a la derecha ──
-                                SizedBox(
-                                  height: isTablet ? 215 : 190,
-                                  width: double.infinity,
-                                  child: Stack(
-                                    clipBehavior: Clip.none,
-                                    children: [
-                                      // ── Lottie Animation a la derecha (emergiendo detrás de la curva) ──
-                                      Positioned(
-                                        top: isTablet ? 24 : 20,
-                                        right: isTablet ? 0 : -8,
-                                        height: isTablet ? 260 : 240,
-                                        width: screenWidth,
-                                        child: Align(
+              onTap: () {
+                final currentFocus = FocusScope.of(context);
+                if (!currentFocus.hasPrimaryFocus &&
+                    currentFocus.focusedChild != null) {
+                  FocusManager.instance.primaryFocus?.unfocus();
+                }
+              },
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return SingleChildScrollView(
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    physics: const BouncingScrollPhysics(),
+                    child: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        minHeight: constraints.maxHeight,
+                      ),
+                      child: IntrinsicHeight(
+                        child: Column(
+                          children: [
+                            // ── Top Header: Logo a la izquierda + Animación a la derecha ──
+                            SizedBox(
+                              height: isTablet ? 250 : 190,
+                              width: double.infinity,
+                              child: Stack(
+                                clipBehavior: Clip.none,
+                                children: [
+                                  // ── Lottie Animation a la derecha (emergiendo detrás de la curva) ──
+                                  Positioned(
+                                    top: isTablet ? 14 : 20,
+                                    right: isTablet ? 48 : -8,
+                                    height: isTablet ? 280 : 240,
+                                    width: isTablet ? 460 : screenWidth,
+                                    child: Align(
+                                      alignment: Alignment.centerRight,
+                                      child: Transform.translate(
+                                        offset: Offset(0, isTablet ? 16 : 24),
+                                        child: Lottie.asset(
+                                          'assets/caleni_rutas_lottie.json',
+                                          fit: BoxFit.contain,
                                           alignment: Alignment.centerRight,
-                                          child: Transform.translate(
-                                            offset: const Offset(0, 24),
-                                            child: Lottie.asset(
-                                              'assets/caleni_rutas_lottie.json',
-                                              fit: BoxFit.contain,
-                                              alignment: Alignment.centerRight,
-                                              repeat: true,
-                                            ),
-                                          ),
+                                          repeat: true,
                                         ),
                                       ),
+                                    ),
+                                  ),
 
-                                      // ── Logo y Branding (arriba a la izquierda) ──
-                                      Positioned(
-                                        top: isTablet ? 1 : 9,
-                                        left: isTablet ? 36 : 24,
-                                        child: Row(
-                                          mainAxisSize: MainAxisSize.min,
+                                  // ── Logo y Branding (arriba a la izquierda) ──
+                                  Positioned(
+                                    top: isTablet ? 24 : 9,
+                                    left: isTablet ? 56 : 24,
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.center,
+                                      children: [
+                                        Image.asset(
+                                          'assets/iconik.png',
+                                          width: isTablet ? 44 : 36,
+                                          height: isTablet ? 44 : 36,
+                                          fit: BoxFit.contain,
+                                        ),
+                                        SizedBox(width: isTablet ? 12 : 10),
+                                        Column(
                                           crossAxisAlignment:
-                                              CrossAxisAlignment.center,
+                                              CrossAxisAlignment.start,
+                                          mainAxisSize: MainAxisSize.min,
                                           children: [
-                                            Image.asset(
-                                              'assets/iconik.png',
-                                              width: 36,
-                                              height: 36,
-                                              fit: BoxFit.contain,
+                                            Text(
+                                              'CALENI',
+                                              style: TextStyle(
+                                                fontSize: isTablet ? 19 : 16.5,
+                                                fontWeight: FontWeight.w900,
+                                                color: const Color(0xFF0A1E34),
+                                                letterSpacing: 1.2,
+                                                height: 1.0,
+                                              ),
                                             ),
-                                            const SizedBox(width: 10),
-                                            const Column(
-                                              crossAxisAlignment:
-                                                  CrossAxisAlignment.start,
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Text(
-                                                  'CALENI',
-                                                  style: TextStyle(
-                                                    fontSize: 16.5,
-                                                    fontWeight: FontWeight.w900,
-                                                    color: Color(0xFF0A1E34),
-                                                    letterSpacing: 1.2,
-                                                    height: 1.0,
-                                                  ),
-                                                ),
-                                                SizedBox(height: 2),
-                                                Text(
-                                                  'TELEMATICS',
-                                                  style: TextStyle(
-                                                    fontSize: 9.5,
-                                                    fontWeight: FontWeight.w800,
-                                                    color: Color(0xFF0284C7),
-                                                    letterSpacing: 1.8,
-                                                    height: 1.2,
-                                                  ),
-                                                ),
-                                              ],
+                                            const SizedBox(height: 2),
+                                            Text(
+                                              'TELEMATICS',
+                                              style: TextStyle(
+                                                fontSize: isTablet ? 11 : 9.5,
+                                                fontWeight: FontWeight.w800,
+                                                color: const Color(0xFF0284C7),
+                                                letterSpacing: 1.8,
+                                                height: 1.2,
+                                              ),
                                             ),
                                           ],
                                         ),
-                                      ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
-                                ),
+                                ],
+                              ),
+                            ),
 
-                                // ── Tarjeta Blanca inferior con curva asimétrica ─
-                                Expanded(
-                                  child: CustomPaint(
-                                    painter: _WaveShadowPainter(),
-                                    child: ClipPath(
-                                      clipper: _WaveClipper(),
-                                      child: Container(
-                                        color: Colors.white,
-                                        width: double.infinity,
-                                        child: Stack(
-                                          children: [
-                                            // ── Decoración inferior de silueta urbana ─
-                                            Positioned(
-                                              left: 0,
-                                              right: 0,
-                                              bottom: 0,
-                                              height: 75,
-                                              child: IgnorePointer(
-                                                child: CustomPaint(
-                                                  painter:
-                                                      _BottomSkylinePainter(),
-                                                ),
-                                              ),
+                            // ── Tarjeta Blanca inferior con curva asimétrica ─
+                            Expanded(
+                              child: CustomPaint(
+                                painter: _WaveShadowPainter(),
+                                child: ClipPath(
+                                  clipper: _WaveClipper(),
+                                  child: Container(
+                                    color: Colors.white,
+                                    width: double.infinity,
+                                    child: Stack(
+                                      children: [
+                                        // ── Decoración inferior de silueta urbana ─
+                                        Positioned(
+                                          left: 0,
+                                          right: 0,
+                                          bottom: 0,
+                                          height: 75,
+                                          child: IgnorePointer(
+                                            child: CustomPaint(
+                                              painter:
+                                                  _BottomSkylinePainter(),
                                             ),
+                                          ),
+                                        ),
 
-                                            // ── Contenido del formulario ─────────────
-                                            Padding(
-                                              padding: EdgeInsets.only(
-                                                left: isTablet
-                                                    ? 36
-                                                    : screenWidth * 0.075,
-                                                right: isTablet
-                                                    ? 36
-                                                    : screenWidth * 0.075,
-                                                top: 36,
-                                                bottom: mediaQuery
-                                                        .viewInsets.bottom +
-                                                    20,
+                                        // ── Contenido del formulario ─────────────
+                                        Padding(
+                                          padding: EdgeInsets.only(
+                                            left: isTablet
+                                                ? 40
+                                                : screenWidth * 0.075,
+                                            right: isTablet
+                                                ? 40
+                                                : screenWidth * 0.075,
+                                            top: isTablet ? 46 : 36,
+                                            bottom: mediaQuery
+                                                    .viewInsets.bottom +
+                                                (isTablet ? 40 : 20),
+                                          ),
+                                          child: Center(
+                                            child: ConstrainedBox(
+                                              constraints: BoxConstraints(
+                                                maxWidth: isTablet
+                                                    ? 480
+                                                    : double.infinity,
                                               ),
                                               child: Form(
                                                 key: _formKey,
@@ -411,6 +420,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                                             _emailController,
                                                         enabled: !loginState
                                                             .isLoading,
+                                                        contextMenuBuilder: (context, editableTextState) {
+                                                          return AdaptiveTextSelectionToolbar.buttonItems(
+                                                            anchors: editableTextState.contextMenuAnchors,
+                                                            buttonItems: editableTextState.contextMenuButtonItems,
+                                                          );
+                                                        },
                                                         keyboardType:
                                                             TextInputType
                                                                 .emailAddress,
@@ -560,6 +575,12 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                                             _passwordController,
                                                         enabled: !loginState
                                                             .isLoading,
+                                                        contextMenuBuilder: (context, editableTextState) {
+                                                          return AdaptiveTextSelectionToolbar.buttonItems(
+                                                            anchors: editableTextState.contextMenuAnchors,
+                                                            buttonItems: editableTextState.contextMenuButtonItems,
+                                                          );
+                                                        },
                                                         obscureText:
                                                             _obscurePassword,
                                                         validator: (val) {
@@ -876,7 +897,9 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                                 ),
                                               ),
                                             ),
-                                          ],
+                                          ),
+                                        ),
+                                      ],
                                         ),
                                       ),
                                     ),
@@ -893,10 +916,8 @@ class _LoginPageState extends ConsumerState<LoginPage> {
               ),
             ),
           ),
-        ),
-      ),
-    );
-  }
+        );
+      }
 
   Widget _buildSocialIcon(dynamic icon, {bool isFilled = false, String? url}) {
     return GestureDetector(

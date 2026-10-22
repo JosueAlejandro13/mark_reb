@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
@@ -136,12 +137,21 @@ class LoginNotifier extends Notifier<LoginState> {
       await requestNotificationPermissions(context);
 
       // 3. Información del dispositivo para la bitácora del servidor
-      DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-      AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
-      String manufacturer = androidInfo.manufacturer;
-      String model = androidInfo.model;
-      String ver = androidInfo.version.release;
-      String dispositivoStr = '$manufacturer $model / Android $ver';
+      String dispositivoStr = 'Dispositivo Móvil';
+      try {
+        final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+        if (Platform.isAndroid) {
+          final androidInfo = await deviceInfo.androidInfo;
+          dispositivoStr =
+              '${androidInfo.manufacturer} ${androidInfo.model} / Android ${androidInfo.version.release}';
+        } else if (Platform.isIOS) {
+          final iosInfo = await deviceInfo.iosInfo;
+          dispositivoStr =
+              '${iosInfo.name} ${iosInfo.model} / iOS ${iosInfo.systemVersion}';
+        }
+      } catch (e) {
+        debugPrint('Error leyendo deviceInfo: $e');
+      }
 
       String? fcmToken;
       try {

@@ -75,22 +75,27 @@ void main() async {
     DeviceOrientation.portraitUp,
   ]);
 
-  await Firebase.initializeApp();
+  try {
+    await Firebase.initializeApp();
 
-  FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterError;
+    FlutterError.onError = FirebaseCrashlytics.instance.recordFlutterError;
 
-  PlatformDispatcher.instance.onError = (error, stack) {
-    FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
-    return true;
-  };
+    PlatformDispatcher.instance.onError = (error, stack) {
+      FirebaseCrashlytics.instance.recordError(error, stack, fatal: true);
+      return true;
+    };
 
-  if (kDebugMode) {
-    await FirebasePerformance.instance.setPerformanceCollectionEnabled(false);
+    if (kDebugMode) {
+      await FirebasePerformance.instance.setPerformanceCollectionEnabled(false);
+    }
+
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  } catch (e) {
+    debugPrint("Firebase initialization warning on iOS: $e");
   }
 
   tz.initializeTimeZones();
   await LocalNotificationService.initialize();
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   runApp(
     const ProviderScope(
@@ -233,6 +238,9 @@ class _MyAppState extends State<MyApp> {
             ),
             progressIndicatorTheme: const ProgressIndicatorThemeData(
               color: Colors.black,
+            ),
+            appBarTheme: const AppBarTheme(
+              centerTitle: false,
             ),
             useMaterial3: true,
             popupMenuTheme: PopupMenuThemeData(

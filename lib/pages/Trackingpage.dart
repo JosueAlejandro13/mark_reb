@@ -51,8 +51,6 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     });
   }
 
-
-
   @override
   void dispose() {
     _pulseController.dispose();
@@ -385,7 +383,7 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
               mapType: trackingState.mapType,
               trafficEnabled: trackingState.showTraffic,
               markers: _markers,
-              myLocationEnabled: true,
+              myLocationEnabled: false,
               myLocationButtonEnabled: false,
               zoomControlsEnabled: false,
               compassEnabled: false,
@@ -834,15 +832,13 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     TrackingNotifier notifier,
     bool isSmallScreen,
   ) {
-    final bool isGreen = (device['ignStatus'] ??
-            (device['ignition'] == true ? 1 : 0)) ==
-        1;
-    final String economico = (device['economico'] ??
-            device['eco'] ??
-            device['name'] ??
-            'Sin nombre')
-        .toString();
-    final String placas = (device['placas'] ?? device['plates'] ?? '').toString();
+    final bool isGreen =
+        (device['ignStatus'] ?? (device['ignition'] == true ? 1 : 0)) == 1;
+    final String economico =
+        (device['economico'] ?? device['eco'] ?? device['name'] ?? 'Sin nombre')
+            .toString();
+    final String placas =
+        (device['placas'] ?? device['plates'] ?? '').toString();
     final String make =
         (device['make'] ?? device['marca'] ?? device['brand'] ?? '').toString();
     final String model = (device['model'] ?? device['modelo'] ?? '').toString();
@@ -1131,7 +1127,8 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
                   height: 38,
                   child: OutlinedButton.icon(
                     onPressed: () {
-                      final idVehic = int.tryParse(device['id'].toString()) ?? 0;
+                      final idVehic =
+                          int.tryParse(device['id'].toString()) ?? 0;
                       VehicleCommandsSheet.show(
                         context,
                         idVehic: idVehic,
@@ -1168,7 +1165,8 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
                   height: 38,
                   child: OutlinedButton.icon(
                     onPressed: () {
-                      final idVehic = int.tryParse(device['id'].toString()) ?? 0;
+                      final idVehic =
+                          int.tryParse(device['id'].toString()) ?? 0;
                       VehicleAlertsSheet.show(
                         context,
                         idVehic: idVehic,
@@ -1577,12 +1575,11 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     required String elapsed,
     required VoidCallback onTap,
   }) {
-    final String economico = (device['economico'] ??
-            device['eco'] ??
-            device['name'] ??
-            'Sin nombre')
-        .toString();
-    final String placas = (device['placas'] ?? device['plates'] ?? '').toString();
+    final String economico =
+        (device['economico'] ?? device['eco'] ?? device['name'] ?? 'Sin nombre')
+            .toString();
+    final String placas =
+        (device['placas'] ?? device['plates'] ?? '').toString();
     final String make =
         (device['make'] ?? device['marca'] ?? device['brand'] ?? '').toString();
     final String model = (device['model'] ?? device['modelo'] ?? '').toString();
@@ -1757,15 +1754,13 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     BuildContext context,
     Map<String, dynamic> device,
   ) {
-    final bool isGreen = (device['ignStatus'] ??
-            (device['ignition'] == true ? 1 : 0)) ==
-        1;
-    final String economico = (device['economico'] ??
-            device['eco'] ??
-            device['name'] ??
-            'Sin nombre')
-        .toString();
-    final String placas = (device['placas'] ?? device['plates'] ?? '').toString();
+    final bool isGreen =
+        (device['ignStatus'] ?? (device['ignition'] == true ? 1 : 0)) == 1;
+    final String economico =
+        (device['economico'] ?? device['eco'] ?? device['name'] ?? 'Sin nombre')
+            .toString();
+    final String placas =
+        (device['placas'] ?? device['plates'] ?? '').toString();
     final String make =
         (device['make'] ?? device['marca'] ?? device['brand'] ?? '').toString();
     final String model = (device['model'] ?? device['modelo'] ?? '').toString();

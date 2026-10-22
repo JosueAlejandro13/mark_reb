@@ -173,7 +173,9 @@ class _RoutesPageState extends ConsumerState<RoutesPage>
           foregroundColor: const Color(0xFF0F172A),
           elevation: 0,
           toolbarHeight: 62,
-          leadingWidth: Navigator.canPop(context) ? 54 : null,
+          centerTitle: false,
+          automaticallyImplyLeading: false,
+          leadingWidth: Navigator.canPop(context) ? 54 : 0,
           titleSpacing: Navigator.canPop(context) ? 12 : 16,
           leading: Navigator.canPop(context)
               ? Padding(
@@ -276,12 +278,6 @@ class _RoutesPageState extends ConsumerState<RoutesPage>
         ),
         body: Column(
           children: [
-            // BARRA SUPERIOR DE FECHA, CALENDARIO Y RECARGAR (DEBAJO DEL APPBAR)
-            _buildTopDateAndActionsBar(state),
-
-            // AVISO SI REQUIERE RENOVAR SESIÓN MANUALMENTE (HTTP 401)
-            if (state.requiresManualAuth) _buildAuthBanner(state),
-
             Expanded(
               child: (state.isLoading &&
                       (state.dayPackage == null ||
@@ -293,6 +289,10 @@ class _RoutesPageState extends ConsumerState<RoutesPage>
                           children: [
                             _buildRoutesListTab(state),
                             OrdersAndNewClientsView(
+                              topDateBar: _buildTopDateAndActionsBar(state),
+                              authBanner: state.requiresManualAuth
+                                  ? _buildAuthBanner(state)
+                                  : null,
                               visitRouteIdForOutOfRoute:
                                   (state.dayPackage?.fecha ==
                                           state.selectedDate)
@@ -306,7 +306,12 @@ class _RoutesPageState extends ConsumerState<RoutesPage>
                         )
                       : showRoutesTab
                           ? _buildRoutesListTab(state)
-                          : const OrdersAndNewClientsView(),
+                          : OrdersAndNewClientsView(
+                              topDateBar: _buildTopDateAndActionsBar(state),
+                              authBanner: state.requiresManualAuth
+                                  ? _buildAuthBanner(state)
+                                  : null,
+                            ),
             ),
 
             // BARRA DE ESTADO DE COLA SIN CONEXIÓN Y SINCRONIZACIÓN (FOOTER INFERIOR)
@@ -575,9 +580,11 @@ class _RoutesPageState extends ConsumerState<RoutesPage>
             .syncPendingQueueAndRefreshDay(forceRefreshDay: true),
         child: ListView(
           physics: const AlwaysScrollableScrollPhysics(),
-          padding: const EdgeInsets.all(28),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           children: [
-            const SizedBox(height: 50),
+            _buildTopDateAndActionsBar(state),
+            if (state.requiresManualAuth) _buildAuthBanner(state),
+            const SizedBox(height: 40),
             Center(
               child: Container(
                 width: 72,
@@ -626,10 +633,21 @@ class _RoutesPageState extends ConsumerState<RoutesPage>
           .read(routesProvider.notifier)
           .syncPendingQueueAndRefreshDay(forceRefreshDay: true),
       child: ListView.builder(
-        padding: const EdgeInsets.all(16),
-        itemCount: rutas.length,
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        itemCount: rutas.length + 1,
         itemBuilder: (context, index) {
-          final route = rutas[index];
+          if (index == 0) {
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildTopDateAndActionsBar(state),
+                if (state.requiresManualAuth) _buildAuthBanner(state),
+                const SizedBox(height: 6),
+              ],
+            );
+          }
+          final route = rutas[index - 1];
           // En móvil: navegar a pantalla completa al tocar
           return _buildRouteCard(
             route,
@@ -2032,20 +2050,21 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
         final isLandscape = mediaQuery.orientation == Orientation.landscape;
         final screenHeight = mediaQuery.size.height;
 
-        return SafeArea(
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 520,
-                maxHeight:
-                    isLandscape ? screenHeight * 0.90 : screenHeight * 0.85,
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 520,
+              maxHeight:
+                  isLandscape ? screenHeight * 0.90 : screenHeight * 0.85,
+            ),
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
               ),
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-                ),
+              child: SafeArea(
+                top: false,
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   padding: EdgeInsets.fromLTRB(
@@ -2869,43 +2888,46 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                           top: Radius.circular(24),
                         ),
                       ),
-                      child: Column(
-                        children: [
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(18, 12, 18, 6),
-                            child: Column(
-                              children: [
-                                Center(
-                                  child: Container(
-                                    width: 38,
-                                    height: 4,
-                                    margin: const EdgeInsets.only(bottom: 12),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFCBD5E1),
-                                      borderRadius: BorderRadius.circular(2),
+                      child: SafeArea(
+                        top: false,
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(18, 12, 18, 6),
+                              child: Column(
+                                children: [
+                                  Center(
+                                    child: Container(
+                                      width: 38,
+                                      height: 4,
+                                      margin: const EdgeInsets.only(bottom: 12),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFCBD5E1),
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
                                     ),
                                   ),
-                                ),
-                                const Align(
-                                  alignment: Alignment.centerLeft,
-                                  child: Text(
-                                    'Seleccionar Cliente (Visita fuera de ruta)',
-                                    style: TextStyle(
-                                      fontWeight: FontWeight.w800,
-                                      fontSize: 15,
-                                      color: Color(0xFF0F172A),
+                                  const Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      'Seleccionar Cliente (Visita fuera de ruta)',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w800,
+                                        fontSize: 15,
+                                        color: Color(0xFF0F172A),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
-                          ),
-                          Expanded(
-                            child: OrdersAndNewClientsView(
-                              visitRouteIdForOutOfRoute: route.idRuta,
+                            Expanded(
+                              child: OrdersAndNewClientsView(
+                                visitRouteIdForOutOfRoute: route.idRuta,
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   );
@@ -3029,7 +3051,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                         ),
                         mapType: _mapType,
                         trafficEnabled: _showTraffic,
-                        myLocationEnabled: true,
+                        myLocationEnabled: false,
                         myLocationButtonEnabled: false,
                         zoomControlsEnabled: false,
                         polylines: _buildPolylines(route),
@@ -3152,7 +3174,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                             ),
                             mapType: _mapType,
                             trafficEnabled: _showTraffic,
-                            myLocationEnabled: true,
+                            myLocationEnabled: false,
                             myLocationButtonEnabled: false,
                             zoomControlsEnabled: false,
                             polylines: _buildPolylines(route),
@@ -3283,20 +3305,21 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
         final isLandscape = mediaQuery.orientation == Orientation.landscape;
         final screenHeight = mediaQuery.size.height;
 
-        return SafeArea(
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 540,
-                maxHeight:
-                    isLandscape ? screenHeight * 0.92 : screenHeight * 0.85,
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 540,
+              maxHeight:
+                  isLandscape ? screenHeight * 0.92 : screenHeight * 0.85,
+            ),
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
               ),
-              child: Container(
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(22)),
-                ),
+              child: SafeArea(
+                top: false,
                 child: SingleChildScrollView(
                   physics: const BouncingScrollPhysics(),
                   padding: EdgeInsets.fromLTRB(

@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'modern_floating_nav_bar.dart';
 
-/// NavigationRail estilo Apple/Material3 para tablets.
+/// NavigationRail flotante estilo Apple (iOS Island) para tablets.
 ///
-/// Usa los mismos [ModernNavItem] que [ModernFloatingNavBar] para
-/// mantener coherencia visual. En tablet se muestra un rail lateral
-/// izquierdo minimalista y compacto, solo con íconos coloreados.
+/// Se ubica de forma flotante a la derecha de la pantalla, con diseño de
+/// píldora translúcida con esquinas redondeadas, sombra suave y tamaño cómodo
+/// para interacción táctil ergonómica.
 class TabletNavRail extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int> onTap;
@@ -19,13 +19,13 @@ class TabletNavRail extends StatelessWidget {
   final Color activeCapsuleColor;
   final Color inactiveContentColor;
 
-  /// Ancho del rail lateral (compacto por defecto a 60px)
+  /// Ancho de la píldora flotante
   final double width;
 
   /// Mostrar etiquetas de texto debajo de los iconos (por defecto false)
   final bool showLabels;
 
-  /// Mostrar cápsula sombreada de fondo en el seleccionado (por defecto false)
+  /// Mostrar cápsula sombreada de fondo en el seleccionado (por defecto true)
   final bool showCapsule;
 
   const TabletNavRail({
@@ -36,112 +36,77 @@ class TabletNavRail extends StatelessWidget {
     this.backgroundColor = Colors.white,
     this.activeContentColor = const Color(0xFF0284C7),
     this.activeCapsuleColor = const Color(0xFFE0F2FE),
-    this.inactiveContentColor = const Color(0xFF64748B),
-    this.width = 68.0,
+    this.inactiveContentColor = const Color(0xFF94A3B8),
+    this.width = 74.0,
     this.showLabels = false,
-    this.showCapsule = false,
+    this.showCapsule = true,
   });
 
   @override
   Widget build(BuildContext context) {
     final mediaQuery = MediaQuery.of(context);
-    final safeLeft = mediaQuery.padding.left;
-    final safeTop = mediaQuery.padding.top;
-    final safeBottom = mediaQuery.padding.bottom;
+    final safeRight = mediaQuery.padding.right;
+    final pillRadius = width / 2;
 
-    // Ancho total que absorbe el notch/área segura izquierda sin encoger los iconos
-    final double baseWidth = width > 0 ? width : 68.0;
-    final double totalWidth = baseWidth + safeLeft;
-
-    return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          width: totalWidth,
-          decoration: BoxDecoration(
-            color: backgroundColor.withOpacity(0.97),
-            border: const Border(
-              right: BorderSide(
-                color: Color(0xFFE2E8F0),
-                width: 1.0,
-              ),
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0F172A).withOpacity(0.06),
-                blurRadius: 12,
-                offset: const Offset(2, 0),
-              ),
-            ],
-          ),
-          padding: EdgeInsets.only(
-            left: safeLeft,
-            top: safeTop,
-            bottom: safeBottom,
-          ),
-          child: SizedBox(
-            width: baseWidth,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                const SizedBox(height: 12),
-                // Logo / marca compacta en la parte superior del rail
-                Container(
-                  width: 38,
-                  height: 38,
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF0284C7),
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFF0284C7).withOpacity(0.28),
-                        blurRadius: 8,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: const Center(
-                    child: Icon(
-                      Icons.local_shipping_rounded,
-                      color: Colors.white,
-                      size: 20,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-
-                // Divisor superior
-                Container(
-                  width: 28,
-                  height: 1,
+    return Align(
+      alignment: Alignment.centerRight,
+      child: Padding(
+        padding: EdgeInsets.only(
+          right: (safeRight > 0 ? safeRight : 16) + 4,
+          left: 8,
+          top: 16,
+          bottom: 16,
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(pillRadius),
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: Container(
+              width: width,
+              decoration: BoxDecoration(
+                color: backgroundColor.withOpacity(0.96),
+                borderRadius: BorderRadius.circular(pillRadius),
+                border: Border.all(
                   color: const Color(0xFFE2E8F0),
+                  width: 1.0,
                 ),
-                const SizedBox(height: 12),
-
-                // Items de navegación
-                Expanded(
-                  child: ListView.separated(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    itemCount: items.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 6),
-                    itemBuilder: (context, index) {
-                      final item = items[index];
-                      final isSelected = index == currentIndex;
-                      return _NavRailItem(
-                        item: item,
-                        isSelected: isSelected,
-                        activeColor: activeContentColor,
-                        activeCapsule: activeCapsuleColor,
-                        inactiveColor: inactiveContentColor,
-                        showLabels: showLabels,
-                        showCapsule: showCapsule,
-                        onTap: () => onTap(index),
-                      );
-                    },
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0F172A).withOpacity(0.12),
+                    blurRadius: 20,
+                    spreadRadius: 0,
+                    offset: const Offset(0, 4),
                   ),
-                ),
-                const SizedBox(height: 12),
-              ],
+                  BoxShadow(
+                    color: const Color(0xFF0F172A).withOpacity(0.04),
+                    blurRadius: 6,
+                    spreadRadius: 0,
+                    offset: const Offset(0, 1),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 6),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: List.generate(items.length, (index) {
+                  final item = items[index];
+                  final isSelected = index == currentIndex;
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: _NavRailItem(
+                      item: item,
+                      isSelected: isSelected,
+                      activeColor: activeContentColor,
+                      activeCapsule: activeCapsuleColor,
+                      inactiveColor: inactiveContentColor,
+                      showLabels: showLabels,
+                      showCapsule: showCapsule,
+                      onTap: () => onTap(index),
+                    ),
+                  );
+                }),
+              ),
             ),
           ),
         ),
@@ -183,15 +148,15 @@ class _NavRailItem extends StatelessWidget {
         item.showBadge || (item.badgeCount != null && item.badgeCount! > 0);
 
     Widget iconWidget = SizedBox(
-      width: 28,
-      height: 28,
+      width: 32,
+      height: 32,
       child: Stack(
         clipBehavior: Clip.none,
         alignment: Alignment.center,
         children: [
           Icon(
             icon,
-            size: isSelected ? 25 : 23,
+            size: isSelected ? 29 : 26,
             color: contentColor,
           ),
           if (hasBadge)
@@ -200,9 +165,9 @@ class _NavRailItem extends StatelessWidget {
               right: -7,
               child: Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                    const EdgeInsets.symmetric(horizontal: 4.5, vertical: 1.5),
                 constraints:
-                    const BoxConstraints(minWidth: 15, minHeight: 15),
+                    const BoxConstraints(minWidth: 16, minHeight: 16),
                 decoration: BoxDecoration(
                   color: const Color(0xFFFF3B30),
                   borderRadius: BorderRadius.circular(9),
@@ -217,7 +182,7 @@ class _NavRailItem extends StatelessWidget {
                         : '',
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 8.0,
+                      fontSize: 8.5,
                       fontWeight: FontWeight.w800,
                       height: 1.0,
                     ),
@@ -234,7 +199,7 @@ class _NavRailItem extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           iconWidget,
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           FittedBox(
             fit: BoxFit.scaleDown,
             child: Text(
@@ -262,16 +227,17 @@ class _NavRailItem extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeOutCubic,
-        height: showLabels ? null : 48,
+        height: showLabels ? null : 58,
+        width: 62,
         padding: EdgeInsets.symmetric(
           vertical: showLabels ? 8 : 0,
           horizontal: 4,
         ),
         decoration: BoxDecoration(
           color: (isSelected && showCapsule) ? activeCapsule : Colors.transparent,
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(18),
           border: (isSelected && showCapsule)
-              ? Border.all(color: const Color(0xFFBAE6FD), width: 0.8)
+              ? Border.all(color: const Color(0xFFBAE6FD), width: 1.0)
               : null,
         ),
         child: Center(

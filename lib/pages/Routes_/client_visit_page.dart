@@ -380,29 +380,30 @@ class _VisitRecordPageState extends ConsumerState<VisitRecordPage>
 
         return MediaQuery(
           data: mq.copyWith(textScaler: clampedScaler),
-          child: SafeArea(
-            top: false,
-            child: Align(
-              alignment: Alignment.bottomCenter,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: 540,
-                  maxHeight:
-                      isLandscape ? screenHeight * 0.92 : screenHeight * 0.85,
+          child: Align(
+            alignment: Alignment.bottomCenter,
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 540,
+                maxHeight:
+                    isLandscape ? screenHeight * 0.92 : screenHeight * 0.85,
+              ),
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(22)),
                 ),
-                child: Container(
-                  decoration: const BoxDecoration(
-                    color: Colors.white,
-                    borderRadius:
-                        BorderRadius.vertical(top: Radius.circular(22)),
-                  ),
-                  padding: EdgeInsets.fromLTRB(
-                    20,
-                    isLandscape ? 10 : 12,
-                    20,
-                    isLandscape ? 12 : 20,
-                  ),
-                  child: Column(
+                child: SafeArea(
+                  top: false,
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      20,
+                      isLandscape ? 10 : 12,
+                      20,
+                      isLandscape ? 12 : 20,
+                    ),
+                    child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -500,8 +501,9 @@ class _VisitRecordPageState extends ConsumerState<VisitRecordPage>
               ),
             ),
           ),
-        );
-      },
+        ),
+      );
+    },
     );
   }
 
@@ -2208,6 +2210,13 @@ class _CatalogSearchModal extends StatefulWidget {
 
 class _CatalogSearchModalState extends State<_CatalogSearchModal> {
   String _query = '';
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _searchCtrl.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -2224,148 +2233,230 @@ class _CatalogSearchModalState extends State<_CatalogSearchModal> {
       minScaleFactor: 0.85,
       maxScaleFactor: 1.15,
     );
-    final isSmallScreen = mediaQuery.size.width < 360;
 
     return MediaQuery(
       data: mediaQuery.copyWith(textScaler: clampedScaler),
-      child: Container(
-        height: MediaQuery.of(context).size.height * 0.82,
-        padding: const EdgeInsets.fromLTRB(18, 12, 18, 18),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-        ),
-        child: SafeArea(
-          top: false,
-          child: Column(
-            children: [
-              Center(
-                child: Container(
-                  width: 38,
-                  height: 4,
-                  margin: const EdgeInsets.only(bottom: 14),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFCBD5E1),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
+      child: DraggableScrollableSheet(
+        initialChildSize: 0.80,
+        minChildSize: 0.40,
+        maxChildSize: 0.94,
+        expand: false,
+        builder: (context, scrollController) {
+          return Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black12,
+                  blurRadius: 16,
+                  offset: Offset(0, -4),
                 ),
-              ),
-              const Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Catálogo de Productos',
-                  style: TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
-                    letterSpacing: -0.3,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 10),
-              TextField(
-                autofocus: true,
-                onChanged: (v) => setState(() => _query = v),
-                style: const TextStyle(
-                    fontSize: 13.5, color: Color(0xFF0F172A)),
-                decoration: InputDecoration(
-                  hintText: 'Buscar por nombre o SKU...',
-                  hintStyle: const TextStyle(
-                      color: Color(0xFF94A3B8), fontSize: 13),
-                  prefixIcon: const Icon(Icons.search_rounded,
-                      color: Color(0xFF0886B5), size: 20),
-                  filled: true,
-                  fillColor: const Color(0xFFF8FAFC),
-                  contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 14, vertical: 10),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: const BorderSide(
-                        color: Color(0xFF0886B5), width: 1.5),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 12),
-              Expanded(
-                child: filtered.isEmpty
-                    ? Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              width: 48,
-                              height: 48,
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFF1F5F9),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(Icons.search_off_rounded,
-                                  color: Color(0xFF94A3B8), size: 24),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'No se encontraron productos en el catálogo.',
-                              style: TextStyle(
-                                  color: Color(0xFF64748B),
-                                  fontSize: 12.5),
-                            ),
-                          ],
-                        ),
-                      )
-                    : ListView.separated(
-                        physics: const BouncingScrollPhysics(),
-                        itemCount: filtered.length,
-                        separatorBuilder: (_, __) =>
-                            const Divider(height: 1, color: Color(0xFFF1F5F9)),
-                        itemBuilder: (context, idx) {
-                          final p = filtered[idx];
-                          return ListTile(
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            leading: const Icon(
-                              Icons.inventory_2_outlined,
-                              color: Color(0xFF0886B5),
-                              size: 22,
-                            ),
-                            title: Text(
-                              p.nombre,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                                fontSize: 13.5,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                            subtitle: Text(
-                              'SKU: ${p.codigo} · ${p.unidad}',
-                              style: const TextStyle(
-                                fontSize: 11.5,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                            trailing: Text(
-                              '\$${p.precio.toStringAsFixed(2)}',
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w800,
-                                fontSize: 15,
-                                color: Color(0xFF059669),
-                              ),
-                            ),
-                            onTap: () => Navigator.of(context).pop(p),
-                          );
-                        },
+              ],
+            ),
+            child: SafeArea(
+              top: false,
+              child: Column(
+                children: [
+                  // Handle bar para arrastrar / scroll
+                  Center(
+                    child: Container(
+                      width: 44,
+                      height: 5,
+                      margin: const EdgeInsets.only(top: 12, bottom: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFCBD5E1),
+                        borderRadius: BorderRadius.circular(10),
                       ),
+                    ),
+                  ),
+                  // Encabezado con título y contador
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    child: Row(
+                      children: [
+                        const Icon(
+                          Icons.inventory_2_rounded,
+                          color: Color(0xFF0886B5),
+                          size: 22,
+                        ),
+                        const SizedBox(width: 8),
+                        const Expanded(
+                          child: Text(
+                            'Catálogo de Productos',
+                            style: TextStyle(
+                              fontSize: 17,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '${filtered.length} art.',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // Buscador
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 18),
+                    child: TextField(
+                      controller: _searchCtrl,
+                      autofocus: false,
+                      onChanged: (v) => setState(() => _query = v),
+                      style: const TextStyle(
+                          fontSize: 13.5, color: Color(0xFF0F172A)),
+                      decoration: InputDecoration(
+                        hintText: 'Buscar por nombre o SKU...',
+                        hintStyle: const TextStyle(
+                            color: Color(0xFF94A3B8), fontSize: 13),
+                        prefixIcon: const Icon(Icons.search_rounded,
+                            color: Color(0xFF0886B5), size: 20),
+                        suffixIcon: _query.isNotEmpty
+                            ? IconButton(
+                                icon: const Icon(Icons.close_rounded,
+                                    size: 18, color: Color(0xFF94A3B8)),
+                                onPressed: () {
+                                  _searchCtrl.clear();
+                                  setState(() => _query = '');
+                                },
+                              )
+                            : null,
+                        filled: true,
+                        fillColor: const Color(0xFFF8FAFC),
+                        contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide:
+                              const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide:
+                              const BorderSide(color: Color(0xFFE2E8F0)),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: const BorderSide(
+                              color: Color(0xFF0886B5), width: 1.5),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  // Lista scrolleable conectada a scrollController
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? SingleChildScrollView(
+                            controller: scrollController,
+                            child: Center(
+                              child: Padding(
+                                padding: const EdgeInsets.all(32),
+                                child: Column(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Container(
+                                      width: 48,
+                                      height: 48,
+                                      decoration: const BoxDecoration(
+                                        color: Color(0xFFF1F5F9),
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: const Icon(
+                                        Icons.search_off_rounded,
+                                        color: Color(0xFF94A3B8),
+                                        size: 24,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    const Text(
+                                      'No se encontraron productos en el catálogo.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        color: Color(0xFF64748B),
+                                        fontSize: 12.5,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          )
+                        : ListView.separated(
+                            controller: scrollController,
+                            physics: const ClampingScrollPhysics(),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 16, vertical: 4),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) => const Divider(
+                                height: 1, color: Color(0xFFF1F5F9)),
+                            itemBuilder: (context, idx) {
+                              final p = filtered[idx];
+                              return ListTile(
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                leading: Container(
+                                  width: 36,
+                                  height: 36,
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF0F9FF),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(
+                                    Icons.inventory_2_outlined,
+                                    color: Color(0xFF0886B5),
+                                    size: 20,
+                                  ),
+                                ),
+                                title: Text(
+                                  p.nombre,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    fontSize: 13.5,
+                                    color: Color(0xFF0F172A),
+                                  ),
+                                ),
+                                subtitle: Text(
+                                  'SKU: ${p.codigo} · ${p.unidad}',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: Color(0xFF64748B),
+                                  ),
+                                ),
+                                trailing: Text(
+                                  '\$${p.precio.toStringAsFixed(2)}',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w800,
+                                    fontSize: 15,
+                                    color: Color(0xFF059669),
+                                  ),
+                                ),
+                                onTap: () => Navigator.of(context).pop(p),
+                              );
+                            },
+                          ),
+                  ),
+                ],
               ),
-            ],
-          ),
-        ),
+            ),
+          );
+        },
       ),
     );
   }
@@ -2414,10 +2505,14 @@ String _formatSyncDateTime(String rawStr, {String? fallbackDate}) {
 
 class OrdersAndNewClientsView extends ConsumerStatefulWidget {
   final int? visitRouteIdForOutOfRoute;
+  final Widget? topDateBar;
+  final Widget? authBanner;
 
   const OrdersAndNewClientsView({
     super.key,
     this.visitRouteIdForOutOfRoute,
+    this.topDateBar,
+    this.authBanner,
   });
 
   @override
@@ -2438,6 +2533,11 @@ class _OrdersAndNewClientsViewState
   void initState() {
     super.initState();
     _preventaTabCtrl = TabController(length: 3, vsync: this);
+    _preventaTabCtrl.addListener(() {
+      if (!_preventaTabCtrl.indexIsChanging) {
+        setState(() {});
+      }
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(routesProvider.notifier).loadClientsFromServer();
     });
@@ -2560,120 +2660,146 @@ class _OrdersAndNewClientsViewState
       data: mediaQuery.copyWith(textScaler: clampedScaler),
       child: Container(
         color: const Color(0xFFF8FAFC),
-        child: Column(
-          children: [
-            // Sub-pestañas operativas de Preventa estilo ejecutivo
-            Container(
-            margin: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-            padding: const EdgeInsets.all(3),
-            decoration: BoxDecoration(
-              color: const Color(0xFFF1F5F9),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: TabBar(
-              controller: _preventaTabCtrl,
-              indicator: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(9),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.04),
-                    blurRadius: 4,
-                    offset: const Offset(0, 1),
+        child: RefreshIndicator(
+          color: const Color(0xFF0886B5),
+          onRefresh: () async {
+            if (_preventaTabCtrl.index == 0) {
+              await ref
+                  .read(routesProvider.notifier)
+                  .loadClientsFromServer(query: _searchCtrl.text.trim());
+            } else if (_preventaTabCtrl.index == 1) {
+              await ref.read(routesProvider.notifier).loadCatalogFromServer();
+            } else {
+              await ref
+                  .read(routesProvider.notifier)
+                  .syncPendingQueueAndRefreshDay();
+            }
+          },
+          child: CustomScrollView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            slivers: [
+              // 1. Selector de fecha y sincronización (Calendario)
+              if (widget.topDateBar != null)
+                SliverToBoxAdapter(child: widget.topDateBar!),
+              if (widget.authBanner != null)
+                SliverToBoxAdapter(child: widget.authBanner!),
+
+              // 2. Sub-pestañas operativas (Clientes, Catálogo, Pedidos) fijas arriba al scrollear
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: _PreventaSubTabsHeaderDelegate(
+                  height: 52,
+                  child: Container(
+                    color: const Color(0xFFF8FAFC),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16, vertical: 5),
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: TabBar(
+                        controller: _preventaTabCtrl,
+                        onTap: (index) => setState(() {}),
+                        indicator: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(9),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Colors.black.withOpacity(0.04),
+                              blurRadius: 4,
+                              offset: const Offset(0, 1),
+                            ),
+                          ],
+                        ),
+                        indicatorSize: TabBarIndicatorSize.tab,
+                        dividerColor: Colors.transparent,
+                        labelColor: const Color(0xFF0F172A),
+                        unselectedLabelColor: const Color(0xFF64748B),
+                        labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+                        labelStyle: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 11.5),
+                        unselectedLabelStyle: const TextStyle(
+                            fontWeight: FontWeight.w600, fontSize: 11.5),
+                        tabs: [
+                          Tab(
+                            height: 36,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.people_alt_rounded, size: 15),
+                                const SizedBox(width: 5),
+                                Flexible(
+                                  child: Text(
+                                    clientTabText,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Tab(
+                            height: 36,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.inventory_2_rounded, size: 15),
+                                const SizedBox(width: 5),
+                                Flexible(
+                                  child: Text(
+                                    'Catálogo (${state.catalog.length})',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Tab(
+                            height: 36,
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                const Icon(Icons.receipt_long_rounded, size: 15),
+                                const SizedBox(width: 5),
+                                Flexible(
+                                  child: Text(
+                                    'Pedidos ($totalOrdersCount)',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
-                ],
+                ),
               ),
-              indicatorSize: TabBarIndicatorSize.tab,
-              dividerColor: Colors.transparent,
-              labelColor: const Color(0xFF0F172A),
-              unselectedLabelColor: const Color(0xFF64748B),
-              labelPadding: const EdgeInsets.symmetric(horizontal: 2),
-              labelStyle:
-                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 11.5),
-              unselectedLabelStyle:
-                  const TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5),
-              tabs: [
-                Tab(
-                  height: 36,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.people_alt_rounded, size: 15),
-                      const SizedBox(width: 5),
-                      Flexible(
-                        child: Text(
-                          clientTabText,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Tab(
-                  height: 36,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.inventory_2_rounded, size: 15),
-                      const SizedBox(width: 5),
-                      Flexible(
-                        child: Text(
-                          'Catálogo (${state.catalog.length})',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Tab(
-                  height: 36,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(Icons.receipt_long_rounded, size: 15),
-                      const SizedBox(width: 5),
-                      Flexible(
-                        child: Text(
-                          'Pedidos ($totalOrdersCount)',
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
+
+              // 3. Contenido dinámico según la sub-pestaña activa
+              if (_preventaTabCtrl.index == 0)
+                ..._buildClientsSlivers(clients, permisos, state)
+              else if (_preventaTabCtrl.index == 1)
+                ..._buildCatalogSlivers(state.catalog)
+              else
+                ..._buildOrdersHistorySlivers(pendingOrders, state),
+            ],
           ),
-
-          Expanded(
-            child: TabBarView(
-              controller: _preventaTabCtrl,
-              children: [
-                // 1. PESTAÑA: CLIENTES
-                _buildClientsTab(clients, permisos, state),
-
-                // 2. PESTAÑA: CATÁLOGO DE PRODUCTOS
-                _buildCatalogTab(state.catalog),
-
-                // 3. PESTAÑA: PEDIDOS LEVANTADOS / EN COLA
-                _buildOrdersHistoryTab(pendingOrders, state),
-              ],
-            ),
-          ),
-        ],
+        ),
       ),
-    ),
-  );
+    );
   }
 
-  Widget _buildClientsTab(
+  List<Widget> _buildClientsSlivers(
     List<RouteClient> clients,
     DriverPermissions permisos,
     RoutesState state,
   ) {
-    return Column(
-      children: [
-        Padding(
+    return [
+      SliverToBoxAdapter(
+        child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
           child: Row(
             children: [
@@ -2777,8 +2903,8 @@ class _OrdersAndNewClientsViewState
                     icon: const Icon(Icons.person_add_alt_1_rounded, size: 16),
                     label: const Text(
                       'Nuevo',
-                      style:
-                          TextStyle(fontWeight: FontWeight.w700, fontSize: 12.5),
+                      style: TextStyle(
+                          fontWeight: FontWeight.w700, fontSize: 12.5),
                     ),
                   ),
                 ),
@@ -2786,9 +2912,9 @@ class _OrdersAndNewClientsViewState
             ],
           ),
         ),
-
-        // Filtro rápido para "Por aprobar" (Compacto ejecutivo)
-        Padding(
+      ),
+      SliverToBoxAdapter(
+        child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           child: Row(
             children: [
@@ -2796,7 +2922,8 @@ class _OrdersAndNewClientsViewState
                 showCheckmark: false,
                 visualDensity: VisualDensity.compact,
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 label: const Text('Todos'),
                 labelStyle: TextStyle(
                   fontSize: 11.5,
@@ -2824,7 +2951,8 @@ class _OrdersAndNewClientsViewState
                 showCheckmark: false,
                 visualDensity: VisualDensity.compact,
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                 label: Text(
                   'Por Aprobar (${state.clients.where((c) => c.porAprobar).length})',
                 ),
@@ -2852,82 +2980,74 @@ class _OrdersAndNewClientsViewState
             ],
           ),
         ),
-
-        Expanded(
-          child: RefreshIndicator(
-            color: const Color(0xFF0886B5),
-            onRefresh: () =>
-                ref.read(routesProvider.notifier).loadClientsFromServer(query: _searchCtrl.text.trim()),
-            child: clients.isEmpty
-                ? ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 60),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(16),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFF1F5F9),
-                                shape: BoxShape.circle,
-                              ),
-                              child: Icon(
-                                _searchCtrl.text.trim().isNotEmpty
-                                    ? Icons.search_off_rounded
-                                    : Icons.search_rounded,
-                                size: 36,
-                                color: const Color(0xFF64748B),
-                              ),
-                            ),
-                            const SizedBox(height: 12),
-                            Text(
-                              _searchCtrl.text.trim().isNotEmpty
-                                  ? 'No se encontraron clientes'
-                                  : (_filterPorAprobarOnly
-                                      ? 'No hay clientes por aprobar'
-                                      : 'Buscar clientes'),
-                              style: const TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              _searchCtrl.text.trim().isNotEmpty
-                                  ? 'Ningún cliente coincide con "${_searchCtrl.text.trim()}".'
-                                  : (_filterPorAprobarOnly
-                                      ? 'No tienes clientes nuevos en espera de aprobación.'
-                                      : 'Escribe en el buscador de arriba para encontrar clientes por nombre, código o teléfono.'),
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 12.5,
-                                color: Color(0xFF64748B),
-                                height: 1.35,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  )
-                : ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                    itemCount: clients.length,
-                    itemBuilder: (context, idx) {
-                      final c = clients[idx];
-                      return _buildClientCard(c, permisos);
-                    },
+      ),
+      if (clients.isEmpty)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(
+                horizontal: 24, vertical: 60),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF1F5F9),
+                    shape: BoxShape.circle,
                   ),
+                  child: Icon(
+                    _searchCtrl.text.trim().isNotEmpty
+                        ? Icons.search_off_rounded
+                        : Icons.search_rounded,
+                    size: 36,
+                    color: const Color(0xFF64748B),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  _searchCtrl.text.trim().isNotEmpty
+                      ? 'No se encontraron clientes'
+                      : (_filterPorAprobarOnly
+                          ? 'No hay clientes por aprobar'
+                          : 'Buscar clientes'),
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _searchCtrl.text.trim().isNotEmpty
+                      ? 'Ningún cliente coincide con "${_searchCtrl.text.trim()}".'
+                      : (_filterPorAprobarOnly
+                          ? 'No tienes clientes nuevos en espera de aprobación.'
+                          : 'Escribe en el buscador de arriba para encontrar clientes por nombre, código o teléfono.'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    color: Color(0xFF64748B),
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        )
+      else
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 30),
+          sliver: SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, idx) {
+                final c = clients[idx];
+                return _buildClientCard(c, permisos);
+              },
+              childCount: clients.length,
+            ),
           ),
         ),
-      ],
-    );
+    ];
   }
 
   Widget _buildClientCard(RouteClient c, DriverPermissions permisos) {
@@ -3226,167 +3346,157 @@ class _OrdersAndNewClientsViewState
     );
   }
 
-  Widget _buildCatalogTab(List<CatalogProduct> catalog) {
-    return Column(
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: Container(
-            height: 40,
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: const Color(0xFFE2E8F0)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.02),
-                  blurRadius: 8,
-                  offset: const Offset(0, 2),
-                ),
-              ],
-            ),
-            child: TextField(
-              controller: _catalogSearchCtrl,
-              onChanged: (_) => setState(() {}),
-              textAlignVertical: TextAlignVertical.center,
-              style: const TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.normal,
-                color: Color(0xFF0F172A),
-              ),
-              decoration: InputDecoration(
-                hintText: 'Buscar producto por nombre o SKU...',
-                hintStyle: const TextStyle(
-                  fontSize: 12.5,
-                  color: Color(0xFF94A3B8),
-                  fontWeight: FontWeight.normal,
-                ),
-                prefixIcon: const Icon(
-                  Icons.search_rounded,
-                  color: Color(0xFF64748B),
-                  size: 18,
-                ),
-                prefixIconConstraints: const BoxConstraints(
-                  minWidth: 36,
-                  minHeight: 36,
-                ),
-                suffixIcon: _catalogSearchCtrl.text.isNotEmpty
-                    ? IconButton(
-                        icon: const Icon(Icons.close_rounded,
-                            size: 15, color: Color(0xFF64748B)),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(
-                          minWidth: 32,
-                          minHeight: 32,
-                        ),
-                        onPressed: () {
-                          _catalogSearchCtrl.clear();
-                          setState(() {});
-                        },
-                      )
-                    : null,
-                suffixIconConstraints: const BoxConstraints(
-                  minWidth: 32,
-                  minHeight: 32,
-                ),
-                filled: true,
-                fillColor: Colors.white,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
-                isDense: true,
-                border: OutlineInputBorder(
+  List<Widget> _buildCatalogSlivers(List<CatalogProduct> catalog) {
+    final query = _catalogSearchCtrl.text.trim().toLowerCase();
+    final filtered = query.isEmpty
+        ? catalog
+        : catalog.where((p) {
+            return p.nombre.toLowerCase().contains(query) ||
+                p.codigo.toLowerCase().contains(query);
+          }).toList();
+
+    return [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: Container(
+                height: 40,
+                decoration: BoxDecoration(
+                  color: Colors.white,
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.02),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide:
-                      const BorderSide(color: Color(0xFF0886B5), width: 1.2),
+                child: TextField(
+                  controller: _catalogSearchCtrl,
+                  onChanged: (_) => setState(() {}),
+                  textAlignVertical: TextAlignVertical.center,
+                  style: const TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.normal,
+                    color: Color(0xFF0F172A),
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'Buscar producto por nombre o SKU...',
+                    hintStyle: const TextStyle(
+                      fontSize: 12.5,
+                      color: Color(0xFF94A3B8),
+                      fontWeight: FontWeight.normal,
+                    ),
+                    prefixIcon: const Icon(
+                      Icons.search_rounded,
+                      color: Color(0xFF64748B),
+                      size: 18,
+                    ),
+                    prefixIconConstraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                    suffixIcon: _catalogSearchCtrl.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.close_rounded,
+                                size: 15, color: Color(0xFF64748B)),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(
+                              minWidth: 32,
+                              minHeight: 32,
+                            ),
+                            onPressed: () {
+                              _catalogSearchCtrl.clear();
+                              setState(() {});
+                            },
+                          )
+                        : null,
+                    suffixIconConstraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                    filled: true,
+                    fillColor: Colors.white,
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 0),
+                    isDense: true,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                          const BorderSide(color: Color(0xFF0886B5), width: 1.2),
+                    ),
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-        Expanded(
-          child: RefreshIndicator(
-            color: const Color(0xFF0886B5),
-            onRefresh: () =>
-                ref.read(routesProvider.notifier).loadCatalogFromServer(),
-            child: Builder(
-              builder: (context) {
-                final query = _catalogSearchCtrl.text.trim().toLowerCase();
-                final filtered = query.isEmpty
-                    ? catalog
-                    : catalog.where((p) {
-                        return p.nombre.toLowerCase().contains(query) ||
-                            p.codigo.toLowerCase().contains(query);
-                      }).toList();
-
-                if (filtered.isEmpty) {
-                  return ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 24, vertical: 70),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.all(18),
-                              decoration: const BoxDecoration(
-                                color: Color(0xFFF1F5F9),
-                                shape: BoxShape.circle,
-                              ),
-                              child: const Icon(
-                                Icons.inventory_2_outlined,
-                                size: 36,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                            const SizedBox(height: 14),
-                            Text(
-                              query.isNotEmpty
-                                  ? 'No se encontraron productos'
-                                  : 'Catálogo vacío',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w800,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                            const SizedBox(height: 6),
-                            Text(
-                              query.isNotEmpty
-                                  ? 'Ningún producto coincide con "$query".'
-                                  : 'No hay productos disponibles en el catálogo. Desliza hacia abajo para sincronizar con el servidor.',
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF64748B),
-                                height: 1.4,
-                              ),
-                            ),
-                          ],
-                        ),
+          if (filtered.isEmpty)
+            SliverFillRemaining(
+              hasScrollBody: false,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 24, vertical: 70),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFF1F5F9),
+                        shape: BoxShape.circle,
                       ),
-                    ],
-                  );
-                }
-
-                return ListView.separated(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  itemCount: filtered.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 10),
-                  itemBuilder: (context, idx) {
+                      child: const Icon(
+                        Icons.inventory_2_outlined,
+                        size: 36,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      query.isNotEmpty
+                          ? 'No se encontraron productos'
+                          : 'Catálogo vacío',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      query.isNotEmpty
+                          ? 'Ningún producto coincide con "$query".'
+                          : 'No hay productos disponibles en el catálogo. Desliza hacia abajo para sincronizar con el servidor.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF64748B),
+                        height: 1.4,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            SliverPadding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              sliver: SliverList(
+                delegate: SliverChildBuilderDelegate(
+                  (context, idx) {
                     final p = filtered[idx];
                     return Container(
+                      margin: const EdgeInsets.only(bottom: 10),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 12),
                       decoration: BoxDecoration(
@@ -3412,7 +3522,8 @@ class _OrdersAndNewClientsViewState
                             decoration: BoxDecoration(
                               color: const Color(0xFFF0F9FF),
                               borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: const Color(0xFFBAE6FD)),
+                              border:
+                                  Border.all(color: const Color(0xFFBAE6FD)),
                             ),
                             child: const Center(
                               child: Icon(
@@ -3477,25 +3588,27 @@ class _OrdersAndNewClientsViewState
                       ),
                     );
                   },
-                );
-              },
+                  childCount: filtered.length,
+                ),
+              ),
             ),
-          ),
-        ),
-      ],
-    );
+        ];
   }
 
-  Widget _buildOrdersHistoryTab(
+  List<Widget> _buildOrdersHistorySlivers(
     List<QueuedAction> pendingOrders,
     RoutesState state,
   ) {
     final syncedOrders = state.syncedOrders;
 
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        // 1. SECCIÓN: PEDIDOS EN COLA LOCAL (PENDIENTES DE SUBIR)
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 30),
+        sliver: SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. SECCIÓN: PEDIDOS EN COLA LOCAL (PENDIENTES DE SUBIR)
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -4004,8 +4117,11 @@ class _OrdersAndNewClientsViewState
               ),
             );
           }),
-      ],
-    );
+            ],
+          ),
+        ),
+      ),
+    ];
   }
 
   bool _isOrderClientDiscarded(SyncedOrder ord, List<RouteClient> clients) {
@@ -4148,6 +4264,30 @@ void _showEliminadoTopSnackBar(BuildContext context) {
     'Eliminado',
     style: SnackbarTopStyle.appleCard,
   );
+}
+
+class _PreventaSubTabsHeaderDelegate extends SliverPersistentHeaderDelegate {
+  final Widget child;
+  final double height;
+
+  _PreventaSubTabsHeaderDelegate({required this.child, required this.height});
+
+  @override
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    return child;
+  }
+
+  @override
+  double get maxExtent => height;
+
+  @override
+  double get minExtent => height;
+
+  @override
+  bool shouldRebuild(covariant _PreventaSubTabsHeaderDelegate oldDelegate) {
+    return oldDelegate.child != child || oldDelegate.height != height;
+  }
 }
 
 // =============================================================================
@@ -4305,28 +4445,29 @@ class _OrderDetailsModal extends ConsumerWidget {
 
     return MediaQuery(
       data: mediaQuery.copyWith(textScaler: clampedScaler),
-      child: SafeArea(
-        top: false,
-        child: Align(
-          alignment: Alignment.bottomCenter,
-          child: ConstrainedBox(
-            constraints: BoxConstraints(
-              maxWidth: 580,
-              maxHeight:
-                  isLandscape ? screenHeight * 0.94 : screenHeight * 0.85,
+      child: Align(
+        alignment: Alignment.bottomCenter,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 580,
+            maxHeight:
+                isLandscape ? screenHeight * 0.94 : screenHeight * 0.85,
+          ),
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
             ),
-            child: Container(
-              padding: EdgeInsets.fromLTRB(
-                isLandscape ? 16 : 20,
-                isLandscape ? 10 : 12,
-                isLandscape ? 16 : 20,
-                isLandscape ? 12 : 20,
-              ),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Column(
+            child: SafeArea(
+              top: false,
+              child: Padding(
+                padding: EdgeInsets.fromLTRB(
+                  isLandscape ? 16 : 20,
+                  isLandscape ? 10 : 12,
+                  isLandscape ? 16 : 20,
+                  isLandscape ? 12 : 20,
+                ),
+                child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   // Handle bar
@@ -4935,7 +5076,8 @@ class _OrderDetailsModal extends ConsumerWidget {
           ),
         ),
       ),
-    );
+    ),
+  );
   }
 }
 
@@ -5091,17 +5233,20 @@ class _NewClientFormSheetState extends ConsumerState<_NewClientFormSheet> {
     return MediaQuery(
       data: mediaQuery.copyWith(textScaler: clampedScaler),
       child: Container(
-      padding: EdgeInsets.only(
-        left: 20,
-        right: 20,
-        top: 10,
-        bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-      ),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      child: AbsorbPointer(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 20,
+              right: 20,
+              top: 10,
+              bottom: MediaQuery.of(context).viewInsets.bottom + 16,
+            ),
+            child: AbsorbPointer(
         absorbing: _isSaving,
         child: SingleChildScrollView(
           child: Column(
@@ -5249,7 +5394,9 @@ class _NewClientFormSheetState extends ConsumerState<_NewClientFormSheet> {
         ),
       ),
     ),
-  );
+  ),
+),
+);
   }
 }
 
@@ -5367,28 +5514,29 @@ class _StandaloneOrderSheetState extends ConsumerState<_StandaloneOrderSheet> {
       data: mediaQuery.copyWith(textScaler: clampedScaler),
       child: PopScope(
         canPop: !_isSaving,
-        child: SafeArea(
-          top: false,
-          child: Align(
-            alignment: Alignment.bottomCenter,
-            child: ConstrainedBox(
-              constraints: BoxConstraints(
-                maxWidth: 580,
-                maxHeight:
-                    isLandscape ? screenHeight * 0.94 : screenHeight * 0.85,
+        child: Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 580,
+              maxHeight:
+                  isLandscape ? screenHeight * 0.94 : screenHeight * 0.85,
+            ),
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
-              child: Container(
-                padding: EdgeInsets.fromLTRB(
-                  isLandscape ? 16 : 20,
-                  isLandscape ? 10 : 20,
-                  isLandscape ? 16 : 20,
-                  isLandscape ? 12 : 20,
-                ),
-                decoration: const BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                ),
-                child: AbsorbPointer(
+              child: SafeArea(
+                top: false,
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    isLandscape ? 16 : 20,
+                    isLandscape ? 10 : 20,
+                    isLandscape ? 16 : 20,
+                    isLandscape ? 12 : 20,
+                  ),
+                  child: AbsorbPointer(
                   absorbing: _isSaving,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -5673,6 +5821,7 @@ class _StandaloneOrderSheetState extends ConsumerState<_StandaloneOrderSheet> {
       ),
     ),
   ),
+),
 );
   }
 }

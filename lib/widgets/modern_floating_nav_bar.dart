@@ -65,6 +65,9 @@ class ModernFloatingNavBar extends StatelessWidget {
   /// Mostrar punto indicador debajo del icono seleccionado (por defecto false)
   final bool showDot;
 
+  /// Tamaño personalizado de iconos (opcional, para tablets)
+  final double? iconSize;
+
   const ModernFloatingNavBar({
     super.key,
     required this.currentIndex,
@@ -73,6 +76,7 @@ class ModernFloatingNavBar extends StatelessWidget {
     this.margin = const EdgeInsets.only(left: 18, right: 18, bottom: 8),
     this.height = 50.0,
     this.maxWidth,
+    this.iconSize,
     this.backgroundColor = Colors.white,
     this.activeCapsuleColor = const Color(0xFFE0F2FE),
     this.activeContentColor = const Color(0xFF0284C7),
@@ -94,13 +98,16 @@ class ModernFloatingNavBar extends StatelessWidget {
         maxWidth ?? (items.length * 82.0).clamp(240.0, 340.0);
     final double pillRadius = height / 2;
 
+    final double bottomMargin =
+        (margin is EdgeInsets) ? (margin as EdgeInsets).bottom : 8.0;
+
     return Align(
       alignment: Alignment.bottomCenter,
       child: Padding(
         padding: EdgeInsets.only(
           left: 20,
           right: 20,
-          bottom: bottomInset > 0 ? bottomInset + 8 : 16,
+          bottom: bottomInset > 0 ? bottomInset + bottomMargin : bottomMargin + 8,
         ),
         child: ConstrainedBox(
           constraints: BoxConstraints(maxWidth: effectiveMaxWidth),
@@ -252,14 +259,17 @@ class ModernFloatingNavBar extends StatelessWidget {
     Color contentColor,
   ) {
     if (item.isAvatar) {
+      final double avatarDiameter = iconSize != null
+          ? (isSelected ? iconSize! + 4 : iconSize! + 2)
+          : (isSelected ? 26 : 24);
       return Container(
-        width: isSelected ? 26 : 24,
-        height: isSelected ? 26 : 24,
+        width: avatarDiameter,
+        height: avatarDiameter,
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(
             color: isSelected ? contentColor : Colors.black.withOpacity(0.12),
-            width: isSelected ? 1.6 : 1.1,
+            width: isSelected ? 1.8 : 1.2,
           ),
         ),
         child: ClipOval(
@@ -287,32 +297,39 @@ class ModernFloatingNavBar extends StatelessWidget {
     final bool hasBadge =
         item.showBadge || (item.badgeCount != null && item.badgeCount! > 0);
 
+    final double baseIconSize = iconSize ?? 23.0;
+    final double activeIconSize =
+        iconSize != null ? iconSize! + 2.0 : 25.0;
+    final double boxSize = iconSize != null ? iconSize! + 8.0 : 28.0;
+
     return SizedBox(
-      width: 28,
-      height: 28,
+      width: boxSize,
+      height: boxSize,
       child: Stack(
         clipBehavior: Clip.none,
         alignment: Alignment.center,
         children: [
           Icon(
             displayIcon,
-            size: isSelected ? 25 : 23,
+            size: isSelected ? activeIconSize : baseIconSize,
             color: contentColor,
           ),
           if (hasBadge)
             Positioned(
-              top: -3,
-              right: -7,
+              top: iconSize != null ? -4 : -3,
+              right: iconSize != null ? -9 : -7,
               child: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-                constraints: const BoxConstraints(
-                  minWidth: 15,
-                  minHeight: 15,
+                padding: EdgeInsets.symmetric(
+                  horizontal: iconSize != null ? 5 : 4,
+                  vertical: iconSize != null ? 1.5 : 1,
+                ),
+                constraints: BoxConstraints(
+                  minWidth: iconSize != null ? 17 : 15,
+                  minHeight: iconSize != null ? 17 : 15,
                 ),
                 decoration: BoxDecoration(
                   color: item.badgeColor,
-                  borderRadius: BorderRadius.circular(9),
+                  borderRadius: BorderRadius.circular(10),
                   border: Border.all(color: backgroundColor, width: 1.5),
                   boxShadow: [
                     BoxShadow(
@@ -329,9 +346,9 @@ class ModernFloatingNavBar extends StatelessWidget {
                             ? '99+'
                             : '${item.badgeCount}')
                         : '',
-                    style: const TextStyle(
+                    style: TextStyle(
                       color: Colors.white,
-                      fontSize: 8.5,
+                      fontSize: iconSize != null ? 9.5 : 8.0,
                       fontWeight: FontWeight.w800,
                       height: 1.0,
                     ),
@@ -345,16 +362,18 @@ class ModernFloatingNavBar extends StatelessWidget {
   }
 
   Widget _fallbackAvatar(ModernNavItem item) {
+    final double avatarFontSize = iconSize != null ? (iconSize! * 0.42) : 10.0;
+    final double fallbackIconSize = iconSize != null ? (iconSize! * 0.55) : 14.0;
     if (item.userInitial != null && item.userInitial!.isNotEmpty) {
       return Container(
         color: const Color(0xFFE2E8F0),
         child: Center(
           child: Text(
             item.userInitial!.substring(0, 1).toUpperCase(),
-            style: const TextStyle(
-              fontSize: 10,
+            style: TextStyle(
+              fontSize: avatarFontSize,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF334155),
+              color: const Color(0xFF334155),
             ),
           ),
         ),
@@ -362,10 +381,10 @@ class ModernFloatingNavBar extends StatelessWidget {
     }
     return Container(
       color: const Color(0xFFE2E8F0),
-      child: const Icon(
+      child: Icon(
         Icons.person,
-        size: 14,
-        color: Color(0xFF475569),
+        size: fallbackIconSize,
+        color: const Color(0xFF475569),
       ),
     );
   }

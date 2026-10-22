@@ -7,7 +7,6 @@ import 'package:mark_v3/providers/Home_/home_provider.dart';
 import 'package:mark_v3/providers/Notification_/notifications_provider.dart';
 import 'package:mark_v3/providers/Routes_/routes_provider.dart';
 import 'package:mark_v3/utils/responsive_utils.dart';
-import 'package:mark_v3/widgets/tablet_nav_rail.dart';
 import 'profile_page.dart';
 import 'home_page_content.dart';
 import 'notifications_page.dart';
@@ -298,77 +297,58 @@ class _HomePageState extends ConsumerState<HomePage>
             elevation: 0,
           ),
         ),
-        body: isTablet
-            // ── LAYOUT TABLET: NavigationRail lateral + contenido a la derecha ──
-            ? Row(
-                children: [
-                  TabletNavRail(
-                    currentIndex: homeState.selectedNavIndex,
-                    items: navItems,
-                    onTap: handleNavTap,
-                    backgroundColor: Colors.white,
-                    activeContentColor: const Color(0xFF0284C7),
-                    activeCapsuleColor: const Color(0xFFE0F2FE),
-                    inactiveContentColor: const Color(0xFF64748B),
-                  ),
-                  Expanded(
-                    child: MediaQuery(
-                      data: MediaQuery.of(context).copyWith(
-                        padding:
-                            MediaQuery.of(context).padding.copyWith(left: 0),
-                      ),
-                      child: IndexedStack(
-                        index: homeState.selectedNavIndex,
-                        children: pages,
-                      ),
+        body: Stack(
+          children: [
+            IndexedStack(
+              index: homeState.selectedNavIndex,
+              children: pages,
+            ),
+            // Difuminado inferior sutil estilo iOS
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: isTablet ? 128 : 82,
+              child: IgnorePointer(
+                child: Container(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [
+                        const Color(0xFFF2F4F7).withOpacity(0.0),
+                        const Color(0xFFF2F4F7).withOpacity(0.85),
+                      ],
                     ),
                   ),
-                ],
-              )
-            // ── LAYOUT MÓVIL: Bottom floating nav bar original ──
-            : Stack(
-                children: [
-                  IndexedStack(
-                    index: homeState.selectedNavIndex,
-                    children: pages,
-                  ),
-                  // Difuminado inferior sutil estilo iOS
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    height: 82,
-                    child: IgnorePointer(
-                      child: Container(
-                        decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            begin: Alignment.topCenter,
-                            end: Alignment.bottomCenter,
-                            colors: [
-                              const Color(0xFFF2F4F7).withOpacity(0.0),
-                              const Color(0xFFF2F4F7).withOpacity(0.85),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: ModernFloatingNavBar(
-                      currentIndex: homeState.selectedNavIndex,
-                      backgroundColor: Colors.white,
-                      activeContentColor: const Color(0xFF0284C7),
-                      activeCapsuleColor: const Color(0xFFE0F2FE),
-                      inactiveContentColor: const Color(0xFF64748B),
-                      onTap: handleNavTap,
-                      items: navItems,
-                    ),
-                  ),
-                ],
+                ),
               ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: ModernFloatingNavBar(
+                currentIndex: homeState.selectedNavIndex,
+                backgroundColor: Colors.white,
+                activeContentColor: const Color(0xFF0284C7),
+                activeCapsuleColor: const Color(0xFFE0F2FE),
+                inactiveContentColor: const Color(0xFF64748B),
+                height: isTablet ? 74.0 : 50.0,
+                maxWidth: isTablet ? 580.0 : null,
+                iconSize: isTablet ? 34.0 : null,
+                margin: isTablet
+                    ? const EdgeInsets.only(left: 24, right: 24, bottom: 22)
+                    : const EdgeInsets.only(left: 18, right: 18, bottom: 8),
+                onTap: handleNavTap,
+                items: navItems,
+                showCapsule: false,
+                showLabels: false,
+                showDot: false,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
