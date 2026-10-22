@@ -443,6 +443,55 @@ class MarkApiClient {
   }
 
   // ===========================================================================
+  // 1.1. GESTIÓN Y RECUPERACIÓN DE CONTRASEÑA (Ronda 144)
+  // ===========================================================================
+
+  /// Solicitar código de recuperación al correo (a=recuperarPassword, sin token)
+  Future<Map<String, dynamic>> recuperarPassword(String usuarioOCorreo) async {
+    final body = usuarioOCorreo.contains('@')
+        ? {'correo': usuarioOCorreo.trim()}
+        : {'usuario': usuarioOCorreo.trim()};
+    return await _postAction('recuperarPassword', body);
+  }
+
+  /// Verificar código OTP de recuperación recibido por correo (a=verificarCodigoRecuperacion, sin token)
+  Future<Map<String, dynamic>> verificarCodigoRecuperacion({
+    required String usuarioOCorreo,
+    required String codigo,
+  }) async {
+    final body = <String, dynamic>{
+      if (usuarioOCorreo.contains('@')) 'correo': usuarioOCorreo.trim() else 'usuario': usuarioOCorreo.trim(),
+      'codigo': codigo.trim(),
+    };
+    return await _postAction('verificarCodigoRecuperacion', body);
+  }
+
+  /// Restablecer la contraseña con el resetToken obtenido (a=restablecerPassword, sin token)
+  Future<Map<String, dynamic>> restablecerPassword({
+    required String resetToken,
+    required String passwordNuevo,
+  }) async {
+    return await _postAction('restablecerPassword', {
+      'resetToken': resetToken.trim(),
+      'passwordNuevo': passwordNuevo,
+    });
+  }
+
+  /// Cambiar contraseña de la cuenta activa (a=cambiarPassword, con token)
+  Future<Map<String, dynamic>> cambiarPassword({
+    required String passwordActual,
+    required String passwordNuevo,
+    bool cerrarOtras = true,
+    String? tokenOverride,
+  }) async {
+    return await _postAction('cambiarPassword', {
+      'passwordActual': passwordActual,
+      'passwordNuevo': passwordNuevo,
+      'cerrarOtras': cerrarOtras,
+    }, customToken: tokenOverride);
+  }
+
+  // ===========================================================================
   // 2. LECTURAS DE FLOTA (Ronda 133)
   // ===========================================================================
 

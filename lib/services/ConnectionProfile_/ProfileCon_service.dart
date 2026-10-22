@@ -188,17 +188,26 @@ class ProfileconService {
     return photoUuid;
   }
 
-  /// Cambiar contraseña
+  /// Cambiar contraseña (a=cambiarPassword)
   Future<bool> updatePassword({
     required String usuario,
     required String currentPassword,
     required String newPassword,
     required String idMainAccount,
     String? userId,
+    bool cerrarOtras = true,
   }) async {
-    // Por el momento se maneja seguro mediante las acciones o soporte web de contraseñas
-    debugPrint('Solicitud de cambio de contraseña para usuario: $usuario');
-    return true;
+    try {
+      final res = await _client.cambiarPassword(
+        passwordActual: currentPassword,
+        passwordNuevo: newPassword,
+        cerrarOtras: cerrarOtras,
+      );
+      return res['ok'] == true;
+    } catch (e) {
+      debugPrint('Error en ProfileconService.updatePassword: $e');
+      rethrow;
+    }
   }
 
   /// Obtener licencia del colaborador actual (extraída desde a=perfil)

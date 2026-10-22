@@ -432,7 +432,10 @@ class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
               ], // Teal
               label: 'Capacidad del Tanque',
               value: vehicle.capacidadTanque.isNotEmpty
-                  ? '${vehicle.capacidadTanque} L'
+                  ? (vehicle.capacidadTanque.contains('L') ||
+                          vehicle.capacidadTanque.contains('Gal')
+                      ? vehicle.capacidadTanque
+                      : '${vehicle.capacidadTanque} L')
                   : 'N/A',
             ),
             _buildDetailRow(
@@ -442,8 +445,11 @@ class _MyVehiclePageState extends ConsumerState<MyVehiclePage> {
                 Color(0xFF3B82F6)
               ], // Royal Blue
               label: 'Promedio de Consumo',
-              value:
-                  vehicle.promConsumo.isNotEmpty ? vehicle.promConsumo : 'N/A',
+              value: vehicle.promConsumo.isNotEmpty
+                  ? (vehicle.promConsumo.contains('km')
+                      ? vehicle.promConsumo
+                      : '${vehicle.promConsumo} km/L')
+                  : 'N/A',
             ),
             _buildDetailRow(
               icon: Icons.verified_outlined,

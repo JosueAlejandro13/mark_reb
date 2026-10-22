@@ -106,9 +106,13 @@ class InspeccionconService {
       debugPrint('Resultado crearInspeccionYItems via a=acciones: $res');
       if (res.isNotEmpty && (res.first['ok'] == false || res.first['estado'] == 'rechazada')) {
         final avisos = res.first['avisos'] as List? ?? [];
-        final errorTexto = avisos.isNotEmpty
-            ? avisos.first['texto']?.toString()
-            : 'Acción rechazada por el servidor.';
+        final primerAviso = avisos.isNotEmpty ? avisos.first as Map? : null;
+        final codigoAviso = primerAviso?['codigo']?.toString();
+        final errorTexto = primerAviso?['texto']?.toString() ?? 'Acción rechazada por el servidor.';
+
+        if (codigoAviso == 'INSPECCION_DUPLICADA') {
+          throw Exception('Ya se realizó una inspección preoperativa para esta unidad hoy.');
+        }
         throw Exception(errorTexto);
       }
 
@@ -161,6 +165,11 @@ class InspeccionconService {
             'enableStorePhoto': p['fotoSiFalla'] == true || p['enableStorePhoto'] == 1 ? 1 : 0,
             'periodicity': p['periodicidad'] ?? p['periodicity'] ?? 1,
             'lastInspectionDate': p['ultima']?.toString(),
+            // Ronda 144 additions:
+            'puedeHoy': p['puedeHoy'],
+            'hoyHecha': p['hoyHecha'],
+            'idInspeccionHoy': p['idInspeccionHoy'],
+            'ultimaInspeccion': p['ultimaInspeccion'],
           };
         }).toList();
       }

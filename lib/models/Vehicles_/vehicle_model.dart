@@ -81,16 +81,37 @@ class Vehicle {
             'Activo')
         .toString();
     final colorValue = (map['color'] ?? map['ColorEngo'] ?? '').toString();
-    final vinValue = (map['vin'] ?? map['engineNumber'] ?? '').toString();
-    final platesValue = (map['placas'] ?? map['plates'] ?? '').toString();
+    final vinValue =
+        (map['vin'] ?? map['serie'] ?? map['engineNumber'] ?? '').toString().trim();
+    final platesValue = (map['placas'] ?? map['plates'] ?? '').toString().trim();
     final idValue =
         (map['idVehic'] ?? map['idvehic'] ?? map['id'] ?? '').toString();
-    final tankCapacity =
-        (map['capacidadTanque'] ?? map['fuelTankCapacity'] ?? '').toString();
+
+    String tankCapacity =
+        (map['capacidadTanque'] ?? map['fuelTankCapacity'] ?? '').toString().trim();
+    if (tankCapacity == '0' || tankCapacity == '0.0') tankCapacity = '';
+
     final vehicleType =
-        (map['tipoVehiculoNombre'] ?? map['tipo'] ?? '').toString();
+        (map['tipoVehiculoNombre'] ?? map['tipoVehiculo'] ?? map['tipo'] ?? '').toString().trim();
     final fuelType =
-        (map['tipoCombustibleNombre'] ?? map['combustible'] ?? '').toString();
+        (map['tipoCombustibleNombre'] ?? map['tipoCombustible'] ?? map['combustible'] ?? '').toString().trim();
+
+    String cilindradaValue =
+        (map['cilindrada'] ?? map['motor'] ?? '').toString().trim();
+    if (cilindradaValue == '0' || cilindradaValue == '0.0') cilindradaValue = '';
+
+    String nCilindrosValue =
+        (map['nCilindros'] ?? map['cilindros'] ?? map['noCilindros'] ?? '').toString().trim();
+    if (nCilindrosValue == '0') nCilindrosValue = '';
+
+    String promConsumoValue = (map['promConsumoTexto'] ??
+            map['rendimientoTexto'] ??
+            map['promConsumo'] ??
+            map['rendimiento'] ??
+            '')
+        .toString()
+        .trim();
+    if (promConsumoValue == '0' || promConsumoValue == '0.0') promConsumoValue = '';
 
     final rawFoto = (map['foto'] ?? map['photo'] ?? '').toString().trim();
     final photoValue = rawFoto.isNotEmpty
@@ -106,9 +127,9 @@ class Vehicle {
       make: makeValue,
       model: modelValue,
       year: yearValue,
-      cilindrada: map['cilindrada']?.toString() ?? '',
-      nCilindros: map['nCilindros']?.toString() ?? '',
-      promConsumo: map['promConsumo']?.toString() ?? '',
+      cilindrada: cilindradaValue,
+      nCilindros: nCilindrosValue,
+      promConsumo: promConsumoValue,
       capacidadTanque: tankCapacity,
       color: colorValue,
       tipoVehiculoNombre: vehicleType,
