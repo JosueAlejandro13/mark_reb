@@ -121,12 +121,14 @@ class TrackingNotifier extends Notifier<TrackingState> {
     return const TrackingState();
   }
 
-  Future<void> loadDevices(String userId) async {
-    state = state.copyWith(
-      isLoading: true,
-      hasError: false,
-      errorMessage: null,
-    );
+  Future<void> loadDevices(String userId, {bool showLoading = true}) async {
+    if (showLoading) {
+      state = state.copyWith(
+        isLoading: true,
+        hasError: false,
+        errorMessage: null,
+      );
+    }
 
     try {
       final tracking = await _dbService.getDevicesBySubAccount(userId);

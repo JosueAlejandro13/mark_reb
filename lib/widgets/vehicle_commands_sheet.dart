@@ -285,7 +285,7 @@ class _VehicleCommandsSheetState extends State<VehicleCommandsSheet> {
           children: [
             // Drag handle & Header estático
             Padding(
-              padding: const EdgeInsets.fromLTRB(20, 12, 12, 8),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 8),
               child: Column(
                 children: [
                   Center(
@@ -327,12 +327,6 @@ class _VehicleCommandsSheetState extends State<VehicleCommandsSheet> {
                             ),
                           ],
                         ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close_rounded,
-                            color: Color(0xFF64748B)),
-                        onPressed: () => Navigator.pop(context),
-                        tooltip: 'Cerrar',
                       ),
                     ],
                   ),

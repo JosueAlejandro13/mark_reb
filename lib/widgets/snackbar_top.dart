@@ -411,24 +411,13 @@ class SnackbarTopWidget extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              // Badge circular con color suave del sistema Apple
-              Container(
-                width: 38,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: cfg.lightBgColor,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                    color: cfg.lightBorderColor.withOpacity(0.7),
-                    width: 0.9,
-                  ),
-                ),
-                child: Center(
-                  child: Icon(
-                    cfg.icon,
-                    color: cfg.accentColor,
-                    size: 20,
-                  ),
+              // Ícono limpio sin fondo pastel
+              Padding(
+                padding: const EdgeInsets.only(left: 4),
+                child: Icon(
+                  cfg.icon,
+                  color: cfg.accentColor,
+                  size: 24,
                 ),
               ),
               const SizedBox(width: 12),

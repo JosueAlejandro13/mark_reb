@@ -430,6 +430,33 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
               ),
             ),
 
+            // BOTÓN RELOAD FLOTANTE (debajo de controles derecha)
+            Positioned(
+              right: isSmallScreen ? 10 : 16,
+              top: mediaQuery.padding.top + 76 + _floatingControlsHeight(trackingState) + 8,
+              child: _buildFloatingReloadButton(context, notifier),
+            ),
+
+            // BOTÓN FLOTA FLOTANTE (debajo de la flecha, izquierda)
+            Positioned(
+              left: isSmallScreen ? 10 : 16,
+              top: mediaQuery.padding.top + 76,
+              child: _buildFloatingFleetButton(context, trackingState, notifier),
+            ),
+
+            // BOTÓN REGRESAR A FLOTILLA (solo si hay vehículo seleccionado)
+            if (trackingState.selectedVehicleId != null)
+              Positioned(
+                right: isSmallScreen ? 10 : 16,
+                top: mediaQuery.padding.top +
+                    76 +
+                    _floatingControlsHeight(trackingState) +
+                    8 +
+                    (Theme.of(context).platform == TargetPlatform.iOS ? 48 : 42) +
+                    8,
+                child: _buildFloatingBackToFleetButton(context, trackingState, notifier),
+              ),
+
             // TARJETA INFERIOR FLOTANTE DE VEHÍCULO SELECCIONADO
             if (selectedDevice != null)
               Positioned(
@@ -445,8 +472,8 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
                 ),
               ),
 
-            // SKELETON Y LOADING FLOTANTE APPLE
-            if (trackingState.isLoading) ...[
+            // SKELETON Y LOADING FLOTANTE APPLE (solo en carga inicial si no hay unidades)
+            if (trackingState.isLoading && trackingState.devices.isEmpty) ...[
               // Shimmer bar flotante superior
               Positioned(
                 top: mediaQuery.padding.top + 8,
@@ -632,86 +659,174 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
             ),
           ),
 
-          // Botón Recargar Flota Manual
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () {
-                notifier.loadDevices(widget.userId);
-                _showSnackBar('Actualizando lista de unidades...');
-              },
-              child: Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                child: const Icon(
-                  Icons.refresh_rounded,
-                  size: 18,
-                  color: Color(0xFF0284C7),
-                ),
-              ),
-            ),
-          ),
-
-          const SizedBox(width: 8),
-
-          // Botón Lista de Flota
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(12),
-              onTap: () => _showFleetModalSheet(context, state, notifier),
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 10,
-                  vertical: 7,
-                ),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0284C7),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(
-                      Icons.directions_car_rounded,
-                      size: 16,
-                      color: Colors.white,
-                    ),
-                    const SizedBox(width: 5),
-                    Text(
-                      '$totalCount',
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        fontWeight: FontWeight.w800,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
+          // (Reload y Flota ahora son botones flotantes independientes)
         ],
       ),
     );
   }
 
-  // CONTROLES LATERALES FLOTANTES DEL MAPA
+  // Altura estimada de la cápsula de controles (2 botones × 48px + 1 divider × 1px)
+  double _floatingControlsHeight(TrackingState state) {
+    return 2 * 48.0 + 1.0;
+  }
+
+  // BOTÓN RELOAD FLOTANTE
+  Widget _buildFloatingReloadButton(
+    BuildContext context,
+    TrackingNotifier notifier,
+  ) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+    final double size = isIOS ? 48 : 42;
+    return Material(
+      color: Colors.transparent,
+      child: Tooltip(
+        message: 'Actualizar unidades',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+          onTap: () {
+            notifier.loadDevices(widget.userId, showLoading: false);
+            _showSnackBar('Unidades Actualizadas..');
+          },
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.96),
+              borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.refresh_rounded,
+              size: isIOS ? 24 : 20,
+              color: const Color(0xFF0284C7),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // BOTÓN FLOTA FLOTANTE
+  Widget _buildFloatingFleetButton(
+    BuildContext context,
+    TrackingState state,
+    TrackingNotifier notifier,
+  ) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+    final double size = isIOS ? 48 : 42;
+    final int totalCount = state.devices.length;
+    return Material(
+      color: Colors.transparent,
+      child: Tooltip(
+        message: 'Lista de unidades',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+          onTap: () => _showFleetModalSheet(context, state, notifier),
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: const Color(0xFF0284C7),
+              borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+              boxShadow: [
+                BoxShadow(
+                  color: const Color(0xFF0284C7).withOpacity(0.35),
+                  blurRadius: 14,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.directions_car_rounded,
+                  size: isIOS ? 18 : 16,
+                  color: Colors.white,
+                ),
+                Text(
+                  '$totalCount',
+                  style: TextStyle(
+                    fontSize: isIOS ? 11 : 10,
+                    fontWeight: FontWeight.w800,
+                    color: Colors.white,
+                    height: 1.1,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // BOTÓN REGRESAR A FLOTILLA FLOTANTE
+  Widget _buildFloatingBackToFleetButton(
+    BuildContext context,
+    TrackingState state,
+    TrackingNotifier notifier,
+  ) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+    final double size = isIOS ? 48 : 42;
+    return Material(
+      color: Colors.transparent,
+      child: Tooltip(
+        message: 'Regresar a la flotilla',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+          onTap: () {
+            notifier.selectVehicle(null);
+            _fitAllVehicles(state.devices);
+          },
+          child: Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              color: Colors.white.withOpacity(0.96),
+              borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.08),
+                  blurRadius: 16,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.zoom_out_map_rounded,
+              size: isIOS ? 24 : 20,
+              color: const Color(0xFF475569),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+
   Widget _buildFloatingMapControls(
     BuildContext context,
     TrackingState state,
     TrackingNotifier notifier,
   ) {
+    final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.96),
-        borderRadius: BorderRadius.circular(16),
+        borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
@@ -729,6 +844,7 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
             icon: Icons.layers_rounded,
             tooltip: 'Tipo de Mapa',
             isActive: state.mapType != MapType.normal,
+            isIOS: isIOS,
             onTap: () {
               notifier.toggleMapType();
               final label = switch (state.mapType) {
@@ -746,47 +862,13 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
             icon: Icons.traffic_rounded,
             tooltip: 'Tráfico en tiempo real',
             isActive: state.showTraffic,
+            isIOS: isIOS,
             onTap: () {
               notifier.toggleTraffic();
               _showSnackBar(
                 state.showTraffic
                     ? 'Capa de tráfico desactivada'
                     : 'Capa de tráfico activada',
-              );
-            },
-          ),
-          const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-          // Encuadrar toda la flota
-          _buildMapControlButton(
-            icon: Icons.zoom_out_map_rounded,
-            tooltip: 'Ver toda la flota',
-            isActive: false,
-            onTap: () {
-              _fitAllVehicles(state.devices);
-              _showSnackBar('Enfocando toda la flota');
-            },
-          ),
-          const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-          // Centrar en ubicación del usuario (GPS)
-          _buildMapControlButton(
-            icon: Icons.my_location_rounded,
-            tooltip: 'Mi ubicación GPS',
-            isActive: false,
-            onTap: _centerOnUserLocation,
-          ),
-          const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-          // Alertas de Telemetría GPS de toda la flota
-          _buildMapControlButton(
-            icon: Icons.notifications_active_rounded,
-            tooltip: 'Alertas GPS de la flota',
-            isActive: false,
-            onTap: () {
-              VehicleAlertsSheet.show(
-                context,
-                title: 'Alertas de Flota',
               );
             },
           ),
@@ -800,21 +882,26 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     required String tooltip,
     required bool isActive,
     required VoidCallback onTap,
+    bool isIOS = false,
   }) {
+    final double buttonSize = isIOS ? 48 : 42;
+    final double iconSize = isIOS ? 24 : 20;
+    final double borderRadius = isIOS ? 16 : 14;
+
     return Material(
       color: Colors.transparent,
       child: Tooltip(
         message: tooltip,
         child: InkWell(
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(borderRadius),
           onTap: onTap,
           child: Container(
-            width: 42,
-            height: 42,
+            width: buttonSize,
+            height: buttonSize,
             alignment: Alignment.center,
             child: Icon(
               icon,
-              size: 20,
+              size: iconSize,
               color:
                   isActive ? const Color(0xFF0284C7) : const Color(0xFF475569),
             ),
@@ -1099,7 +1186,7 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
                       color: Colors.white,
                     ),
                     label: const Text(
-                      'Centrar en Mapa',
+                      'Centrar Map',
                       style: TextStyle(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w700,
@@ -1287,47 +1374,35 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 20),
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Row(
-                              children: [
-                                const Text(
-                                  'Flota de Unidades',
-                                  style: TextStyle(
-                                    fontSize: 17,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF0F172A),
-                                    letterSpacing: -0.2,
-                                  ),
-                                ),
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 8,
-                                    vertical: 3,
-                                  ),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF0284C7)
-                                        .withOpacity(0.1),
-                                    borderRadius: BorderRadius.circular(12),
-                                  ),
-                                  child: Text(
-                                    '${curState.devices.length}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFF0284C7),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                            IconButton(
-                              icon: const Icon(
-                                Icons.close_rounded,
-                                color: Color(0xFF64748B),
+                            const Text(
+                              'Flota de Unidades',
+                              style: TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                                letterSpacing: -0.2,
                               ),
-                              onPressed: () => Navigator.pop(ctx),
+                            ),
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 3,
+                              ),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0284C7)
+                                    .withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                              child: Text(
+                                '${curState.devices.length}',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0284C7),
+                                ),
+                              ),
                             ),
                           ],
                         ),
@@ -1800,104 +1875,107 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (ctx) {
-        return DraggableScrollableSheet(
-          initialChildSize: 0.70,
-          minChildSize: 0.40,
-          maxChildSize: 0.95,
-          builder: (_, scrollController) {
-            return Container(
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-              ),
-              child: Column(
-                children: [
-                  // Handle
-                  const SizedBox(height: 12),
-                  Center(
-                    child: Container(
-                      width: 44,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE2E8F0),
-                        borderRadius: BorderRadius.circular(10),
-                      ),
+        final mq = MediaQuery.of(ctx);
+        final maxHeight = mq.size.height * 0.60;
+        return Padding(
+          padding: EdgeInsets.only(bottom: mq.viewInsets.bottom),
+          child: Container(
+            constraints: BoxConstraints(maxHeight: maxHeight),
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Handle
+                const SizedBox(height: 12),
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 5,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE2E8F0),
+                      borderRadius: BorderRadius.circular(10),
                     ),
                   ),
-                  const SizedBox(height: 14),
+                ),
+                const SizedBox(height: 14),
 
-                  // Header Ficha
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 20),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Text(
-                                  economico,
-                                  style: const TextStyle(
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.w800,
-                                    color: Color(0xFF0F172A),
-                                    letterSpacing: -0.2,
+                // Header Ficha
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              Text(
+                                economico,
+                                style: const TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0F172A),
+                                  letterSpacing: -0.2,
+                                ),
+                              ),
+                              if (placas.isNotEmpty) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 7,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: const Color(0xFFCBD5E1),
+                                    ),
+                                  ),
+                                  child: Text(
+                                    placas,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF475569),
+                                    ),
                                   ),
                                 ),
-                                if (placas.isNotEmpty) ...[
-                                  const SizedBox(width: 8),
-                                  Container(
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 7,
-                                      vertical: 2,
-                                    ),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFF1F5F9),
-                                      borderRadius: BorderRadius.circular(6),
-                                      border: Border.all(
-                                        color: const Color(0xFFCBD5E1),
-                                      ),
-                                    ),
-                                    child: Text(
-                                      placas,
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: Color(0xFF475569),
-                                      ),
-                                    ),
-                                  ),
-                                ],
                               ],
+                            ],
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            '$make $model ($year)'.trim(),
+                            style: const TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF64748B),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '$make $model ($year)'.trim(),
-                              style: const TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w500,
-                                color: Color(0xFF64748B),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-
-                  const SizedBox(height: 10),
-                  const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-                  // Contenido con Scroll
-                  Expanded(
-                    child: ListView(
-                      controller: scrollController,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 16,
+                          ),
+                        ],
                       ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+                const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+                // Contenido con Scroll acotado
+                Flexible(
+                  child: SingleChildScrollView(
+                    padding: EdgeInsets.fromLTRB(
+                      20,
+                      16,
+                      20,
+                      mq.padding.bottom + 16,
+                    ),
+                    child: Column(
                       children: [
                         // Grupo 1: Identificación
                         _buildDetailSectionCard(
@@ -1910,46 +1988,11 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
                             _DetailRowItem(label: 'Marca', value: make),
                             _DetailRowItem(label: 'Modelo', value: model),
                             _DetailRowItem(label: 'Año', value: year),
-                            _DetailRowItem(
-                                label: 'SubCuenta ID', value: subAccount),
                           ],
                         ),
-
                         const SizedBox(height: 14),
 
-                        // Grupo 2: Telemetría y Batería
-                        _buildDetailSectionCard(
-                          title: 'TELEMETRÍA Y SISTEMA ELÉCTRICO',
-                          icon: Icons.electric_car_outlined,
-                          rows: [
-                            _DetailRowItem(
-                              label: 'Estado del Motor',
-                              value: isGreen
-                                  ? 'Encendido / En marcha'
-                                  : 'Apagado / Detenido',
-                              customColor: isGreen
-                                  ? const Color(0xFF10B981)
-                                  : const Color(0xFF64748B),
-                            ),
-                            _DetailRowItem(
-                              label: 'Nivel de Batería',
-                              value: battery,
-                              customColor: const Color(0xFF0284C7),
-                            ),
-                            _DetailRowItem(
-                              label: 'Salud de Batería',
-                              value: batteryHealth,
-                            ),
-                            _DetailRowItem(
-                              label: 'Dirección Cardinal',
-                              value: dirStr,
-                            ),
-                          ],
-                        ),
-
-                        const SizedBox(height: 14),
-
-                        // Grupo 3: Posicionamiento y Fecha
+                        // Grupo 2: Posicionamiento y Fecha
                         _buildDetailSectionCard(
                           title: 'LOCALIZACIÓN Y TIEMPO',
                           icon: Icons.location_on_outlined,
@@ -1962,59 +2005,18 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
                             ),
                           ],
                         ),
-
-                        const SizedBox(height: 20),
-
-                        // Botón de Centrar
-                        SizedBox(
-                          width: double.infinity,
-                          height: 46,
-                          child: ElevatedButton.icon(
-                            onPressed: () {
-                              Navigator.pop(ctx);
-                              final lat = _parseCoordinate(device['lat']);
-                              final lng = _parseCoordinate(device['lng']);
-                              if (lat != 0.0 && lng != 0.0) {
-                                _animateCameraToPosition(
-                                  LatLng(lat, lng),
-                                  17.0,
-                                );
-                              }
-                            },
-                            icon: const Icon(
-                              Icons.my_location_rounded,
-                              size: 17,
-                              color: Colors.white,
-                            ),
-                            label: const Text(
-                              'Enfocar en Mapa',
-                              style: TextStyle(
-                                fontSize: 13.5,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.white,
-                              ),
-                            ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF0284C7),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(12),
-                              ),
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                   ),
-                ],
-              ),
-            );
-          },
+                ),
+              ],
+            ),
+          ),
         );
       },
     );
   }
+
 
   Widget _buildDetailSectionCard({
     required String title,
