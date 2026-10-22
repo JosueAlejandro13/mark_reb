@@ -1081,6 +1081,9 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   final Map<int, bool> _stopExpandedOverride = {};
   MapType _mapType = MapType.normal;
   bool _showTraffic = false;
+  bool _showJourneyEstimates = true;
+  bool _showMapControls = true;
+  bool _isTopBarCollapsed = false;
   late AnimationController _pulseController;
 
   @override
@@ -2380,8 +2383,13 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     required DriverRoute route,
     required bool isSmallScreen,
   }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeInOutCubic,
+      padding: EdgeInsets.symmetric(
+        horizontal: _isTopBarCollapsed ? 6 : 10,
+        vertical: _isTopBarCollapsed ? 6 : 8,
+      ),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.96),
         borderRadius: BorderRadius.circular(16),
@@ -2395,6 +2403,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
         ],
       ),
       child: Row(
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Botón Atrás: solo visible cuando no está embebido en split view de tablet
           if (!widget.isEmbedded) ...[
@@ -2419,71 +2428,104 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                 ),
               ),
             ),
-            const SizedBox(width: 10),
+            if (!_isTopBarCollapsed) const SizedBox(width: 10),
+            if (_isTopBarCollapsed) const SizedBox(width: 6),
           ],
 
-          // Título y Estado de Ruta
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  route.nombre,
-                  style: const TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF0F172A),
-                    letterSpacing: -0.3,
+          // Título y Estado de Ruta (se oculta al retraerse)
+          if (!_isTopBarCollapsed) ...[
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    route.nombre,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                      letterSpacing: -0.3,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                const SizedBox(height: 2),
-                Row(
-                  children: [
-                    FadeTransition(
-                      opacity: _pulseController,
-                      child: Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          color: route.isTerminada
-                              ? const Color(0xFF64748B)
-                              : (route.isActiva
-                                  ? const Color(0xFF10B981)
-                                  : const Color(0xFFD97706)),
-                          shape: BoxShape.circle,
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      FadeTransition(
+                        opacity: _pulseController,
+                        child: Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: route.isTerminada
+                                ? const Color(0xFF64748B)
+                                : (route.isActiva
+                                    ? const Color(0xFF10B981)
+                                    : const Color(0xFFD97706)),
+                            shape: BoxShape.circle,
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(width: 5),
-                    Expanded(
-                      child: Text(
-                        '${route.modalidadNombre} · ${route.visitedClientStops}/${route.totalClientStops} paradas',
-                        style: const TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w500,
-                          color: Color(0xFF64748B),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          '${route.modalidadNombre} · ${route.visitedClientStops}/${route.totalClientStops} paradas',
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF64748B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
-                    ),
-                  ],
-                ),
-              ],
+                    ],
+                  ),
+                ],
+              ),
             ),
-          ),
+            const SizedBox(width: 8),
+          ],
+
+          // Botón para retraer / expandir la barra
+          if (!widget.isEmbedded)
+            Material(
+              color: Colors.transparent,
+              child: Tooltip(
+                message: _isTopBarCollapsed
+                    ? 'Mostrar detalles de ruta'
+                    : 'Ocultar detalles de ruta',
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: () {
+                    setState(() {
+                      _isTopBarCollapsed = !_isTopBarCollapsed;
+                    });
+                  },
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 3, vertical: 6),
+                    child: Icon(
+                      Icons.drag_indicator_rounded,
+                      size: 17,
+                      color: Color(0xFF94A3B8),
+                    ),
+                  ),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
   /// Chip flotante con la distancia y tiempo estimado del recorrido estilo Apple,
-  /// ubicado directamente debajo de la carta del título.
+  /// con botón para cerrarlo/ocultarlo durante la sesión actual de la pantalla.
   Widget _buildJourneyEstimatesChip(DriverRoute route) {
-    if (route.geometria == null || route.geometria!.distanciaM <= 0) {
+    if (!_showJourneyEstimates ||
+        route.geometria == null ||
+        route.geometria!.distanciaM <= 0) {
       return const SizedBox.shrink();
     }
 
@@ -2492,66 +2534,104 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
 
     return Material(
       color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: () => _fitMapToRoute(route),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.96),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.06),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                padding: const EdgeInsets.all(4),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF0F9FF),
-                  borderRadius: BorderRadius.circular(7),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(8, 4, 6, 4),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.96),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () => _fitMapToRoute(route),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F9FF),
+                        borderRadius: BorderRadius.circular(7),
+                      ),
+                      child: const Icon(
+                        Icons.route_rounded,
+                        size: 13,
+                        color: Color(0xFF0284C7),
+                      ),
+                    ),
+                    const SizedBox(width: 7),
+                    Text(
+                      '$distKm km',
+                      style: const TextStyle(
+                        color: Color(0xFF0F172A),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                    const Text(
+                      ' · ',
+                      style: TextStyle(
+                        color: Color(0xFF94A3B8),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(
+                      '$durMin min est.',
+                      style: const TextStyle(
+                        color: Color(0xFF64748B),
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
-                child: const Icon(
-                  Icons.route_rounded,
-                  size: 13,
-                  color: Color(0xFF0284C7),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Container(
+              width: 1,
+              height: 14,
+              color: const Color(0xFFE2E8F0),
+            ),
+            const SizedBox(width: 4),
+            Tooltip(
+              message: 'Ocultar estimación',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
+                  setState(() {
+                    _showJourneyEstimates = false;
+                  });
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(3),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFF1F5F9),
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.close_rounded,
+                    size: 13,
+                    color: Color(0xFF64748B),
+                  ),
                 ),
               ),
-              const SizedBox(width: 7),
-              Text(
-                '$distKm km',
-                style: const TextStyle(
-                  color: Color(0xFF0F172A),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -0.2,
-                ),
-              ),
-              const Text(
-                ' · ',
-                style: TextStyle(
-                  color: Color(0xFF94A3B8),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              Text(
-                '$durMin min est.',
-                style: const TextStyle(
-                  color: Color(0xFF64748B),
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );
@@ -2561,6 +2641,8 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     required BuildContext context,
     required DriverRoute route,
   }) {
+    if (!_showMapControls) return const SizedBox.shrink();
+
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.96),
@@ -2577,6 +2659,20 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          // 0. Botón cerrar / ocultar controles
+          _buildMapControlButton(
+            icon: Icons.close_rounded,
+            tooltip: 'Ocultar controles',
+            isActive: false,
+            iconColor: const Color(0xFF64748B),
+            onTap: () {
+              setState(() {
+                _showMapControls = false;
+              });
+            },
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
           // 1. Tipo de mapa
           _buildMapControlButton(
             icon: Icons.layers_rounded,
@@ -2637,6 +2733,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     required String tooltip,
     required bool isActive,
     required VoidCallback onTap,
+    Color? iconColor,
   }) {
     return Material(
       color: Colors.transparent,
@@ -2658,8 +2755,10 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
             child: Icon(
               icon,
               size: 16,
-              color:
-                  isActive ? const Color(0xFF0284C7) : const Color(0xFF334155),
+              color: iconColor ??
+                  (isActive
+                      ? const Color(0xFF0284C7)
+                      : const Color(0xFF334155)),
             ),
           ),
         ),
@@ -3067,7 +3166,8 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                     ),
 
                     // Chip flotante de distancia y tiempo (esquina superior izquierda del mapa)
-                    if (route.geometria != null &&
+                    if (_showJourneyEstimates &&
+                        route.geometria != null &&
                         route.geometria!.distanciaM > 0)
                       Positioned(
                         top: mediaQuery.padding.top + 8,
@@ -3076,14 +3176,15 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                       ),
 
                     // Controles flotantes del mapa (capas, tráfico, centrar)
-                    Positioned(
-                      right: 12,
-                      top: mediaQuery.padding.top + 8,
-                      child: _buildFloatingRouteMapControls(
-                        context: context,
-                        route: route,
+                    if (_showMapControls)
+                      Positioned(
+                        right: 12,
+                        top: mediaQuery.padding.top + 8,
+                        child: _buildFloatingRouteMapControls(
+                          context: context,
+                          route: route,
+                        ),
                       ),
-                    ),
 
                     // Controles inferiores flotantes (Iniciar / Terminar ruta, CEDI)
                     Positioned(
@@ -3194,9 +3295,11 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                         Positioned(
                           top: mediaQuery.padding.top + 8,
                           left: isSmallScreen ? 10 : 14,
-                          right: isSmallScreen ? 10 : 14,
+                          right: _isTopBarCollapsed
+                              ? null
+                              : (isSmallScreen ? 10 : 14),
                           child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               _buildFloatingRouteTopBar(
@@ -3204,7 +3307,9 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                                 route: route,
                                 isSmallScreen: isSmallScreen,
                               ),
-                              if (route.geometria != null &&
+                              if (!_isTopBarCollapsed &&
+                                  _showJourneyEstimates &&
+                                  route.geometria != null &&
                                   route.geometria!.distanciaM > 0) ...[
                                 const SizedBox(height: 6),
                                 Align(
@@ -3217,14 +3322,15 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                         ),
 
                         // Controles Laterales Flotantes
-                        Positioned(
-                          right: isSmallScreen ? 8 : 12,
-                          top: mediaQuery.padding.top + 68,
-                          child: _buildFloatingRouteMapControls(
-                            context: context,
-                            route: route,
+                        if (_showMapControls)
+                          Positioned(
+                            right: isSmallScreen ? 8 : 12,
+                            top: mediaQuery.padding.top + 68,
+                            child: _buildFloatingRouteMapControls(
+                              context: context,
+                              route: route,
+                            ),
                           ),
-                        ),
 
                         // Controles Inferiores Flotantes (Recorrido y Acciones Operativas)
                         Positioned(
