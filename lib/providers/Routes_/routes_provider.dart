@@ -1036,6 +1036,14 @@ class RoutesNotifier extends Notifier<RoutesState> {
     }
   }
 
+  /// Actualiza la posición GPS actual en tiempo real para refrescar distancias reactivas
+  void updatePosition(Position pos) {
+    state = state.copyWith(
+      lastKnownPosition: pos,
+      lastPositionTime: DateTime.now(),
+    );
+  }
+
   /// Calcula la distancia en metros entre el chofer y un punto (cliente / parada)
   double? calculateDistanceMeters(double targetLat, double targetLng) {
     final pos = state.lastKnownPosition;
