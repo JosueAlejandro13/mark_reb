@@ -676,23 +676,23 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     TrackingNotifier notifier,
   ) {
     final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
-    final double size = isIOS ? 48 : 42;
+    final double size = isIOS ? 40 : 36;
     return Material(
       color: Colors.transparent,
       child: Tooltip(
         message: 'Actualizar unidades',
         child: InkWell(
-          borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+          borderRadius: BorderRadius.circular(isIOS ? 14 : 12),
           onTap: () {
             notifier.loadDevices(widget.userId, showLoading: false);
-            _showSnackBar('Unidades Actualizadas..');
+            _showSnackBar('Unidades Actualizadas');
           },
           child: Container(
             width: size,
             height: size,
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.96),
-              borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+              borderRadius: BorderRadius.circular(isIOS ? 14 : 12),
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
@@ -705,7 +705,7 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
             alignment: Alignment.center,
             child: Icon(
               Icons.refresh_rounded,
-              size: isIOS ? 24 : 20,
+              size: isIOS ? 20 : 18,
               color: const Color(0xFF0284C7),
             ),
           ),
@@ -777,13 +777,13 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     TrackingNotifier notifier,
   ) {
     final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
-    final double size = isIOS ? 48 : 42;
+    final double size = isIOS ? 40 : 36;
     return Material(
       color: Colors.transparent,
       child: Tooltip(
         message: 'Regresar a la flotilla',
         child: InkWell(
-          borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+          borderRadius: BorderRadius.circular(isIOS ? 14 : 12),
           onTap: () {
             notifier.selectVehicle(null);
             _fitAllVehicles(state.devices);
@@ -793,7 +793,7 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
             height: size,
             decoration: BoxDecoration(
               color: Colors.white.withOpacity(0.96),
-              borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+              borderRadius: BorderRadius.circular(isIOS ? 14 : 12),
               border: Border.all(color: const Color(0xFFE2E8F0)),
               boxShadow: [
                 BoxShadow(
@@ -806,7 +806,7 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
             alignment: Alignment.center,
             child: Icon(
               Icons.zoom_out_map_rounded,
-              size: isIOS ? 24 : 20,
+              size: isIOS ? 20 : 18,
               color: const Color(0xFF475569),
             ),
           ),
@@ -826,7 +826,7 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     return Container(
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.96),
-        borderRadius: BorderRadius.circular(isIOS ? 18 : 16),
+        borderRadius: BorderRadius.circular(isIOS ? 14 : 12),
         border: Border.all(color: const Color(0xFFE2E8F0)),
         boxShadow: [
           BoxShadow(
@@ -884,9 +884,9 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     required VoidCallback onTap,
     bool isIOS = false,
   }) {
-    final double buttonSize = isIOS ? 48 : 42;
-    final double iconSize = isIOS ? 24 : 20;
-    final double borderRadius = isIOS ? 16 : 14;
+    final double buttonSize = isIOS ? 40 : 36;
+    final double iconSize = isIOS ? 20 : 18;
+    final double borderRadius = isIOS ? 14 : 12;
 
     return Material(
       color: Colors.transparent,
@@ -2072,10 +2072,10 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
                   ),
                   Text(
                     row.value,
-                    style: TextStyle(
+                    style: const TextStyle(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w700,
-                      color: row.customColor ?? const Color(0xFF0F172A),
+                      color: Color(0xFF0F172A),
                     ),
                   ),
                 ],
@@ -2091,11 +2091,9 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
 class _DetailRowItem {
   final String label;
   final String value;
-  final Color? customColor;
 
   const _DetailRowItem({
     required this.label,
     required this.value,
-    this.customColor,
   });
 }

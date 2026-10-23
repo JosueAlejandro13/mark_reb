@@ -65,7 +65,10 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
     final isChofer = rol == 'chofer' || (!isPreventa && rol.isNotEmpty);
 
     final rutas = routesState.dayPackage?.rutas ?? const [];
-    final DriverRoute? activeRoute = rutas.where((r) => r.isActiva).firstOrNull;
+    // Prioridad: ruta activa, luego primera ruta no finalizada, o primera ruta detectada
+    final DriverRoute? routeToDisplay = rutas.where((r) => r.isActiva).firstOrNull ??
+        rutas.where((r) => !r.isFinalizada).firstOrNull ??
+        rutas.firstOrNull;
 
     // Filtros reactivos con Riverpod
     final showRoutes = query.isEmpty ||
@@ -78,11 +81,12 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
         'clientes'.contains(query);
 
     // Regla de visualización del Banner Hero:
-    // 1. Chofer: SOLO se muestra si tiene una ruta activa (activeRoute != null).
-    // 2. Preventa u otro rol: se muestra el acceso de Preventa / Pedidos.
+    // 1. Preventa: muestra banner de Preventa.
+    // 2. Chofer o con ruta asignada: se muestra SIEMPRE que se detecte una ruta (routeToDisplay != null),
+    //    esté activa o no.
     final bool showHeroBanner = isPreventa
         ? showRoutes
-        : (isChofer && activeRoute != null && showRoutes);
+        : (routeToDisplay != null && showRoutes);
 
     final showTracking =
         (query.isEmpty ||
@@ -148,8 +152,8 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
                     if (showHeroBanner) ...[
                       if (isPreventa)
                         _buildPreventaHeroBanner(context)
-                      else if (activeRoute != null)
-                        _buildActiveRouteHeroBanner(context, activeRoute),
+                      else if (routeToDisplay != null)
+                        _buildActiveRouteHeroBanner(context, routeToDisplay),
                       const SizedBox(height: 20),
                     ],
 
@@ -510,7 +514,7 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
     );
   }
 
-  // --- WIDGET PRINCIPAL: RUTA ACTIVA (Estilo Apple Live Activity Card) ---
+  // --- WIDGET PRINCIPAL: RUTA (Estilo Apple Live Activity Card) ---
   Widget _buildActiveRouteHeroBanner(
       BuildContext context, DriverRoute activeRoute) {
     final totalStops = activeRoute.totalClientStops;
@@ -518,6 +522,25 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
     final progress =
         totalStops > 0 ? (doneStops / totalStops).clamp(0.0, 1.0) : 0.0;
     final percent = (progress * 100).toInt();
+    final isActiva = activeRoute.isActiva;
+    final isFinalizada = activeRoute.isFinalizada;
+
+    // Colores y textos según el estado de la ruta
+    final Color chipBg = isActiva
+        ? const Color(0xFFECFDF5)
+        : (isFinalizada ? const Color(0xFFF1F5F9) : const Color(0xFFEFF6FF));
+    final Color chipBorder = isActiva
+        ? const Color(0xFFA7F3D0)
+        : (isFinalizada ? const Color(0xFFE2E8F0) : const Color(0xFFBFDBFE));
+    final Color dotColor = isActiva
+        ? const Color(0xFF10B981)
+        : (isFinalizada ? const Color(0xFF64748B) : const Color(0xFF0284C7));
+    final Color textColor = isActiva
+        ? const Color(0xFF047857)
+        : (isFinalizada ? const Color(0xFF475569) : const Color(0xFF0369A1));
+    final String statusText = isActiva
+        ? 'Ruta en Curso · Activa'
+        : (isFinalizada ? 'Ruta Finalizada' : 'Ruta Asignada · Programada');
 
     return Container(
       width: double.infinity,
@@ -584,18 +607,17 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Tag superior: Ruta activa en curso (Apple Live Activity Chip)
+                // Tag superior: Estado de la ruta (Apple Live Activity Chip)
                 Container(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 8.5, vertical: 3.5),
                   decoration: BoxDecoration(
-                    color: const Color(0xFFECFDF5),
+                    color: chipBg,
                     borderRadius: BorderRadius.circular(10),
-                    border:
-                        Border.all(color: const Color(0xFFA7F3D0), width: 0.8),
+                    border: Border.all(color: chipBorder, width: 0.8),
                     boxShadow: [
                       BoxShadow(
-                        color: const Color(0xFF10B981).withOpacity(0.06),
+                        color: dotColor.withOpacity(0.06),
                         blurRadius: 4,
                         offset: const Offset(0, 1),
                       ),
@@ -608,24 +630,26 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
                         width: 6.5,
                         height: 6.5,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF10B981),
+                          color: dotColor,
                           shape: BoxShape.circle,
-                          boxShadow: [
-                            BoxShadow(
-                              color: const Color(0xFF10B981).withOpacity(0.55),
-                              blurRadius: 4,
-                              spreadRadius: 1,
-                            ),
-                          ],
+                          boxShadow: isActiva
+                              ? [
+                                  BoxShadow(
+                                    color: dotColor.withOpacity(0.55),
+                                    blurRadius: 4,
+                                    spreadRadius: 1,
+                                  ),
+                                ]
+                              : null,
                         ),
                       ),
                       const SizedBox(width: 5),
-                      const Text(
-                        'Ruta en Curso · Activa',
+                      Text(
+                        statusText,
                         style: TextStyle(
                           fontSize: 10.5,
                           fontWeight: FontWeight.w700,
-                          color: Color(0xFF047857),
+                          color: textColor,
                           letterSpacing: 0.1,
                         ),
                       ),
@@ -754,20 +778,20 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
                           ),
                         ],
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           Text(
-                            'Continuar ruta',
-                            style: TextStyle(
+                            activeRoute.isActiva ? 'Continuar ruta' : 'Ver ruta',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                               letterSpacing: 0.1,
                             ),
                           ),
-                          SizedBox(width: 5),
-                          Icon(
+                          const SizedBox(width: 5),
+                          const Icon(
                             Icons.arrow_forward_rounded,
                             color: Colors.white,
                             size: 14,

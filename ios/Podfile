@@ -59,15 +59,6 @@ post_install do |installer|
     end
   end
 
-  # Parche automático para frameworks de Google MLKit en simuladores Apple Silicon
-  target_bytes = [0x32, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x02, 0x00, 0x00, 0x00].pack('C*')
-  replacement_bytes = [0x32, 0x00, 0x00, 0x00, 0x18, 0x00, 0x00, 0x00, 0x07, 0x00, 0x00, 0x00].pack('C*')
-  Dir.glob(File.join(__dir__, 'Pods', '**', 'ML*.framework', '*')).each do |framework_binary|
-    next unless File.file?(framework_binary) && !framework_binary.end_with?('.plist', '.h', '.device_bak')
-    content = File.binread(framework_binary)
-    if content.include?(target_bytes)
-      content = content.gsub(target_bytes, replacement_bytes)
-      File.binwrite(framework_binary, content)
-    end
-  end
+  # Ajustar frameworks de Google MLKit (por defecto compatible con dispositivo real)
+  system("sh", File.join(__dir__, "patch_mlkit.sh"))
 end

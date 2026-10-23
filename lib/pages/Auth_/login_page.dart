@@ -252,25 +252,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                         // ── Contenido del formulario ─────────────
                                         Padding(
                                           padding: EdgeInsets.only(
-                                            left: isTablet
-                                                ? 40
-                                                : screenWidth * 0.075,
-                                            right: isTablet
-                                                ? 40
-                                                : screenWidth * 0.075,
+                                            left: screenWidth * 0.075,
+                                            right: screenWidth * 0.075,
                                             top: isTablet ? 46 : 36,
                                             bottom: mediaQuery
                                                     .viewInsets.bottom +
                                                 (isTablet ? 40 : 20),
                                           ),
-                                          child: Center(
-                                            child: ConstrainedBox(
-                                              constraints: BoxConstraints(
-                                                maxWidth: isTablet
-                                                    ? 480
-                                                    : double.infinity,
-                                              ),
-                                              child: Form(
+                                          child: Form(
                                                 key: _formKey,
                                                 child: AbsorbPointer(
                                                   absorbing:
@@ -897,27 +886,25 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                                                 ),
                                               ),
                                             ),
-                                          ),
-                                        ),
                                       ],
-                                        ),
-                                      ),
                                     ),
                                   ),
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
+                          ],
                         ),
-                      );
-                    },
-                  ),
-                ),
+                      ),
+                    ),
+                  );
+                },
               ),
             ),
           ),
-        );
-      }
+        ),
+      )
+      );
+    } 
 
   Widget _buildSocialIcon(dynamic icon, {bool isFilled = false, String? url}) {
     return GestureDetector(
@@ -982,7 +969,7 @@ class _WaveClipper extends CustomClipper<Path> {
 
   @override
   bool shouldReclip(_WaveClipper old) => false;
-}
+} 
 
 // ── Painter: sombra difuminada detrás de la curva ────────────────────────────
 class _WaveShadowPainter extends CustomPainter {

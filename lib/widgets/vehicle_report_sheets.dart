@@ -284,14 +284,38 @@ class _VehicleReportProblemSheetState extends State<VehicleReportProblemSheet> {
                               ),
                               dayStyle: const TextStyle(
                                 fontWeight: FontWeight.w600,
-                                color: Color(0xFF0F172A),
                               ),
+                              dayForegroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+                                if (states.contains(WidgetState.selected)) {
+                                  return Colors.white;
+                                }
+                                if (states.contains(WidgetState.disabled)) {
+                                  return const Color(0xFF94A3B8);
+                                }
+                                return const Color(0xFF0F172A);
+                              }),
+                              dayBackgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+                                if (states.contains(WidgetState.selected)) {
+                                  return const Color(0xFF0284C7);
+                                }
+                                return null;
+                              }),
                               todayBorder: const BorderSide(
                                 color: Color(0xFF0284C7),
                                 width: 1.5,
                               ),
-                              todayForegroundColor: WidgetStateProperty.all(
-                                  const Color(0xFF0284C7)),
+                              todayForegroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+                                if (states.contains(WidgetState.selected)) {
+                                  return Colors.white;
+                                }
+                                return const Color(0xFF0284C7);
+                              }),
+                              todayBackgroundColor: WidgetStateProperty.resolveWith<Color?>((states) {
+                                if (states.contains(WidgetState.selected)) {
+                                  return const Color(0xFF0284C7);
+                                }
+                                return Colors.transparent;
+                              }),
                             ),
                           ),
                           child: child!,
