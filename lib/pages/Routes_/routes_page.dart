@@ -19,6 +19,7 @@ import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:geolocator/geolocator.dart';
 
 /// Pantalla Principal "Mi Día" — Integración completa con deliveryPHP/operacion/api.php (MarkV3.1)
 class RoutesPage extends ConsumerStatefulWidget {
@@ -940,7 +941,8 @@ class _RoutesPageState extends ConsumerState<RoutesPage>
                               borderRadius: BorderRadius.circular(12),
                               boxShadow: [
                                 BoxShadow(
-                                  color: const Color(0xFF0284C7).withOpacity(0.28),
+                                  color:
+                                      const Color(0xFF0284C7).withOpacity(0.28),
                                   blurRadius: 10,
                                   offset: const Offset(0, 3),
                                 ),
@@ -952,7 +954,8 @@ class _RoutesPageState extends ConsumerState<RoutesPage>
                                 foregroundColor: Colors.white,
                                 shadowColor: Colors.transparent,
                                 elevation: 0,
-                                padding: const EdgeInsets.symmetric(horizontal: 14),
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 14),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(12),
                                 ),
@@ -1079,12 +1082,16 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   bool _mapExpanded = false;
   bool _isExecutingRouteAction = false;
   final Map<int, bool> _stopExpandedOverride = {};
-  MapType _mapType = MapType.normal;
-  bool _showTraffic = false;
+  final MapType _mapType = MapType.normal;
+  final bool _showTraffic = false;
   bool _showJourneyEstimates = true;
-  bool _showMapControls = true;
+  final bool _showMapControls = true;
   bool _isTopBarCollapsed = false;
   late AnimationController _pulseController;
+  bool _isTrackingLocation = false;
+  StreamSubscription<Position>? _liveGpsSub;
+  final Set<int> _autoLlegadaTriggered = {};
+  bool _isAutoLlegadaInProgress = false;
 
   @override
   void initState() {
@@ -1100,7 +1107,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(routesProvider.notifier).getFreshPositionNonBlocking();
+      _startContinuousGpsStream();
     });
   }
 
@@ -1110,9 +1117,201 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
     ]);
+    _liveGpsSub?.cancel();
+    _liveGpsSub = null;
     _pulseController.dispose();
     _mapController?.dispose();
     super.dispose();
+  }
+
+  /// Inicia el stream continuo de GPS para:
+  /// 1. Actualizar las distancias en tiempo real de cada parada (ej. 17.6km -> 200m).
+  /// 2. Auto-marcar llegada por geocerca cuando el chofer entra en rango (<= 300m).
+  /// 3. Seguir la ubicación en el mapa si el botón de tracking está activo.
+  Future<void> _startContinuousGpsStream() async {
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) return;
+
+      LocationPermission perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      if (perm == LocationPermission.denied ||
+          perm == LocationPermission.deniedForever) {
+        return;
+      }
+
+      // Obtener posición inicial de inmediato para refrescar distancias al entrar
+      try {
+        final initialPos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 3),
+        );
+        if (mounted) {
+          ref.read(routesProvider.notifier).updatePosition(initialPos);
+          if (_isTrackingLocation) {
+            _animateCameraToPosition(initialPos);
+          }
+          _checkAutoLlegada(initialPos);
+        }
+      } catch (_) {
+        final lastPos = await Geolocator.getLastKnownPosition();
+        if (lastPos != null && mounted) {
+          ref.read(routesProvider.notifier).updatePosition(lastPos);
+          if (_isTrackingLocation) {
+            _animateCameraToPosition(lastPos);
+          }
+          _checkAutoLlegada(lastPos);
+        }
+      }
+
+      // Stream continuo con filtro de 5 metros
+      _liveGpsSub?.cancel();
+      const settings = LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      );
+
+      _liveGpsSub = Geolocator.getPositionStream(
+        locationSettings: settings,
+      ).listen(
+        (Position pos) {
+          if (!mounted) return;
+          // 1. Actualizar distancia en tiempo real en el provider (recalcula tarjetas)
+          ref.read(routesProvider.notifier).updatePosition(pos);
+
+          // 2. Si el botón de centrado está activo, seguir con la cámara
+          if (_isTrackingLocation) {
+            _animateCameraToPosition(pos);
+          }
+
+          // 3. Revisar si entró a la geocerca de alguna parada para auto-marcar llegada
+          _checkAutoLlegada(pos);
+        },
+        onError: (err) {
+          debugPrint('Aviso en stream de GPS continuo: $err');
+        },
+      );
+    } catch (e) {
+      debugPrint('Excepción al iniciar stream de GPS: $e');
+    }
+  }
+
+  /// Verifica si el chofer ha entrado en la geocerca de una parada (< distAviso, ej 300m)
+  /// y dispara registrarLlegada automáticamente
+  void _checkAutoLlegada(Position pos) {
+    if (_isAutoLlegadaInProgress) return;
+
+    final route = ref.read(routesProvider).findRoute(widget.idRuta);
+    if (route == null || !route.isActiva) return;
+
+    final config =
+        ref.read(routesProvider).dayPackage?.config ?? const DayConfig();
+    final double maxDistance =
+        (config.distAviso > 0 ? config.distAviso : 300).toDouble();
+
+    for (final stop in route.paradas) {
+      if (!stop.isClientStop) continue;
+      if (stop.visitada) continue;
+      final client = stop.cliente;
+      if (client == null || (client.lat == 0 && client.lng == 0)) continue;
+
+      // Evitar re-disparar si ya se procesó o está en curso para esta parada
+      if (_autoLlegadaTriggered.contains(stop.idParada)) continue;
+
+      final dist = Geolocator.distanceBetween(
+        pos.latitude,
+        pos.longitude,
+        client.lat,
+        client.lng,
+      );
+
+      if (dist <= maxDistance) {
+        _autoLlegadaTriggered.add(stop.idParada);
+        _triggerAutoLlegada(route, stop, client, dist);
+        break; // Procesar una sola parada a la vez
+      }
+    }
+  }
+
+  Future<void> _triggerAutoLlegada(
+    DriverRoute route,
+    RouteStop stop,
+    RouteClient client,
+    double dist,
+  ) async {
+    _isAutoLlegadaInProgress = true;
+    try {
+      await ref.read(routesProvider.notifier).registrarLlegada(
+            idRuta: route.idRuta,
+            idParada: stop.idParada,
+          );
+      if (!mounted) return;
+      ref.read(routesProvider.notifier).clearRecentNotices();
+      final distText = dist >= 1000
+          ? '${(dist / 1000).toStringAsFixed(1)} km'
+          : '${dist.round()} m';
+      SnackbarTop.showSuccess(
+        context,
+        'Llegaste a $distText de ${client.nombre}',
+        title: '¡Llegaste!',
+        style: SnackbarTopStyle.appleCard,
+      );
+    } catch (e) {
+      debugPrint('Error en registro automático de llegada: $e');
+      _autoLlegadaTriggered.remove(stop.idParada);
+    } finally {
+      _isAutoLlegadaInProgress = false;
+    }
+  }
+
+  Future<void> _toggleLocationTracking() async {
+    if (_isTrackingLocation) {
+      _stopLocationTracking();
+      return;
+    }
+
+    setState(() {
+      _isTrackingLocation = true;
+    });
+
+    final lastPos = ref.read(routesProvider).lastKnownPosition;
+    if (lastPos != null) {
+      _animateCameraToPosition(lastPos);
+    } else {
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 4),
+        );
+        if (mounted) {
+          ref.read(routesProvider.notifier).updatePosition(pos);
+          _animateCameraToPosition(pos);
+        }
+      } catch (_) {}
+    }
+  }
+
+  void _animateCameraToPosition(Position position) {
+    final ctrl = _mapController;
+    if (ctrl == null) return;
+    ctrl.animateCamera(
+      CameraUpdate.newCameraPosition(
+        CameraPosition(
+          target: LatLng(position.latitude, position.longitude),
+          zoom: 16.5,
+        ),
+      ),
+    );
+  }
+
+  void _stopLocationTracking() {
+    if (mounted && _isTrackingLocation) {
+      setState(() {
+        _isTrackingLocation = false;
+      });
+    }
   }
 
   /// Abre pantallas secundarias bloqueadas estrictamente en vertical
@@ -1136,6 +1335,9 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   }
 
   void _fitMapToRoute(DriverRoute route) {
+    if (_isTrackingLocation) {
+      _stopLocationTracking();
+    }
     final ctrl = _mapController;
     if (ctrl == null) return;
 
@@ -2659,45 +2861,16 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 0. Botón cerrar / ocultar controles
+          // 0. Botón Seguir / Centrar mi ubicación en vivo
           _buildMapControlButton(
-            icon: Icons.close_rounded,
-            tooltip: 'Ocultar controles',
-            isActive: false,
-            iconColor: const Color(0xFF64748B),
-            onTap: () {
-              setState(() {
-                _showMapControls = false;
-              });
-            },
-          ),
-          const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-          // 1. Tipo de mapa
-          _buildMapControlButton(
-            icon: Icons.layers_rounded,
-            tooltip: 'Tipo de mapa',
-            isActive: _mapType != MapType.normal,
-            onTap: () {
-              setState(() {
-                _mapType = _mapType == MapType.normal
-                    ? MapType.hybrid
-                    : MapType.normal;
-              });
-            },
-          ),
-          const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-          // 2. Tráfico
-          _buildMapControlButton(
-            icon: Icons.traffic_rounded,
-            tooltip: 'Tráfico en tiempo real',
-            isActive: _showTraffic,
-            onTap: () {
-              setState(() {
-                _showTraffic = !_showTraffic;
-              });
-            },
+            icon: _isTrackingLocation
+                ? Icons.my_location_rounded
+                : Icons.location_searching_rounded,
+            tooltip: _isTrackingLocation
+                ? 'Siguiendo mi ubicación (Activo)'
+                : 'Seguir mi ubicación',
+            isActive: _isTrackingLocation,
+            onTap: _toggleLocationTracking,
           ),
           const Divider(height: 1, color: Color(0xFFF1F5F9)),
 
@@ -3150,7 +3323,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                         ),
                         mapType: _mapType,
                         trafficEnabled: _showTraffic,
-                        myLocationEnabled: false,
+                        myLocationEnabled: true,
                         myLocationButtonEnabled: false,
                         zoomControlsEnabled: false,
                         polylines: _buildPolylines(route),
@@ -3275,7 +3448,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                             ),
                             mapType: _mapType,
                             trafficEnabled: _showTraffic,
-                            myLocationEnabled: false,
+                            myLocationEnabled: true,
                             myLocationButtonEnabled: false,
                             zoomControlsEnabled: false,
                             polylines: _buildPolylines(route),
@@ -3965,76 +4138,75 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Alerta de distancia arriba (con teléfono si aplica)
-                      Row(
-                        children: [
-                          if (distMeters != null)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 3.5),
-                              decoration: BoxDecoration(
-                                color: isFar
-                                    ? const Color(0xFFFFF7ED)
-                                    : const Color(0xFFF0FDF4),
-                                borderRadius: BorderRadius.circular(7),
-                                border: Border.all(
+                      if (!stop.visitada) ...[
+                        // Alerta de distancia arriba y teléfono (solo antes de llegar)
+                        Row(
+                          children: [
+                            if (distMeters != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3.5),
+                                decoration: BoxDecoration(
                                   color: isFar
-                                      ? const Color(0xFFFED7AA)
-                                      : const Color(0xFFBBF7D0),
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    isFar
-                                        ? Icons.warning_amber_rounded
-                                        : Icons.near_me_rounded,
-                                    size: 13,
+                                      ? const Color(0xFFFFF7ED)
+                                      : const Color(0xFFF0FDF4),
+                                  borderRadius: BorderRadius.circular(7),
+                                  border: Border.all(
                                     color: isFar
-                                        ? const Color(0xFFEA580C)
-                                        : const Color(0xFF16A34A),
+                                        ? const Color(0xFFFED7AA)
+                                        : const Color(0xFFBBF7D0),
                                   ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    distanciaText,
-                                    style: TextStyle(
-                                      fontSize: 10.5,
-                                      fontWeight: FontWeight.w700,
-                                      color: isFar
-                                          ? const Color(0xFFC2410C)
-                                          : const Color(0xFF15803D),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          if (client.telefono.isNotEmpty) ...[
-                            const SizedBox(width: 6),
-                            IconButton.filledTonal(
-                              style: IconButton.styleFrom(
-                                minimumSize: const Size(28, 28),
-                                padding: EdgeInsets.zero,
-                                backgroundColor: const Color(0xFFF1F5F9),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
                                 ),
-                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      isFar
+                                          ? Icons.warning_amber_rounded
+                                          : Icons.near_me_rounded,
+                                      size: 13,
+                                      color: isFar
+                                          ? const Color(0xFFEA580C)
+                                          : const Color(0xFF16A34A),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      distanciaText,
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w700,
+                                        color: isFar
+                                            ? const Color(0xFFC2410C)
+                                            : const Color(0xFF15803D),
+                                      ),
+                                    ),
+                                  ],
+                                ),
                               ),
-                              onPressed: () =>
-                                  _launchPhoneCall(client.telefono),
-                              icon: const Icon(Icons.phone_rounded,
-                                  size: 14, color: Color(0xFF334155)),
-                              tooltip: 'Llamar a ${client.telefono}',
-                            ),
+                            if (client.telefono.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              IconButton.filledTonal(
+                                style: IconButton.styleFrom(
+                                  minimumSize: const Size(28, 28),
+                                  padding: EdgeInsets.zero,
+                                  backgroundColor: const Color(0xFFF1F5F9),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () =>
+                                    _launchPhoneCall(client.telefono),
+                                icon: const Icon(Icons.phone_rounded,
+                                    size: 14, color: Color(0xFF334155)),
+                                tooltip: 'Llamar a ${client.telefono}',
+                              ),
+                            ],
                           ],
-                        ],
-                      ),
-
-                      const SizedBox(height: 6),
-
-                      // Botón Marcar Llegada estilo Apple
-                      if (!stop.visitada)
+                        ),
+                        const SizedBox(height: 6),
+                        // Botón Marcar Llegada estilo Apple
                         SizedBox(
                           width: double.infinity,
                           height: 34,
@@ -4069,33 +4241,60 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                               ),
                             ),
                           ),
-                        )
-                      else
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFECFDF5),
-                            borderRadius: BorderRadius.circular(7),
-                            border: Border.all(color: const Color(0xFFA7F3D0)),
-                          ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.check_circle_rounded,
-                                  size: 13, color: Color(0xFF047857)),
-                              SizedBox(width: 4),
-                              Text(
-                                'Llegada registrada',
-                                style: TextStyle(
-                                  fontSize: 10.5,
-                                  fontWeight: FontWeight.w800,
-                                  color: Color(0xFF047857),
+                        ),
+                      ] else ...[
+                        // Ya llegó: solo chip de llegada confirmada + botón de llamada
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFECFDF5),
+                                borderRadius: BorderRadius.circular(7),
+                                border:
+                                    Border.all(color: const Color(0xFFA7F3D0)),
+                              ),
+                              child: const Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.check_circle_rounded,
+                                      size: 13, color: Color(0xFF047857)),
+                                  SizedBox(width: 4),
+                                  Text(
+                                    'Llegada registrada',
+                                    style: TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w800,
+                                      color: Color(0xFF047857),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (client.telefono.isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              IconButton.filledTonal(
+                                style: IconButton.styleFrom(
+                                  minimumSize: const Size(28, 28),
+                                  padding: EdgeInsets.zero,
+                                  backgroundColor: const Color(0xFFF1F5F9),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
                                 ),
+                                onPressed: () =>
+                                    _launchPhoneCall(client.telefono),
+                                icon: const Icon(Icons.phone_rounded,
+                                    size: 14, color: Color(0xFF334155)),
+                                tooltip: 'Llamar a ${client.telefono}',
                               ),
                             ],
-                          ),
+                          ],
                         ),
+                      ],
                     ],
                   ),
                 ),
@@ -5165,11 +5364,13 @@ class _DriverCredentialsSheetState
                             horizontal: 14, vertical: 12),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          borderSide:
+                              const BorderSide(color: Color(0xFFE2E8F0)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          borderSide:
+                              const BorderSide(color: Color(0xFFE2E8F0)),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
@@ -5216,11 +5417,13 @@ class _DriverCredentialsSheetState
                             horizontal: 14, vertical: 12),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          borderSide:
+                              const BorderSide(color: Color(0xFFE2E8F0)),
                         ),
                         enabledBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          borderSide:
+                              const BorderSide(color: Color(0xFFE2E8F0)),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
