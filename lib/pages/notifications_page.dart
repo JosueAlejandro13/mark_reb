@@ -1,3 +1,4 @@
+import 'package:mark_v3/pages/Routes_/routes_page.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:lottie/lottie.dart';
@@ -776,6 +777,8 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
 
   String _getActionLabelForOrigen(int? origen) {
     switch (origen) {
+      case 103:
+        return 'Ver Alerta de Vigilante en Ruta';
       case 15:
         return 'Abrir Tarea Asignada';
       case 2:
@@ -806,6 +809,19 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
     final session = MarkApiClient.instance.currentSession;
     final colabId = session?.chofer.id.toString() ?? '';
     final accId = session?.usuario.idCuenta.toString() ?? '';
+
+    if (origen == 103) {
+      Navigator.push(
+        ctx,
+        MaterialPageRoute(
+          builder: (_) => RoutesPage(
+            idCollaborator: colabId,
+            idMainAccount: accId,
+          ),
+        ),
+      );
+      return;
+    }
 
     if (origen == 15) {
       Navigator.push(

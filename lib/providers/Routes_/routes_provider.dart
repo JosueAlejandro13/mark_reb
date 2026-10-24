@@ -22,7 +22,8 @@ class ActionExecutionResult {
   final String
       estado; // 'aplicada' | 'repetida' | 'rechazada' | 'reintentar' | 'en_cola'
   final List<ServerNotice> avisos;
-  final bool needsConfirmDifference; // BULTOS o PENDIENTES
+  final bool needsConfirmDifference; // BULTOS o PENDIENTES o VISITAS_PENDIENTES
+  final bool hasVisitasPendientes;    // Ronda 146: Quedaron paradas sin visita
   final List<String> pendingFolios;
 
   const ActionExecutionResult({
@@ -30,6 +31,7 @@ class ActionExecutionResult {
     required this.estado,
     this.avisos = const [],
     this.needsConfirmDifference = false,
+    this.hasVisitasPendientes = false,
     this.pendingFolios = const [],
   });
 }
@@ -1137,14 +1139,16 @@ class RoutesNotifier extends Notifier<RoutesState> {
           state.rejectedActions.where((a) => a.uuid == actionUuid).toList();
       if (rejected.isNotEmpty) {
         final act = rejected.first;
+        final hasVisitas = act.avisos.any((n) => n.codigo == 'VISITAS_PENDIENTES');
         final needsDiff = act.avisos.any(
-          (n) => n.codigo == 'BULTOS' || n.codigo == 'PENDIENTES',
+          (n) => n.codigo == 'BULTOS' || n.codigo == 'PENDIENTES' || n.codigo == 'VISITAS_PENDIENTES',
         );
         return ActionExecutionResult(
           queuedOrApplied: false,
           estado: 'rechazada',
           avisos: act.avisos,
           needsConfirmDifference: needsDiff,
+          hasVisitasPendientes: hasVisitas,
         );
       }
 
@@ -1368,6 +1372,8 @@ class RoutesNotifier extends Notifier<RoutesState> {
           return stop.copyWith(
             visitada: true,
             visitaOrigen: stop.visitaOrigen ?? 'app',
+            visitaCerrada: true,
+            visitaMotivo: motivo,
             entregar: updEntregar,
             unsyncedLocal: true,
           );
@@ -1521,12 +1527,14 @@ class RoutesNotifier extends Notifier<RoutesState> {
   Future<ActionExecutionResult> registrarFinRuta({
     required int idRuta,
     bool confirmarDiferencia = false,
+    bool revisarVisitas = true,
   }) {
     return _enqueueAndExecuteAction(
       tipo: 'fin',
       idRuta: idRuta,
       customFields: {
         if (confirmarDiferencia) 'confirmarDiferencia': true,
+        if (revisarVisitas && !confirmarDiferencia) 'revisarVisitas': true,
       },
     );
   }

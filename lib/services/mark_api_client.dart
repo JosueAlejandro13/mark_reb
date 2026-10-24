@@ -229,8 +229,15 @@ class MarkApiClient {
     if (action != 'notificaciones' && action != 'notificacionesLeer') {
       debugPrint(
           '========= [api.php?a=$action] HTTP ${response.statusCode} =========');
-      if (response.statusCode != 200 || action == 'acciones') {
-        _printLong('Payload enviado ($action): ', jsonEncode(body));
+      if (response.statusCode != 200 ||
+          action == 'acciones' ||
+          action == 'login' ||
+          action == 'login2pasos') {
+        final safeBody = Map<String, dynamic>.from(body);
+        if (safeBody.containsKey('password')) {
+          safeBody['password'] = '******';
+        }
+        _printLong('Payload enviado ($action): ', jsonEncode(safeBody));
       }
       _printLong('Body: ', response.body);
     }
@@ -340,6 +347,13 @@ class MarkApiClient {
     required String dispositivo,
     String appVersion = '1.0.1',
     String fcm = '',
+    String? uuid,
+    String? manufacturer,
+    String? model,
+    String? os,
+    double? lat,
+    double? lng,
+    int? acur,
   }) async {
     final confianzaGuardada = await loadTrustToken();
 
@@ -352,6 +366,15 @@ class MarkApiClient {
       'dosPasos': true, // Soporte 2FA Ronda 134
       if (confianzaGuardada != null && confianzaGuardada.isNotEmpty)
         'confianza': confianzaGuardada,
+      // Ronda 146: Datos del teléfono para registro de accesos en el servidor
+      if (uuid != null && uuid.isNotEmpty) 'uuid': uuid,
+      if (manufacturer != null && manufacturer.isNotEmpty)
+        'manufacturer': manufacturer,
+      if (model != null && model.isNotEmpty) 'model': model,
+      if (os != null && os.isNotEmpty) 'os': os,
+      if (lat != null && lat != 0) 'lat': lat,
+      if (lng != null && lng != 0) 'lng': lng,
+      if (acur != null && acur > 0) 'acur': acur,
     };
 
     final data = await _postAction('login', body);
@@ -384,12 +407,29 @@ class MarkApiClient {
     required String desafio,
     required String codigo,
     bool recordar = true,
+    String? uuid,
+    String? manufacturer,
+    String? model,
+    String? os,
+    double? lat,
+    double? lng,
+    int? acur,
   }) async {
-    final data = await _postAction('login2pasos', {
+    final body = <String, dynamic>{
       'desafio': desafio,
       'codigo': codigo.trim(),
       'recordar': recordar,
-    });
+      if (uuid != null && uuid.isNotEmpty) 'uuid': uuid,
+      if (manufacturer != null && manufacturer.isNotEmpty)
+        'manufacturer': manufacturer,
+      if (model != null && model.isNotEmpty) 'model': model,
+      if (os != null && os.isNotEmpty) 'os': os,
+      if (lat != null && lat != 0) 'lat': lat,
+      if (lng != null && lng != 0) 'lng': lng,
+      if (acur != null && acur > 0) 'acur': acur,
+    };
+
+    final data = await _postAction('login2pasos', body);
 
     if (data['ok'] == false) {
       final errorMsg = data['codigoMal'] == true
@@ -437,9 +477,20 @@ class MarkApiClient {
   }
 
   /// Actualizar token FCM en el servidor (a=fcm)
-  Future<void> updateFcm(String fcmToken, {String? tokenOverride}) async {
-    if (fcmToken.isEmpty) return;
-    await _postAction('fcm', {'fcm': fcmToken}, customToken: tokenOverride);
+  Future<bool> updateFcm(String fcmToken, {String? tokenOverride}) async {
+    if (fcmToken.isEmpty) return false;
+    try {
+      final res = await _postAction('fcm', {'fcm': fcmToken}, customToken: tokenOverride);
+      final isSaved = res['guardado'] == true ||
+          (res['ok'] == true && res['guardado'] != false);
+      if (!isSaved) {
+        debugPrint(' [MarkApiClient] a=fcm: guardado=false: ${res['error']}');
+      }
+      return isSaved;
+    } catch (e) {
+      debugPrint(' [MarkApiClient] Error actualizando FCM token: $e');
+      return false;
+    }
   }
 
   // ===========================================================================

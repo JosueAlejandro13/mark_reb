@@ -1,3 +1,4 @@
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 // ignore_for_file: prefer_const_constructors
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -17,6 +18,7 @@ import 'package:mark_v3/pages/Auth_/login_page.dart';
 import 'package:mark_v3/pages/Auth_/verify_code_page.dart';
 import 'package:mark_v3/pages/Auth_/reset_password_page.dart';
 import 'package:mark_v3/pages/home_page.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
 import 'package:mark_v3/pages/reports_page.dart';
 import 'package:mark_v3/pages/Routes_/routes_page.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -144,6 +146,18 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _initializeFirebaseMessaging() {
+    // Ronda 146: Escuchar renovación de token FCM
+    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+      try {
+        final token = await const FlutterSecureStorage().read(key: 'auth_token_64');
+        if (token != null && token.isNotEmpty) {
+          await MarkApiClient.instance.updateFcm(newToken, tokenOverride: token);
+        }
+      } catch (e) {
+        debugPrint("Error en onTokenRefresh: $e");
+      }
+    });
+
     FirebaseMessaging.onMessage.listen((RemoteMessage message) {
       debugPrint("Mensaje en primer plano: ${message.notification?.title}");
 
@@ -165,8 +179,16 @@ class _MyAppState extends State<MyApp> {
       }
     });
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
       debugPrint("Notificación abierta: ${message.notification?.title}");
+      // Ronda 146: Al tocar la notificación abre la bandeja de notificaciones
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        final uid = prefs.getString('userId') ?? '';
+        Get.to(() => NotificationsPage(userId: uid, showBackButton: true));
+      } catch (e) {
+        debugPrint("Error navegando a notificaciones: $e");
+      }
     });
   }
 

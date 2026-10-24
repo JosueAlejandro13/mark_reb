@@ -199,6 +199,7 @@ class DriverSession {
   final FlotaPermissions flota;
   final String servidorHora;
   final bool demo;
+  final bool push;
 
   const DriverSession({
     required this.token,
@@ -210,6 +211,7 @@ class DriverSession {
     this.flota = const FlotaPermissions(),
     this.servidorHora = '',
     this.demo = false,
+    this.push = true,
   });
 
   bool get isPreventa => rol.toLowerCase() == 'preventa';
@@ -238,11 +240,13 @@ class DriverSession {
       flota: FlotaPermissions.fromJson(json['flota']),
       servidorHora: (json['servidorHora'] ?? '').toString(),
       demo: _toBool(json['demo'], defaultValue: false),
+      push: json['push'] == null ? true : _toBool(json['push'], defaultValue: true),
     );
   }
 
   Map<String, dynamic> toJson() => {
         'token': token,
+        'push': push,
         'chofer': chofer.toJson(),
         'rol': rol,
         'permisos': permisos.toJson(),
@@ -1057,6 +1061,8 @@ class RouteStop {
   final List<GuiaItem> recoger;
   final List<GuiaItem> entregar;
   final bool unsyncedLocal;
+  final bool visitaCerrada; // Ronda 146: Parada cerrada con acción visita
+  final int? visitaMotivo;  // Motivo 31-37 si no hubo venta
 
   const RouteStop({
     required this.idParada,
@@ -1071,6 +1077,8 @@ class RouteStop {
     this.recoger = const [],
     this.entregar = const [],
     this.unsyncedLocal = false,
+    this.visitaCerrada = false,
+    this.visitaMotivo,
   });
 
   bool get isClientStop => tipo == 'cliente';
@@ -1127,6 +1135,8 @@ class RouteStop {
     List<GuiaItem>? recoger,
     List<GuiaItem>? entregar,
     bool? unsyncedLocal,
+    bool? visitaCerrada,
+    int? visitaMotivo,
   }) {
     return RouteStop(
       idParada: idParada,
@@ -1141,6 +1151,8 @@ class RouteStop {
       recoger: recoger ?? this.recoger,
       entregar: entregar ?? this.entregar,
       unsyncedLocal: unsyncedLocal ?? this.unsyncedLocal,
+      visitaCerrada: visitaCerrada ?? this.visitaCerrada,
+      visitaMotivo: visitaMotivo ?? this.visitaMotivo,
     );
   }
 
@@ -1187,6 +1199,8 @@ class RouteStop {
           .map(GuiaItem.fromJson)
           .toList(),
       unsyncedLocal: _toBool(json['unsyncedLocal']),
+      visitaCerrada: _toBool(json['visitaCerrada']),
+      visitaMotivo: json['visitaMotivo'] != null ? _toInt(json['visitaMotivo']) : null,
     );
   }
 

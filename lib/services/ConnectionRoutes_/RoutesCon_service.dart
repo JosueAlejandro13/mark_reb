@@ -45,8 +45,8 @@ class RoutesconService {
     return await _client.pingYo(tokenOverride: tokenOverride);
   }
 
-  Future<void> updateFcm(String fcmToken, {String? tokenOverride}) async {
-    await _client.updateFcm(fcmToken, tokenOverride: tokenOverride);
+  Future<bool> updateFcm(String fcmToken, {String? tokenOverride}) async {
+    return await _client.updateFcm(fcmToken, tokenOverride: tokenOverride);
   }
 
   Future<DayPackage> fetchDayPackage({

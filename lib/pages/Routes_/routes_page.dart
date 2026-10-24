@@ -1,3 +1,5 @@
+import 'dart:io';
+import 'package:image_picker/image_picker.dart';
 import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
@@ -1763,6 +1765,44 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   }
 
   Future<void> _handleSalida(DriverRoute route) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Row(
+          children: [
+            Icon(Icons.directions_car_filled_rounded, color: Color(0xFF0284C7)),
+            SizedBox(width: 8),
+            Text('Confirmar salida',
+                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+          ],
+        ),
+        content: const Text(
+          '¿Confirmas que ya saliste del CEDI a ruta?\n\n'
+          'Esta hora quedará registrada oficialmente como tu hora oficial de salida e iniciará el seguimiento del vigilante.',
+          style:
+              TextStyle(fontSize: 13.5, color: Color(0xFF475569), height: 1.4),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Aún en CEDI'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF0284C7),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Sí, ya salí del CEDI'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
     setState(() => _isExecutingRouteAction = true);
     _showAppleLoadingDialog(
       title: 'Iniciando ruta...',
@@ -1989,17 +2029,25 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
       // La app muestra la lista; si el chofer confirma, reenvía con confirmarDiferencia: true y uuid nuevo."
       if (res.needsConfirmDifference && !confirmarDiferencia) {
         final msg = res.avisos.map((a) => a.texto).join('\n');
+        final bool isVisitasPendientes = res.hasVisitasPendientes ||
+            res.avisos.any((a) =>
+                a.codigo == 'VISITAS_PENDIENTES' || a.codigo == 'NO_VISITADAS');
+
         final confirm = await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(16),
             ),
-            title: const Text('Paquetes pendientes sin bajar en CEDI'),
+            title: Text(isVisitasPendientes
+                ? 'Visitas pendientes de resultado (Ronda 146)'
+                : 'Paquetes pendientes sin bajar en CEDI'),
             content: Text(
-              msg.isNotEmpty
-                  ? '$msg\n\n¿Desea ir al CEDI a descargarlos o confirmar terminar la ruta con paquetes pendientes?'
-                  : 'Aún existen paquetes sin descargar en el CEDI. ¿Desea confirmar el fin de ruta?',
+              isVisitasPendientes
+                  ? '$msg\n\nTienes paradas con llegada pero sin resultado de visita registrado.\nSi cierras la ruta ahora, quedarán marcadas como incidencia (Motivo 39).\n\n¿Deseas regresar a registrarlas o confirmar cierre con visitas pendientes?'
+                  : (msg.isNotEmpty
+                      ? '$msg\n\n¿Desea ir al CEDI a descargarlos o confirmar terminar la ruta con paquetes pendientes?'
+                      : 'Aún existen paquetes sin descargar en el CEDI. ¿Desea confirmar el fin de ruta?'),
             ),
             actions: [
               TextButton(
@@ -4243,7 +4291,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                           ),
                         ),
                       ] else ...[
-                        // Ya llegó: solo chip de llegada confirmada + botón de llamada
+                        // Ya llegó: chip de llegada confirmada + botón de llamada
                         Row(
                           children: [
                             Container(
@@ -4255,15 +4303,17 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                                 border:
                                     Border.all(color: const Color(0xFFA7F3D0)),
                               ),
-                              child: const Row(
+                              child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  Icon(Icons.check_circle_rounded,
+                                  const Icon(Icons.check_circle_rounded,
                                       size: 13, color: Color(0xFF047857)),
-                                  SizedBox(width: 4),
+                                  const SizedBox(width: 4),
                                   Text(
-                                    'Llegada registrada',
-                                    style: TextStyle(
+                                    stop.visitaCerrada
+                                        ? 'Visita concluida'
+                                        : 'Llegada registrada',
+                                    style: const TextStyle(
                                       fontSize: 10.5,
                                       fontWeight: FontWeight.w800,
                                       color: Color(0xFF047857),
@@ -4294,6 +4344,46 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                             ],
                           ],
                         ),
+
+                        // Ronda 146: Botón Registrar Resultado de Visita para paradas de cliente
+                        if (!stop.visitaCerrada &&
+                            (route.isVisitRoute ||
+                                (stop.entregar.isEmpty &&
+                                    stop.recoger.isEmpty))) ...[
+                          const SizedBox(height: 6),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 34,
+                            child: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF059669),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 10),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(9),
+                                ),
+                              ),
+                              onPressed: () => _showVisitOptionsModal(
+                                context: context,
+                                route: route,
+                                stop: stop,
+                                client: client,
+                              ),
+                              icon: const Icon(Icons.storefront_rounded,
+                                  size: 15, color: Colors.white),
+                              label: const Text(
+                                'Registrar Resultado de Visita',
+                                style: TextStyle(
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.1,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ],
                   ),
@@ -4709,6 +4799,11 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
       return allEntregasDone && allRecojosDone;
     }
 
+    // Ronda 146: En paradas de cliente sin guías, se requiere visita registrada
+    if (stop.isClientStop) {
+      return stop.visitaCerrada;
+    }
+
     return stop.visitada;
   }
 
@@ -4913,6 +5008,297 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
             ),
         ],
       ),
+    );
+  }
+
+  /// Modal estilo Apple para seleccionar el resultado de la visita (Ronda 146)
+  Future<void> _showVisitOptionsModal({
+    required BuildContext context,
+    required DriverRoute route,
+    required RouteStop stop,
+    required RouteClient client,
+  }) async {
+    final motivosRonda146 = [
+      {
+        'codigo': 31,
+        'nombre': 'Negocio Cerrado',
+        'icono': Icons.lock_outline_rounded
+      },
+      {
+        'codigo': 32,
+        'nombre': 'No estaba el encargado',
+        'icono': Icons.person_off_outlined
+      },
+      {
+        'codigo': 33,
+        'nombre': 'No quiso comprar',
+        'icono': Icons.thumb_down_outlined
+      },
+      {
+        'codigo': 34,
+        'nombre': 'No tenía dinero',
+        'icono': Icons.money_off_csred_outlined
+      },
+      {
+        'codigo': 35,
+        'nombre': 'Todavía tenía producto',
+        'icono': Icons.inventory_2_outlined
+      },
+      {
+        'codigo': 36,
+        'nombre': 'Cerró el negocio (definitivo)',
+        'icono': Icons.store_mall_directory_outlined
+      },
+      {
+        'codigo': 37,
+        'nombre': 'No encontré el negocio',
+        'icono': Icons.location_off_outlined
+      },
+    ];
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+          child: SafeArea(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Row(
+                  children: [
+                    Container(
+                      width: 40,
+                      height: 40,
+                      decoration: const BoxDecoration(
+                        color: Color(0xFFECFDF5),
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(Icons.storefront_rounded,
+                          color: Color(0xFF059669), size: 22),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Registrar Visita (Ronda 146)',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                            ),
+                          ),
+                          Text(
+                            client.nombre,
+                            style: const TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: Color(0xFF64748B),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // Opción 1: Con Venta / Pedido
+                Material(
+                  color: const Color(0xFFF0FDF4),
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _pushLockedPortrait(
+                        VisitRecordPage(
+                          idRuta: route.idRuta,
+                          idParada: stop.idParada,
+                          client: client,
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(14),
+                      child: Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.all(8),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF059669),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(Icons.shopping_bag_outlined,
+                                color: Colors.white, size: 20),
+                          ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Visita con Venta o Pedido',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF065F46),
+                                  ),
+                                ),
+                                Text(
+                                  'Capturar productos vendidos o registrar pedido',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF047857),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const Icon(Icons.arrow_forward_ios_rounded,
+                              size: 14, color: Color(0xFF059669)),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                const Row(
+                  children: [
+                    Icon(Icons.camera_alt_outlined,
+                        size: 14, color: Color(0xFF0284C7)),
+                    SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        'O cerrar sin venta (requiere foto del negocio):',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0369A1),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+
+                // Lista de motivos 31 al 37
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: motivosRonda146.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 4),
+                    itemBuilder: (_, i) {
+                      final item = motivosRonda146[i];
+                      final codigo = item['codigo'] as int;
+                      final nombre = item['nombre'] as String;
+                      final icono = item['icono'] as IconData;
+
+                      return ListTile(
+                        dense: true,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        tileColor: const Color(0xFFF8FAFC),
+                        leading: Icon(icono,
+                            size: 18, color: const Color(0xFF64748B)),
+                        title: Text(
+                          '$codigo. $nombre',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                        trailing: const Icon(Icons.check_circle_outline_rounded,
+                            size: 16, color: Color(0xFF94A3B8)),
+                        onTap: () async {
+                          Navigator.of(ctx).pop();
+
+                          // Ronda 146: El servidor exige foto del negocio para reportar motivos de no venta
+                          final picker = ImagePicker();
+                          final picked = await picker.pickImage(
+                            source: ImageSource.camera,
+                            imageQuality: 85,
+                          );
+
+                          if (picked == null) {
+                            if (!mounted) return;
+                            SnackbarTop.showError(
+                              context,
+                              'Se requiere una foto del negocio como evidencia para reportar: $nombre',
+                              title: 'Foto Obligatoria',
+                            );
+                            return;
+                          }
+
+                          _showAppleLoadingDialog(
+                            title: 'Registrando visita...',
+                            subtitle: 'Guardando evidencia y motivo: $nombre',
+                          );
+                          try {
+                            final photoUuid = await ref
+                                .read(routesProvider.notifier)
+                                .registerLocalPhoto(File(picked.path));
+
+                            await ref
+                                .read(routesProvider.notifier)
+                                .registrarVisita(
+                              idRuta: route.idRuta,
+                              idParada: stop.idParada,
+                              motivo: codigo,
+                              fotosUuids: [photoUuid],
+                            );
+                            _dismissAppleLoadingDialog();
+                            if (!mounted) return;
+                            SnackbarTop.showSuccess(
+                              context,
+                              'Visita a ${client.nombre} cerrada con foto (Motivo: $nombre).',
+                              title: 'Visita Registrada',
+                            );
+                          } catch (e) {
+                            _dismissAppleLoadingDialog();
+                            if (!mounted) return;
+                            SnackbarTop.showError(
+                              context,
+                              'Error registrando visita: $e',
+                              title: 'Error de Visita',
+                            );
+                          }
+                        },
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }

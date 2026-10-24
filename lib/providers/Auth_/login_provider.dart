@@ -14,6 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
 import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:mark_v3/pages/home_page.dart';
+import 'package:mark_v3/pages/Auth_/two_factor_auth_page.dart';
 import 'package:mark_v3/providers/Routes_/routes_provider.dart';
 import 'package:mark_v3/services/ConnectionRoutes_/driver_local_db.dart';
 import 'package:mark_v3/providers/Notification_/notifications_provider.dart';
@@ -160,25 +161,57 @@ class LoginNotifier extends Notifier<LoginState> {
         debugPrint('No se pudo obtener token FCM: $e');
       }
 
-      // 4. Iniciar sesión en la API unificada
+      // 3.1 Ronda 146: Datos del teléfono para la bitácora
+      String manufacturer = 'Desconocido';
+      String model = 'Desconocido';
+      String os = 'Android';
+      try {
+        final DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
+        if (Platform.isAndroid) {
+          final androidInfo = await deviceInfo.androidInfo;
+          manufacturer = androidInfo.manufacturer;
+          model = androidInfo.model;
+          os = 'Android ${androidInfo.version.release}';
+        } else if (Platform.isIOS) {
+          final iosInfo = await deviceInfo.iosInfo;
+          manufacturer = 'Apple';
+          model = iosInfo.model;
+          os = 'iOS ${iosInfo.systemVersion}';
+        }
+      } catch (e) {
+        debugPrint('Error extrayendo marca/modelo: $e');
+      }
+
+      // 4. Iniciar sesión en la API unificada (Ronda 146)
       final authResult = await apiClient.login(
         usuario: email,
         password: password,
         dispositivo: dispositivoStr,
         appVersion: '1.0.1',
         fcm: fcmToken ?? '',
+        uuid: state.deviceUUID,
+        manufacturer: manufacturer,
+        model: model,
+        os: os,
+        lat: position.latitude,
+        lng: position.longitude,
+        acur: position.accuracy.round(),
       );
 
       // CASO A: Requiere Verificación en 2 Pasos (Ronda 134)
       if (authResult.isTwoFactorRequired && authResult.challenge != null) {
         state = state.copyWith(isLoading: false);
         if (context.mounted) {
-          _show2FaDialog(
-            context: context,
-            challenge: authResult.challenge!,
-            email: email,
-            password: password,
-            rememberMe: rememberMe,
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => TwoFactorAuthPage(
+                challenge: authResult.challenge!,
+                email: email,
+                password: password,
+                initialRememberMe: rememberMe,
+              ),
+            ),
           );
         }
         return;
@@ -222,6 +255,23 @@ class LoginNotifier extends Notifier<LoginState> {
         );
       }
     }
+  }
+
+  /// Finaliza el proceso de login tras verificar el código 2FA
+  Future<void> completeLoginFrom2Fa({
+    required BuildContext context,
+    required DriverSession session,
+    required String email,
+    required String password,
+    required bool rememberMe,
+  }) async {
+    await _completeSuccessfulLogin(
+      context: context,
+      session: session,
+      email: email,
+      password: password,
+      rememberMe: rememberMe,
+    );
   }
 
   /// Finaliza el proceso de login guardando sesión, SQLite y navegando a HomePage

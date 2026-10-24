@@ -1,3 +1,4 @@
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -79,6 +80,17 @@ class _SplashScreenState extends State<SplashScreen>
         final token = data['token']?.toString() ?? '';
         if (token.isNotEmpty) {
           MarkApiClient.instance.setToken(token);
+          // Ronda 146: Enviar token FCM cada vez que se abre la app con sesión activa
+          unawaited(() async {
+            try {
+              final fcm = await FirebaseMessaging.instance.getToken();
+              if (fcm != null && fcm.isNotEmpty) {
+                await MarkApiClient.instance.updateFcm(fcm, tokenOverride: token);
+              }
+            } catch (e) {
+              debugPrint("Error actualizando FCM en SplashScreen: $e");
+            }
+          }());
         }
         final prefs = await SharedPreferences.getInstance();
         if (uid.isNotEmpty) {

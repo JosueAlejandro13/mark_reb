@@ -91,6 +91,9 @@ class ProfileNotifier extends Notifier<ProfileState> {
   }
 
   Future<void> _loadNetworkPhoto() async {
+    final token = MarkApiClient.instance.token;
+    if (token == null || token.isEmpty) return;
+
     try {
       final res = await MarkApiClient.instance.getPerfil();
       if (res['ok'] == true) {
