@@ -1080,7 +1080,7 @@ class RouteDetailAndMapPage extends ConsumerStatefulWidget {
 }
 
 class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   GoogleMapController? _mapController;
   bool _mapExpanded = false;
   bool _isExecutingRouteAction = false;
@@ -1118,6 +1118,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
       vsync: this,
       duration: const Duration(seconds: 2),
     )..repeat(reverse: true);
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startContinuousGpsStream();
       _loadMapIcons();
@@ -1126,6 +1127,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _vehicleTelemetryTimer?.cancel();
     // Rebloquear toda la app en vertical al salir de la pantalla de ruta/mapa
     SystemChrome.setPreferredOrientations([
@@ -1136,6 +1138,14 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     _pulseController.dispose();
     _mapController?.dispose();
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Al volver de Google Maps / Waze al destino, refrescar GPS de inmediato y validar llegada
+      _startContinuousGpsStream();
+    }
   }
 
   Future<void> _loadMapIcons() async {
@@ -1175,7 +1185,9 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   }
 
   void _startVehicleTrackingTimer(int vehicId) {
-    if (_lastVehicIdTracked == vehicId && _vehicleTelemetryTimer != null) return;
+    if (_lastVehicIdTracked == vehicId && _vehicleTelemetryTimer != null) {
+      return;
+    }
     _lastVehicIdTracked = vehicId;
     _vehicleTelemetryTimer?.cancel();
     _fetchRouteVehicleTelemetry(vehicId);
@@ -1418,7 +1430,8 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     }
   }
 
-  Future<void> _animateCameraToLatLng(LatLng target, {double defaultZoom = 16.5}) async {
+  Future<void> _animateCameraToLatLng(LatLng target,
+      {double defaultZoom = 16.5}) async {
     final ctrl = _mapController;
     if (ctrl == null) return;
     try {
@@ -1766,8 +1779,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
           rotation: _vehicleDirection,
           zIndex: 9,
           infoWindow: InfoWindow(
-            title:
-                '${route.vehiculo!.economico} (${route.vehiculo!.placas})',
+            title: '${route.vehiculo!.economico} (${route.vehiculo!.placas})',
             snippet: 'Vehículo de ruta',
           ),
         ),
@@ -1788,7 +1800,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
           anchor: const Offset(0.5, 0.96),
           zIndex: 10,
           infoWindow: const InfoWindow(
-            title: 'Tu Ubicación',
+            title: 'Mi ubicación',
             snippet: 'Chofer / Conductor',
           ),
         ),
@@ -1907,46 +1919,51 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
           backgroundColor: Colors.white,
           surfaceTintColor: Colors.transparent,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(18),
             side: const BorderSide(color: Color(0xFFE2E8F0)),
           ),
+          insetPadding:
+              const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
           contentPadding:
-              const EdgeInsets.symmetric(vertical: 20, horizontal: 18),
-          content: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              LoadingAnimationWidget.threeRotatingDots(
-                color: const Color(0xFF0284C7),
-                size: 32,
-              ),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: const TextStyle(
-                        fontSize: 14.5,
-                        fontWeight: FontWeight.w700,
-                        color: Color(0xFF0F172A),
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      subtitle,
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        color: Color(0xFF64748B),
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ],
+              const EdgeInsets.symmetric(vertical: 18, horizontal: 18),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 380),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                LoadingAnimationWidget.threeRotatingDots(
+                  color: const Color(0xFF0284C7),
+                  size: 30,
                 ),
-              ),
-            ],
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: const TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF0F172A),
+                          letterSpacing: -0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          color: Color(0xFF64748B),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -1965,39 +1982,126 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   Future<void> _handleSalida(DriverRoute route) async {
     final confirm = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.directions_car_filled_rounded, color: Color(0xFF0284C7)),
-            SizedBox(width: 8),
-            Text('Confirmar salida',
-                style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
-          ],
-        ),
-        content: const Text(
-          '¿Confirmas que ya saliste del CEDI a ruta?\n\n'
-          'Esta hora quedará registrada oficialmente como tu hora oficial de salida e iniciará el seguimiento del vigilante.',
-          style:
-              TextStyle(fontSize: 13.5, color: Color(0xFF475569), height: 1.4),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Aún en CEDI'),
+      builder: (ctx) {
+        final mediaQuery = MediaQuery.of(ctx);
+        final isLandscape = mediaQuery.orientation == Orientation.landscape;
+        final screenHeight = mediaQuery.size.height;
+
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(18),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFF0284C7),
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: isLandscape ? 12 : 24,
+          ),
+          titlePadding: EdgeInsets.fromLTRB(
+            20,
+            isLandscape ? 14 : 20,
+            20,
+            isLandscape ? 6 : 10,
+          ),
+          contentPadding: EdgeInsets.fromLTRB(
+            20,
+            0,
+            20,
+            isLandscape ? 10 : 16,
+          ),
+          actionsPadding: EdgeInsets.fromLTRB(
+            16,
+            0,
+            16,
+            isLandscape ? 10 : 16,
+          ),
+          title: const Row(
+            children: [
+              Icon(
+                Icons.directions_car_filled_rounded,
+                color: Color(0xFF0284C7),
+                size: 22,
+              ),
+              SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Confirmar salida',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 440,
+              maxHeight: isLandscape ? screenHeight * 0.45 : double.infinity,
             ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Sí, ya salí del CEDI'),
+            child: const SingleChildScrollView(
+              physics: BouncingScrollPhysics(),
+              child: Text(
+                '¿Confirmas que ya saliste del CEDI a ruta?\n\n'
+                'Esta hora quedará registrada oficialmente como tu hora oficial de salida e iniciará el seguimiento del vigilante.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF475569),
+                  height: 1.4,
+                ),
+              ),
+            ),
           ),
-        ],
-      ),
+          actions: [
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                foregroundColor: const Color(0xFF64748B),
+                side: const BorderSide(color: Color(0xFFCBD5E1)),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 8,
+                ),
+                minimumSize: const Size(0, 38),
+              ),
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text(
+                'Aún en CEDI',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                minimumSize: const Size(0, 38),
+              ),
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text(
+                'Sí, ya salí del CEDI',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
     if (confirm != true) return;
 
@@ -2061,148 +2165,208 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
 
       final confirmEnd = await showDialog<bool>(
         context: context,
-        builder: (ctx) => AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: Row(
-            children: [
-              Icon(
-                hasPendingWork
-                    ? Icons.warning_amber_rounded
-                    : Icons.check_circle_outline_rounded,
-                color: hasPendingWork
-                    ? const Color(0xFFD97706)
-                    : const Color(0xFF059669),
-                size: 26,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text(
+        builder: (ctx) {
+          final mediaQuery = MediaQuery.of(ctx);
+          final isLandscape = mediaQuery.orientation == Orientation.landscape;
+          final screenHeight = mediaQuery.size.height;
+
+          return AlertDialog(
+            backgroundColor: Colors.white,
+            surfaceTintColor: Colors.transparent,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(18),
+            ),
+            insetPadding: EdgeInsets.symmetric(
+              horizontal: 24,
+              vertical: isLandscape ? 12 : 24,
+            ),
+            titlePadding: EdgeInsets.fromLTRB(
+              20,
+              isLandscape ? 14 : 20,
+              20,
+              isLandscape ? 6 : 10,
+            ),
+            contentPadding: EdgeInsets.fromLTRB(
+              20,
+              0,
+              20,
+              isLandscape ? 8 : 12,
+            ),
+            actionsPadding: EdgeInsets.fromLTRB(
+              16,
+              0,
+              16,
+              isLandscape ? 10 : 16,
+            ),
+            title: Row(
+              children: [
+                Icon(
                   hasPendingWork
-                      ? '¿Terminar ruta con pendientes?'
-                      : '¿Terminar ruta?',
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w800,
-                  ),
+                      ? Icons.warning_amber_rounded
+                      : Icons.check_circle_outline_rounded,
+                  color: hasPendingWork
+                      ? const Color(0xFFD97706)
+                      : const Color(0xFF059669),
+                  size: 22,
                 ),
-              ),
-            ],
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (hasPendingWork) ...[
-                const Text(
-                  '¿Estás seguro de que deseas terminar la ruta? Aún tienes trabajo pendiente:',
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    color: Color(0xFF334155),
-                    fontWeight: FontWeight.w500,
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    hasPendingWork
+                        ? '¿Terminar ruta con pendientes?'
+                        : '¿Terminar ruta?',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 10),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFFFFBEB),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: const Color(0xFFFDE68A)),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (pendingStops > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            '• $pendingStops parada(s) sin visitar',
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF92400E),
-                            ),
-                          ),
-                        ),
-                      if (pendingDeliveries > 0)
-                        Padding(
-                          padding: const EdgeInsets.only(bottom: 4),
-                          child: Text(
-                            '• $pendingDeliveries paquete(s) por entregar',
-                            style: const TextStyle(
-                              fontSize: 12.5,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF92400E),
-                            ),
-                          ),
-                        ),
-                      if (pendingPickups > 0)
-                        Text(
-                          '• $pendingPickups paquete(s) por recoger',
-                          style: const TextStyle(
-                            fontSize: 12.5,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF92400E),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 10),
-                const Text(
-                  'Las paradas que no hayas visitado quedarán registradas automáticamente como no atendidas.',
-                  style: TextStyle(fontSize: 11.5, color: Color(0xFF64748B)),
-                ),
-              ] else ...[
-                const Text(
-                  'Has completado todas las paradas de esta ruta. ¿Deseas dar por finalizada la jornada de esta ruta?',
-                  style: TextStyle(fontSize: 13.5, color: Color(0xFF334155)),
                 ),
               ],
+            ),
+            content: ConstrainedBox(
+              constraints: BoxConstraints(
+                maxWidth: 440,
+                maxHeight: isLandscape ? screenHeight * 0.48 : double.infinity,
+              ),
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (hasPendingWork) ...[
+                      const Text(
+                        '¿Estás seguro de que deseas terminar la ruta? Aún tienes trabajo pendiente:',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF334155),
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFFBEB),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFFDE68A)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (pendingStops > 0)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 3),
+                                child: Text(
+                                  '• $pendingStops parada(s) sin visitar',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF92400E),
+                                  ),
+                                ),
+                              ),
+                            if (pendingDeliveries > 0)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 3),
+                                child: Text(
+                                  '• $pendingDeliveries paquete(s) por entregar',
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF92400E),
+                                  ),
+                                ),
+                              ),
+                            if (pendingPickups > 0)
+                              Text(
+                                '• $pendingPickups paquete(s) por recoger',
+                                style: const TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF92400E),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        'Las paradas que no hayas visitado quedarán registradas automáticamente como no atendidas.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF64748B),
+                        ),
+                      ),
+                    ] else ...[
+                      const Text(
+                        'Has completado todas las paradas de esta ruta. ¿Deseas dar por finalizada la jornada de esta ruta?',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF334155),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            actions: [
+              OutlinedButton(
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF64748B),
+                  side: const BorderSide(color: Color(0xFFCBD5E1)),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  minimumSize: const Size(0, 38),
+                ),
+                onPressed: () => Navigator.of(ctx).pop(false),
+                child: const Text(
+                  'Cancelar',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: hasPendingWork
+                      ? const Color(0xFFD97706)
+                      : const Color(0xFF0F172A),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  minimumSize: const Size(0, 38),
+                ),
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: Text(
+                  hasPendingWork ? 'Sí, Terminar Ruta' : 'Finalizar Ruta',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w800,
+                    fontSize: 12.5,
+                  ),
+                ),
+              ),
             ],
-          ),
-          actions: [
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: const Color(0xFF0284C7),
-                foregroundColor: Colors.white,
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-              ),
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text(
-                'Cancelar / Continuar en ruta',
-                style: TextStyle(
-                  fontWeight: FontWeight.w700,
-                  fontSize: 12.5,
-                ),
-              ),
-            ),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: hasPendingWork
-                    ? const Color(0xFFD97706)
-                    : const Color(0xFF0F172A),
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-              ),
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: Text(
-                hasPendingWork ? 'Sí, Terminar Ruta' : 'Finalizar Ruta',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       );
 
       if (confirmEnd != true) {
@@ -2233,35 +2397,120 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
 
         final confirm = await showDialog<bool>(
           context: context,
-          builder: (ctx) => AlertDialog(
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(16),
-            ),
-            title: Text(isVisitasPendientes
-                ? 'Visitas pendientes de resultado (Ronda 146)'
-                : 'Paquetes pendientes sin bajar en CEDI'),
-            content: Text(
-              isVisitasPendientes
-                  ? '$msg\n\nTienes paradas con llegada pero sin resultado de visita registrado.\nSi cierras la ruta ahora, quedarán marcadas como incidencia (Motivo 39).\n\n¿Deseas regresar a registrarlas o confirmar cierre con visitas pendientes?'
-                  : (msg.isNotEmpty
-                      ? '$msg\n\n¿Desea ir al CEDI a descargarlos o confirmar terminar la ruta con paquetes pendientes?'
-                      : 'Aún existen paquetes sin descargar en el CEDI. ¿Desea confirmar el fin de ruta?'),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Ir a CEDI / Revisar'),
+          builder: (ctx) {
+            final mediaQuery = MediaQuery.of(ctx);
+            final isLandscape = mediaQuery.orientation == Orientation.landscape;
+            final screenHeight = mediaQuery.size.height;
+
+            return AlertDialog(
+              backgroundColor: Colors.white,
+              surfaceTintColor: Colors.transparent,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(18),
               ),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFD97706),
-                  foregroundColor: Colors.white,
+              insetPadding: EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: isLandscape ? 12 : 24,
+              ),
+              titlePadding: EdgeInsets.fromLTRB(
+                20,
+                isLandscape ? 14 : 20,
+                20,
+                isLandscape ? 6 : 10,
+              ),
+              contentPadding: EdgeInsets.fromLTRB(
+                20,
+                0,
+                20,
+                isLandscape ? 8 : 12,
+              ),
+              actionsPadding: EdgeInsets.fromLTRB(
+                16,
+                0,
+                16,
+                isLandscape ? 10 : 16,
+              ),
+              title: Text(
+                isVisitasPendientes
+                    ? 'Visitas pendientes de resultado'
+                    : 'Paquetes pendientes en CEDI',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFF0F172A),
                 ),
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('Confirmar y Terminar'),
               ),
-            ],
-          ),
+              content: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxWidth: 440,
+                  maxHeight:
+                      isLandscape ? screenHeight * 0.45 : double.infinity,
+                ),
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  child: Text(
+                    isVisitasPendientes
+                        ? '$msg\n\nTienes paradas con llegada pero sin resultado de visita registrado.\nSi cierras la ruta ahora, quedarán marcadas como incidencia (Motivo 39).\n\n¿Deseas regresar a registrarlas o confirmar cierre con visitas pendientes?'
+                        : (msg.isNotEmpty
+                            ? '$msg\n\n¿Desea ir al CEDI a descargarlos o confirmar terminar la ruta con paquetes pendientes?'
+                            : 'Aún existen paquetes sin descargar en el CEDI. ¿Desea confirmar el fin de ruta?'),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF475569),
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+              ),
+              actions: [
+                OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF64748B),
+                    side: const BorderSide(color: Color(0xFFCBD5E1)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 8,
+                    ),
+                    minimumSize: const Size(0, 38),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(false),
+                  child: const Text(
+                    'Ir a CEDI / Revisar',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w700,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFFD97706),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    minimumSize: const Size(0, 38),
+                  ),
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  child: const Text(
+                    'Confirmar y Terminar',
+                    style: TextStyle(
+                      fontWeight: FontWeight.w800,
+                      fontSize: 12.5,
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         );
         if (confirm == true && mounted) {
           await _handleFinRuta(route, confirmarDiferencia: true);
@@ -4092,6 +4341,11 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
         .read(routesProvider.notifier)
         .calculateDistanceMeters(client.lat, client.lng);
     final isFar = distMeters != null && distMeters > config.distAviso;
+    // La advertencia de fuera de rango solo aplica si el usuario la marcó desde la app (no si fue automática por GPS del camión)
+    final bool isManualFarArrival = !stop.visitaCerrada &&
+        stop.visitada &&
+        stop.visitaOrigen != 'gps' &&
+        isFar;
     final String distanciaText = distMeters != null
         ? (isFar
             ? (distMeters >= 1000
@@ -4516,32 +4770,58 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                           ),
                         ),
                       ] else ...[
-                        // Ya llegó: chip de llegada confirmada + botón de llamada
+                        // Ya llegó: chip de llegada confirmada (o advertencia si se marcó fuera de rango) + botón de llamada
                         Row(
                           children: [
                             Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 8, vertical: 4),
                               decoration: BoxDecoration(
-                                color: const Color(0xFFECFDF5),
+                                color: stop.visitaCerrada
+                                    ? const Color(0xFFECFDF5)
+                                    : (isManualFarArrival
+                                        ? const Color(0xFFFFFBEB)
+                                        : const Color(0xFFECFDF5)),
                                 borderRadius: BorderRadius.circular(7),
-                                border:
-                                    Border.all(color: const Color(0xFFA7F3D0)),
+                                border: Border.all(
+                                  color: stop.visitaCerrada
+                                      ? const Color(0xFFA7F3D0)
+                                      : (isManualFarArrival
+                                          ? const Color(0xFFFDE68A)
+                                          : const Color(0xFFA7F3D0)),
+                                ),
                               ),
                               child: Row(
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
-                                  const Icon(Icons.check_circle_rounded,
-                                      size: 13, color: Color(0xFF047857)),
+                                  Icon(
+                                    stop.visitaCerrada
+                                        ? Icons.check_circle_rounded
+                                        : (isManualFarArrival
+                                            ? Icons.warning_amber_rounded
+                                            : Icons.check_circle_rounded),
+                                    size: 13,
+                                    color: stop.visitaCerrada
+                                        ? const Color(0xFF047857)
+                                        : (isManualFarArrival
+                                            ? const Color(0xFFB45309)
+                                            : const Color(0xFF047857)),
+                                  ),
                                   const SizedBox(width: 4),
                                   Text(
                                     stop.visitaCerrada
                                         ? 'Visita concluida'
-                                        : 'Llegada registrada',
-                                    style: const TextStyle(
+                                        : (isManualFarArrival
+                                            ? 'Llegó a ${distMeters != null ? (distMeters >= 1000 ? "${(distMeters / 1000).toStringAsFixed(1)} km" : "${distMeters.round()} m") : ""} del destino'
+                                            : 'Llegada registrada'),
+                                    style: TextStyle(
                                       fontSize: 10.5,
                                       fontWeight: FontWeight.w800,
-                                      color: Color(0xFF047857),
+                                      color: stop.visitaCerrada
+                                          ? const Color(0xFF047857)
+                                          : (isManualFarArrival
+                                              ? const Color(0xFFB45309)
+                                              : const Color(0xFF047857)),
                                     ),
                                   ),
                                 ],
@@ -4569,51 +4849,14 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                             ],
                           ],
                         ),
-
-                        // Ronda 146: Botón Registrar Resultado de Visita para paradas de cliente
-                        if (!stop.visitaCerrada &&
-                            (route.isVisitRoute ||
-                                (stop.entregar.isEmpty &&
-                                    stop.recoger.isEmpty))) ...[
-                          const SizedBox(height: 6),
-                          SizedBox(
-                            width: double.infinity,
-                            height: 34,
-                            child: ElevatedButton.icon(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF059669),
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                padding:
-                                    const EdgeInsets.symmetric(horizontal: 10),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(9),
-                                ),
-                              ),
-                              onPressed: () => _showVisitOptionsModal(
-                                context: context,
-                                route: route,
-                                stop: stop,
-                                client: client,
-                              ),
-                              icon: const Icon(Icons.storefront_rounded,
-                                  size: 15, color: Colors.white),
-                              label: const Text(
-                                'Registrar Resultado de Visita',
-                                style: TextStyle(
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: -0.1,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
                       ],
                     ],
                   ),
                 ),
-                if (!stop.visitada && !isCompleted) ...[
+                // Mostrar botón IR si no ha llegado, O si el usuario marcó llegada manualmente desde el teléfono pero está fuera de rango (> distAviso)
+                if (!isCompleted &&
+                    (!stop.visitada ||
+                        (isManualFarArrival && !stop.visitaCerrada))) ...[
                   const SizedBox(width: 10),
 
                   // Botón Navegar ("IR") estilo Apple Squircle

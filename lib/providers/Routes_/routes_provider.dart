@@ -1105,31 +1105,35 @@ class RoutesNotifier extends Notifier<RoutesState> {
         targetLng,
       );
 
-      // CASO A: El celular llega al cliente en vivo (<= 300m)
-      // Si el camión está en el perímetro de aproximación (<= 1500m / 1.5 km),
-      // significa que el camión viene llegando pero el servidor tiene un leve retardo de 2-5 min.
-      // ¡Validamos de inmediato la llegada con el celular para que el chofer no espere parado!
-      if (distPhone <= 300) {
-        if (distVehicle <= 1500) {
-          return distPhone; // Llegada instantánea y verificada
+      // Radio configurado en la cuenta web (distAviso, ej. 300m)
+      final configDist = state.dayPackage?.config.distAviso ?? 300;
+      final arrivalRadius = (configDist > 0 ? configDist : 300).toDouble();
+      // Margen de proximidad del vehículo: máximo 600m (o el doble de distAviso)
+      final maxVehicleMargin = (arrivalRadius * 2.0).clamp(500.0, 600.0);
+
+      // CASO A: El celular llega al cliente dentro del radio configurado (<= 300m)
+      // Si el camión está en el perímetro inmediato (<= 600m), se valida la llegada
+      if (distPhone <= arrivalRadius) {
+        if (distVehicle <= maxVehicleMargin) {
+          return distPhone; // Llegada verificada y precisa
         } else {
-          // El camión está a más de 1.5 km de distancia: trampa detectada
+          // El camión está a más de 600m: posible inconsistencia / trampa
           return distVehicle;
         }
       }
 
-      // CASO B: El camión reporta estar en sitio por telemetría (<= 400m)
-      if (distVehicle <= 400) {
+      // CASO B: El camión reporta estar en sitio por telemetría (<= distAviso)
+      if (distVehicle <= arrivalRadius) {
         return distVehicle < distPhone ? distVehicle : distPhone;
       }
 
-      // CASO C: En ruta normal, si ambos son coherentes (diferencia <= 1500m),
-      // mostramos la distancia más avanzada (la más corta entre ambos):
-      if ((distVehicle - distPhone).abs() <= 1500) {
+      // CASO C: En ruta normal, si ambos son coherentes (diferencia <= 600m),
+      // mostramos la distancia más avanzada (la más cercana entre ambos):
+      if ((distVehicle - distPhone).abs() <= maxVehicleMargin) {
         return distPhone < distVehicle ? distPhone : distVehicle;
       }
 
-      // Si hay una discrepancia enorme (> 1.5 km), el camión manda por seguridad
+      // Si hay discrepancia mayor a 600m, el camión manda por seguridad
       return distVehicle;
     }
 

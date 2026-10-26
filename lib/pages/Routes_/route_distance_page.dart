@@ -30,11 +30,18 @@ void showServerNoticesFeedback(
   final warningsAndInfo = notices.where((n) => !n.isCriticalRedAlert).toList();
 
   if (warningsAndInfo.isNotEmpty) {
-    final hasWarning = warningsAndInfo.any((n) => n.nivel == 'aviso');
+    final hasWarning = warningsAndInfo.any((n) => n.nivel == 'aviso' || n.nivel == 'warning');
+    final hasInfo = warningsAndInfo.any((n) => n.nivel == 'info');
     final text = warningsAndInfo.map((n) => n.displayTexto).join('\n');
     
     if (hasWarning) {
       SnackbarTop.showWarning(
+        context,
+        text,
+        style: SnackbarTopStyle.appleCard,
+      );
+    } else if (hasInfo) {
+      SnackbarTop.showInfo(
         context,
         text,
         style: SnackbarTopStyle.appleCard,
