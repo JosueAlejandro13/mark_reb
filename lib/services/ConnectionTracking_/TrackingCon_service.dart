@@ -19,14 +19,14 @@ class TrackingconService {
     }
   }
 
-  /// Obtener tracking / telemetría en vivo de la unidad
+  /// Obtener tracking / telemetría en vivo de la unidad (optimizado por idVehic)
   Future<List<Map<String, dynamic>>> obtenerTracking(String id) async {
     try {
       final intId = int.tryParse(id) ?? 0;
       if (intId <= 0) return [];
 
-      // En Mark V3.1, la telemetría GPS en tiempo real de los vehículos viene en api.php?a=vehiculos
-      final list = await _client.getVehiculos();
+      // Optimización: pasamos idVehic y silent: true para no saturar los logs de la consola en cada sondeo
+      final list = await _client.getVehiculos(idVehic: intId, silent: true);
       final match = list.where((v) {
         final vId = (v['idVehic'] ?? v['id'] ?? v['idEq'])?.toString();
         return vId == id;

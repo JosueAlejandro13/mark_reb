@@ -22,6 +22,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:mark_v3/services/ConnectionTracking_/TrackingCon_service.dart';
 
 /// Pantalla Principal "Mi Día" — Integración completa con deliveryPHP/operacion/api.php (MarkV3.1)
 class RoutesPage extends ConsumerStatefulWidget {
@@ -1091,9 +1092,18 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   bool _isTopBarCollapsed = false;
   late AnimationController _pulseController;
   bool _isTrackingLocation = false;
+  bool _isTrackingVehicle = false;
   StreamSubscription<Position>? _liveGpsSub;
   final Set<int> _autoLlegadaTriggered = {};
   bool _isAutoLlegadaInProgress = false;
+
+  BitmapDescriptor? _personMarkerIcon;
+  BitmapDescriptor? _truckMarkerIcon;
+  LatLng? _vehicleLocation;
+  double _vehicleDirection = 0.0;
+  bool _vehicleIsActive = false;
+  Timer? _vehicleTelemetryTimer;
+  int? _lastVehicIdTracked;
 
   @override
   void initState() {
@@ -1110,11 +1120,13 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     )..repeat(reverse: true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startContinuousGpsStream();
+      _loadMapIcons();
     });
   }
 
   @override
   void dispose() {
+    _vehicleTelemetryTimer?.cancel();
     // Rebloquear toda la app en vertical al salir de la pantalla de ruta/mapa
     SystemChrome.setPreferredOrientations([
       DeviceOrientation.portraitUp,
@@ -1124,6 +1136,86 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     _pulseController.dispose();
     _mapController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadMapIcons() async {
+    try {
+      // 1. Icono de persona / chofer para reemplazar el punto azul
+      final personData = await rootBundle.load('assets/person_marker.png');
+      final personCodec = await ui.instantiateImageCodec(
+        personData.buffer.asUint8List(),
+        targetHeight: 90,
+      );
+      final personFi = await personCodec.getNextFrame();
+      final personBytes =
+          await personFi.image.toByteData(format: ui.ImageByteFormat.png);
+      if (personBytes != null) {
+        _personMarkerIcon =
+            BitmapDescriptor.fromBytes(personBytes.buffer.asUint8List());
+      }
+
+      // 2. Icono de vehículo en ruta (top-down 360°, Verde Esmeralda de alta visibilidad)
+      final truckData = await rootBundle.load('assets/truck_top_green.png');
+      final truckCodec = await ui.instantiateImageCodec(
+        truckData.buffer.asUint8List(),
+        targetWidth: 80,
+      );
+      final truckFi = await truckCodec.getNextFrame();
+      final truckBytes =
+          await truckFi.image.toByteData(format: ui.ImageByteFormat.png);
+      if (truckBytes != null) {
+        _truckMarkerIcon =
+            BitmapDescriptor.fromBytes(truckBytes.buffer.asUint8List());
+      }
+
+      if (mounted) setState(() {});
+    } catch (e) {
+      debugPrint('Error cargando iconos para mapa de rutas: $e');
+    }
+  }
+
+  void _startVehicleTrackingTimer(int vehicId) {
+    if (_lastVehicIdTracked == vehicId && _vehicleTelemetryTimer != null) return;
+    _lastVehicIdTracked = vehicId;
+    _vehicleTelemetryTimer?.cancel();
+    _fetchRouteVehicleTelemetry(vehicId);
+    _vehicleTelemetryTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (mounted) _fetchRouteVehicleTelemetry(vehicId);
+    });
+  }
+
+  Future<void> _fetchRouteVehicleTelemetry(int vehicId) async {
+    try {
+      final data =
+          await TrackingconService().obtenerTracking(vehicId.toString());
+      if (data.isNotEmpty && mounted) {
+        final v = data.first;
+        final lat = double.tryParse(v['lat']?.toString() ?? '0') ?? 0.0;
+        final lng = double.tryParse(v['lng']?.toString() ?? '0') ?? 0.0;
+        final dir = double.tryParse(v['dir']?.toString() ?? '0') ?? 0.0;
+        final ign = (v['ignStatus'] ?? 0) == 1;
+
+        if (lat != 0.0 && lng != 0.0) {
+          final newLoc = LatLng(lat, lng);
+          setState(() {
+            _vehicleLocation = newLoc;
+            _vehicleDirection = dir;
+            _vehicleIsActive = ign;
+          });
+
+          // Actualizar posición telemétrica del vehículo en el provider para distancias reactivas
+          ref.read(routesProvider.notifier).updateVehiclePosition(lat, lng);
+
+          // Verificar si el vehículo o teléfono entró en geocerca de llegada
+          _checkAutoLlegada();
+
+          // Si el seguimiento del vehículo está activo, seguir con la cámara
+          if (_isTrackingVehicle) {
+            _animateCameraToLatLng(newLoc);
+          }
+        }
+      }
+    } catch (_) {}
   }
 
   /// Inicia el stream continuo de GPS para:
@@ -1155,7 +1247,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
           if (_isTrackingLocation) {
             _animateCameraToPosition(initialPos);
           }
-          _checkAutoLlegada(initialPos);
+          _checkAutoLlegada();
         }
       } catch (_) {
         final lastPos = await Geolocator.getLastKnownPosition();
@@ -1164,7 +1256,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
           if (_isTrackingLocation) {
             _animateCameraToPosition(lastPos);
           }
-          _checkAutoLlegada(lastPos);
+          _checkAutoLlegada();
         }
       }
 
@@ -1189,7 +1281,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
           }
 
           // 3. Revisar si entró a la geocerca de alguna parada para auto-marcar llegada
-          _checkAutoLlegada(pos);
+          _checkAutoLlegada();
         },
         onError: (err) {
           debugPrint('Aviso en stream de GPS continuo: $err');
@@ -1200,9 +1292,9 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     }
   }
 
-  /// Verifica si el chofer ha entrado en la geocerca de una parada (< distAviso, ej 300m)
+  /// Verifica si la unidad (prioridad vehículo anti-trampas o celular) ha entrado en la geocerca (< distAviso, ej 300m)
   /// y dispara registrarLlegada automáticamente
-  void _checkAutoLlegada(Position pos) {
+  void _checkAutoLlegada() {
     if (_isAutoLlegadaInProgress) return;
 
     final route = ref.read(routesProvider).findRoute(widget.idRuta);
@@ -1222,14 +1314,12 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
       // Evitar re-disparar si ya se procesó o está en curso para esta parada
       if (_autoLlegadaTriggered.contains(stop.idParada)) continue;
 
-      final dist = Geolocator.distanceBetween(
-        pos.latitude,
-        pos.longitude,
-        client.lat,
-        client.lng,
-      );
+      // Cálculo de distancia híbrido inteligente (prioridad vehículo anti-trampas)
+      final dist = ref
+          .read(routesProvider.notifier)
+          .calculateDistanceMeters(client.lat, client.lng);
 
-      if (dist <= maxDistance) {
+      if (dist != null && dist <= maxDistance) {
         _autoLlegadaTriggered.add(stop.idParada);
         _triggerAutoLlegada(route, stop, client, dist);
         break; // Procesar una sola parada a la vez
@@ -1276,6 +1366,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
 
     setState(() {
       _isTrackingLocation = true;
+      _isTrackingVehicle = false;
     });
 
     final lastPos = ref.read(routesProvider).lastKnownPosition;
@@ -1295,23 +1386,80 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     }
   }
 
-  void _animateCameraToPosition(Position position) {
+  Future<void> _toggleVehicleTracking(DriverRoute route) async {
+    if (_isTrackingVehicle) {
+      _stopVehicleTracking();
+      return;
+    }
+
+    final vehicId = route.vehiculo?.id;
+    if (vehicId == null || vehicId <= 0) {
+      SnackbarTop.showInfo(
+        context,
+        'Esta ruta no tiene un vehículo asignado con telemetría',
+        title: 'Vehículo no asignado',
+      );
+      return;
+    }
+
+    setState(() {
+      _isTrackingVehicle = true;
+      _isTrackingLocation = false;
+    });
+
+    if (_vehicleLocation != null) {
+      _animateCameraToLatLng(_vehicleLocation!);
+    }
+
+    _startVehicleTrackingTimer(vehicId);
+    await _fetchRouteVehicleTelemetry(vehicId);
+    if (mounted && _isTrackingVehicle && _vehicleLocation != null) {
+      _animateCameraToLatLng(_vehicleLocation!);
+    }
+  }
+
+  Future<void> _animateCameraToLatLng(LatLng target, {double defaultZoom = 16.5}) async {
     final ctrl = _mapController;
     if (ctrl == null) return;
-    ctrl.animateCamera(
-      CameraUpdate.newCameraPosition(
-        CameraPosition(
-          target: LatLng(position.latitude, position.longitude),
-          zoom: 16.5,
+    try {
+      final currentZoom = await ctrl.getZoomLevel();
+      final effectiveZoom = (currentZoom < 14.0) ? defaultZoom : currentZoom;
+      ctrl.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: target,
+            zoom: effectiveZoom,
+          ),
         ),
-      ),
-    );
+      );
+    } catch (_) {
+      ctrl.animateCamera(
+        CameraUpdate.newCameraPosition(
+          CameraPosition(
+            target: target,
+            zoom: defaultZoom,
+          ),
+        ),
+      );
+    }
+  }
+
+  void _animateCameraToPosition(Position position) {
+    _animateCameraToLatLng(LatLng(position.latitude, position.longitude));
   }
 
   void _stopLocationTracking() {
     if (mounted && _isTrackingLocation) {
       setState(() {
         _isTrackingLocation = false;
+      });
+    }
+  }
+
+  void _stopVehicleTracking() {
+    if (mounted && _isTrackingVehicle) {
+      setState(() {
+        _isTrackingVehicle = false;
       });
     }
   }
@@ -1339,6 +1487,9 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   void _fitMapToRoute(DriverRoute route) {
     if (_isTrackingLocation) {
       _stopLocationTracking();
+    }
+    if (_isTrackingVehicle) {
+      _stopVehicleTracking();
     }
     final ctrl = _mapController;
     if (ctrl == null) return;
@@ -1596,6 +1747,53 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   Set<Marker> _buildMarkers(DriverRoute route) {
     final Set<Marker> markers = {};
     bool missingAny = false;
+
+    // 1. Iniciar sondeo de telemetría del vehículo asignado a la ruta
+    if (route.vehiculo != null && route.vehiculo!.id > 0) {
+      _startVehicleTrackingTimer(route.vehiculo!.id);
+    }
+
+    // 2. Marcador del Vehículo en el mapa (Top-down 360°, Verde Esmeralda de alta visibilidad)
+    if (_vehicleLocation != null && route.vehiculo != null) {
+      markers.add(
+        Marker(
+          markerId: MarkerId('route_vehicle_${route.vehiculo!.id}'),
+          position: _vehicleLocation!,
+          icon: _truckMarkerIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen),
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
+          rotation: _vehicleDirection,
+          zIndex: 9,
+          infoWindow: InfoWindow(
+            title:
+                '${route.vehiculo!.economico} (${route.vehiculo!.placas})',
+            snippet: 'Vehículo de ruta',
+          ),
+        ),
+      );
+    }
+
+    // 3. Marcador de Persona (Chofer) en reemplazo del punto azul
+    final currentPos = ref.watch(routesProvider).lastKnownPosition;
+    if (currentPos != null &&
+        currentPos.latitude != 0.0 &&
+        currentPos.longitude != 0.0) {
+      markers.add(
+        Marker(
+          markerId: const MarkerId('driver_person_marker'),
+          position: LatLng(currentPos.latitude, currentPos.longitude),
+          icon: _personMarkerIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueCyan),
+          anchor: const Offset(0.5, 0.96),
+          zIndex: 10,
+          infoWindow: const InfoWindow(
+            title: 'Tu Ubicación',
+            snippet: 'Chofer / Conductor',
+          ),
+        ),
+      );
+    }
 
     if (route.cedi != null && (route.cedi!.lat != 0 || route.cedi!.lng != 0)) {
       const cediKey = 'CEDI_${0xFF7C3AED}';
@@ -2909,20 +3107,50 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // 0. Botón Seguir / Centrar mi ubicación en vivo
+          // 1. Botón Seguir / Centrar Vehículo (Verde Esmeralda)
+          _buildMapControlButton(
+            icon: _isTrackingVehicle
+                ? Icons.local_shipping_rounded
+                : Icons.local_shipping_outlined,
+            tooltip: _isTrackingVehicle
+                ? 'Siguiendo vehículo (Activo)'
+                : 'Seguir vehículo',
+            isActive: _isTrackingVehicle,
+            activeColor: const Color(0xFF16A34A),
+            iconColor: _isTrackingVehicle
+                ? const Color(0xFF16A34A)
+                : const Color(0xFF15803D),
+            onTap: () => _toggleVehicleTracking(route),
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+          // 2. Botón Seguir / Centrar GPS del Celular / Chofer (Azul Océano)
           _buildMapControlButton(
             icon: _isTrackingLocation
-                ? Icons.my_location_rounded
-                : Icons.location_searching_rounded,
+                ? Icons.person_pin_circle_rounded
+                : Icons.person_pin_circle_outlined,
             tooltip: _isTrackingLocation
-                ? 'Siguiendo mi ubicación (Activo)'
-                : 'Seguir mi ubicación',
+                ? 'Siguiendo GPS celular (Activo)'
+                : 'Seguir GPS celular',
             isActive: _isTrackingLocation,
+            activeColor: const Color(0xFF0284C7),
+            iconColor: _isTrackingLocation
+                ? const Color(0xFF0284C7)
+                : const Color(0xFF0284C7),
             onTap: _toggleLocationTracking,
           ),
           const Divider(height: 1, color: Color(0xFFF1F5F9)),
 
-          // 3. Expandir / Reducir mapa
+          // 3. Encuadrar recorrido completo
+          _buildMapControlButton(
+            icon: Icons.zoom_out_map_rounded,
+            tooltip: 'Encuadrar recorrido',
+            isActive: false,
+            onTap: () => _fitMapToRoute(route),
+          ),
+          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+
+          // 4. Expandir / Reducir mapa
           _buildMapControlButton(
             icon: _mapExpanded
                 ? Icons.fullscreen_exit_rounded
@@ -2935,15 +3163,6 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
               });
             },
           ),
-          const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-          // 4. Encuadrar recorrido completo
-          _buildMapControlButton(
-            icon: Icons.zoom_out_map_rounded,
-            tooltip: 'Encuadrar recorrido',
-            isActive: false,
-            onTap: () => _fitMapToRoute(route),
-          ),
         ],
       ),
     );
@@ -2955,7 +3174,9 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     required bool isActive,
     required VoidCallback onTap,
     Color? iconColor,
+    Color? activeColor,
   }) {
+    final effectiveColor = activeColor ?? const Color(0xFF0284C7);
     return Material(
       color: Colors.transparent,
       child: Tooltip(
@@ -2964,22 +3185,21 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
           borderRadius: BorderRadius.circular(10),
           onTap: onTap,
           child: Container(
-            width: 32,
-            height: 32,
+            width: 34,
+            height: 34,
             alignment: Alignment.center,
             decoration: BoxDecoration(
               color: isActive
-                  ? const Color(0xFF0284C7).withOpacity(0.12)
+                  ? effectiveColor.withOpacity(0.14)
                   : Colors.transparent,
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               icon,
-              size: 16,
-              color: iconColor ??
-                  (isActive
-                      ? const Color(0xFF0284C7)
-                      : const Color(0xFF334155)),
+              size: 18,
+              color: isActive
+                  ? effectiveColor
+                  : (iconColor ?? const Color(0xFF334155)),
             ),
           ),
         ),
@@ -3371,7 +3591,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                         ),
                         mapType: _mapType,
                         trafficEnabled: _showTraffic,
-                        myLocationEnabled: true,
+                        myLocationEnabled: false,
                         myLocationButtonEnabled: false,
                         zoomControlsEnabled: false,
                         polylines: _buildPolylines(route),
@@ -3397,13 +3617,18 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                       ),
 
                     // Controles flotantes del mapa (capas, tráfico, centrar)
+                    // En modo horizontal los centramos verticalmente en el lateral derecho
                     if (_showMapControls)
                       Positioned(
                         right: 12,
-                        top: mediaQuery.padding.top + 8,
-                        child: _buildFloatingRouteMapControls(
-                          context: context,
-                          route: route,
+                        top: 0,
+                        bottom: 64,
+                        child: Align(
+                          alignment: Alignment.centerRight,
+                          child: _buildFloatingRouteMapControls(
+                            context: context,
+                            route: route,
+                          ),
                         ),
                       ),
 
@@ -3496,7 +3721,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                             ),
                             mapType: _mapType,
                             trafficEnabled: _showTraffic,
-                            myLocationEnabled: true,
+                            myLocationEnabled: false,
                             myLocationButtonEnabled: false,
                             zoomControlsEnabled: false,
                             polylines: _buildPolylines(route),

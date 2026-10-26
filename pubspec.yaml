@@ -121,6 +121,10 @@ flutter:
     - assets/ini.json
     - assets/caleni_rutas_lottie.json
     - assets/caleni_splash_telematics.json
+    - assets/truck_top_active.png
+    - assets/truck_top_off.png
+    - assets/truck_top_green.png
+    - assets/person_marker.png
 
 
 

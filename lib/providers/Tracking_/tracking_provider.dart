@@ -214,6 +214,10 @@ class TrackingNotifier extends Notifier<TrackingState> {
               'ignStatus': updated['ignStatus'] ?? d['ignStatus'],
               'driveStat': updated['driveStat'] ?? d['driveStat'],
               'dir': updated['dir'] ?? d['dir'],
+              'rumbo': updated['rumbo'] ?? d['rumbo'],
+              'course': updated['course'] ?? d['course'],
+              'speed': updated['speed'] ?? d['speed'],
+              'velocidad': updated['velocidad'] ?? d['velocidad'],
               'batc': updated['batc'] ?? d['batc'],
               'bateria': updated['bateria'] ?? d['bateria'],
               'bath': updated['bath'] ?? d['bath'],
@@ -240,11 +244,22 @@ class TrackingNotifier extends Notifier<TrackingState> {
     }
   }
 
-  void selectVehicle(String? vehicleId) {
+  Future<void> refreshSelectedVehicle(String userId) async {
+    if (state.selectedVehicleId != null) {
+      await _pollUpdates(userId);
+    } else {
+      await loadDevices(userId, showLoading: false);
+    }
+  }
+
+  void selectVehicle(String? vehicleId, {String? userId}) {
     state = state.copyWith(
       selectedVehicleId: vehicleId,
       clearSelectedVehicle: vehicleId == null,
     );
+    if (vehicleId != null) {
+      _pollUpdates(userId ?? '');
+    }
   }
 
   void toggleMapType() {

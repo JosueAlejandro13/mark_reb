@@ -56,6 +56,9 @@ class RoutesState {
   final List<ServerNotice> recentNotices;
   final Position? lastKnownPosition;
   final DateTime? lastPositionTime;
+  final double? lastVehicleLat;
+  final double? lastVehicleLng;
+  final DateTime? lastVehiclePositionTime;
 
   const RoutesState({
     this.isLoading = false,
@@ -76,6 +79,9 @@ class RoutesState {
     this.recentNotices = const [],
     this.lastKnownPosition,
     this.lastPositionTime,
+    this.lastVehicleLat,
+    this.lastVehicleLng,
+    this.lastVehiclePositionTime,
   }) : _syncedOrders = syncedOrders;
 
   int get totalPendingSyncCount => pendingActions.length + pendingPhotos.length;
@@ -119,6 +125,9 @@ class RoutesState {
     List<ServerNotice>? recentNotices,
     Position? lastKnownPosition,
     DateTime? lastPositionTime,
+    double? lastVehicleLat,
+    double? lastVehicleLng,
+    DateTime? lastVehiclePositionTime,
   }) {
     return RoutesState(
       isLoading: isLoading ?? this.isLoading,
@@ -139,6 +148,10 @@ class RoutesState {
       recentNotices: recentNotices ?? this.recentNotices,
       lastKnownPosition: lastKnownPosition ?? this.lastKnownPosition,
       lastPositionTime: lastPositionTime ?? this.lastPositionTime,
+      lastVehicleLat: lastVehicleLat ?? this.lastVehicleLat,
+      lastVehicleLng: lastVehicleLng ?? this.lastVehicleLng,
+      lastVehiclePositionTime:
+          lastVehiclePositionTime ?? this.lastVehiclePositionTime,
     );
   }
 }
@@ -1046,16 +1059,101 @@ class RoutesNotifier extends Notifier<RoutesState> {
     );
   }
 
-  /// Calcula la distancia en metros entre el chofer y un punto (cliente / parada)
-  double? calculateDistanceMeters(double targetLat, double targetLng) {
-    final pos = state.lastKnownPosition;
-    if (pos == null || (targetLat == 0 && targetLng == 0)) return null;
-    return Geolocator.distanceBetween(
-      pos.latitude,
-      pos.longitude,
-      targetLat,
-      targetLng,
+  /// Actualiza la posición GPS telemétrica del vehículo en tiempo real
+  void updateVehiclePosition(double lat, double lng) {
+    if (lat == 0.0 && lng == 0.0) return;
+    state = state.copyWith(
+      lastVehicleLat: lat,
+      lastVehicleLng: lng,
+      lastVehiclePositionTime: DateTime.now(),
     );
+  }
+
+  /// Calcula la distancia en metros entre la unidad/chofer y un punto (cliente / parada).
+  /// LÓGICA HÍBRIDA INTELIGENTE (TOLERANCIA DE LATENCIA 3-5 MIN + ANTI-TRAMPAS):
+  /// 1. El GPS del celular es instantáneo (0s de retardo y alta precisión satelital en mano).
+  /// 2. La telemetría del servidor del camión puede tardar 2 a 5 minutos en sincronizar por red celular.
+  /// 3. SI EL CELULAR LLEGA AL CLIENTE (<= 300m):
+  ///    - Verificamos que el camión esté en la zona (<= 1.5 km, distancia normal de 3-5 min de manejo).
+  ///    - Si el camión está en la zona, la llegada se valida DE INMEDIATO con el celular, sin hacer esperar al chofer.
+  ///    - Si el camión está a más de 1.5 km (otro barrio/lejos), se bloquea por sospecha de trampa.
+  /// 4. SI EL CAMIÓN LLEGA PRIMERO (<= 400m), valida la llegada por telemetría.
+  /// 5. SI SE PIERDE LA SEÑAL DEL SERVIDOR (> 45s), el GPS satelital del celular toma el control total.
+  double? calculateDistanceMeters(double targetLat, double targetLng) {
+    if (targetLat == 0 && targetLng == 0) return null;
+
+    final vLat = state.lastVehicleLat;
+    final vLng = state.lastVehicleLng;
+
+    final pos = state.lastKnownPosition;
+    final hasPhone = pos != null && (pos.latitude != 0.0 || pos.longitude != 0.0);
+    final hasVehicle = vLat != null && vLng != null && (vLat != 0.0 || vLng != 0.0);
+
+    // 1. SI TENEMOS AMBAS FUENTES (Vehículo y Teléfono):
+    if (hasVehicle && hasPhone) {
+      final distPhone = Geolocator.distanceBetween(
+        pos.latitude,
+        pos.longitude,
+        targetLat,
+        targetLng,
+      );
+
+      final distVehicle = Geolocator.distanceBetween(
+        vLat,
+        vLng,
+        targetLat,
+        targetLng,
+      );
+
+      // CASO A: El celular llega al cliente en vivo (<= 300m)
+      // Si el camión está en el perímetro de aproximación (<= 1500m / 1.5 km),
+      // significa que el camión viene llegando pero el servidor tiene un leve retardo de 2-5 min.
+      // ¡Validamos de inmediato la llegada con el celular para que el chofer no espere parado!
+      if (distPhone <= 300) {
+        if (distVehicle <= 1500) {
+          return distPhone; // Llegada instantánea y verificada
+        } else {
+          // El camión está a más de 1.5 km de distancia: trampa detectada
+          return distVehicle;
+        }
+      }
+
+      // CASO B: El camión reporta estar en sitio por telemetría (<= 400m)
+      if (distVehicle <= 400) {
+        return distVehicle < distPhone ? distVehicle : distPhone;
+      }
+
+      // CASO C: En ruta normal, si ambos son coherentes (diferencia <= 1500m),
+      // mostramos la distancia más avanzada (la más corta entre ambos):
+      if ((distVehicle - distPhone).abs() <= 1500) {
+        return distPhone < distVehicle ? distPhone : distVehicle;
+      }
+
+      // Si hay una discrepancia enorme (> 1.5 km), el camión manda por seguridad
+      return distVehicle;
+    }
+
+    // 2. Si solo tenemos el teléfono (sin telemetría o señal de servidor caída)
+    if (hasPhone) {
+      return Geolocator.distanceBetween(
+        pos.latitude,
+        pos.longitude,
+        targetLat,
+        targetLng,
+      );
+    }
+
+    // 3. Si solo tenemos el vehículo
+    if (hasVehicle) {
+      return Geolocator.distanceBetween(
+        vLat,
+        vLng,
+        targetLat,
+        targetLng,
+      );
+    }
+
+    return null;
   }
 
   // ===========================================================================
@@ -1098,16 +1196,38 @@ class RoutesNotifier extends Notifier<RoutesState> {
     final actionUuid = _uuid.v4();
     final pos = await getFreshPositionNonBlocking();
 
+    final vLat = state.lastVehicleLat;
+    final vLng = state.lastVehicleLng;
+    final now = DateTime.now();
+    final hasVehicle = vLat != null && vLng != null && (vLat != 0.0 || vLng != 0.0);
+    final isVehicleFresh = hasVehicle &&
+        state.lastVehiclePositionTime != null &&
+        now.difference(state.lastVehiclePositionTime!).inSeconds <= 45;
+
+    final effectiveLat = isVehicleFresh
+        ? double.parse(vLat.toStringAsFixed(6))
+        : (pos != null ? double.parse(pos.latitude.toStringAsFixed(6)) : (vLat != null ? double.parse(vLat.toStringAsFixed(6)) : null));
+    final effectiveLng = isVehicleFresh
+        ? double.parse(vLng.toStringAsFixed(6))
+        : (pos != null ? double.parse(pos.longitude.toStringAsFixed(6)) : (vLng != null ? double.parse(vLng.toStringAsFixed(6)) : null));
+    final effectivePrec = isVehicleFresh
+        ? 5
+        : pos?.accuracy.round();
+
     final payload = <String, dynamic>{
       'uuid': actionUuid,
       'tipo': tipo,
       if (idRuta != null) 'idRuta': idRuta,
       if (idParada != null) 'idParada': idParada,
       ...customFields,
-      if (pos != null) ...{
-        'lat': double.parse(pos.latitude.toStringAsFixed(6)),
-        'lng': double.parse(pos.longitude.toStringAsFixed(6)),
-        'prec': pos.accuracy.round(),
+      if (effectiveLat != null && effectiveLng != null) ...{
+        'lat': effectiveLat,
+        'lng': effectiveLng,
+        if (effectivePrec != null) 'prec': effectivePrec,
+      },
+      if (hasVehicle && pos != null) ...{
+        'latTel': double.parse(pos.latitude.toStringAsFixed(6)),
+        'lngTel': double.parse(pos.longitude.toStringAsFixed(6)),
       },
       'fecHor': _nowLocalTimestamp(),
     };

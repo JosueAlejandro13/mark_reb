@@ -318,20 +318,24 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  const Text(
-                    'BIENVENIDO DE NUEVO',
-                    style: TextStyle(
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF64748B),
-                      letterSpacing: 0.6,
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Row(
+                  children: [
+                    const Text(
+                      'BIENVENIDO DE NUEVO',
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF64748B),
+                        letterSpacing: 0.6,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 4),
-                  const Text('👋', style: TextStyle(fontSize: 11)),
-                ],
+                    const SizedBox(width: 4),
+                    const Text('👋', style: TextStyle(fontSize: 11)),
+                  ],
+                ),
               ),
               const SizedBox(height: 1),
               Text(
@@ -1084,65 +1088,74 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        // Squircle Ícono estilo iOS
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [
-                                Color(0xFF0284C7),
-                                Color(0xFF38BDF8),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          // Squircle Ícono estilo iOS
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [
+                                  Color(0xFF0284C7),
+                                  Color(0xFF38BDF8),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(11),
+                              boxShadow: [
+                                BoxShadow(
+                                  color:
+                                      const Color(0xFF0284C7).withOpacity(0.25),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
                               ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
                             ),
-                            borderRadius: BorderRadius.circular(11),
-                            boxShadow: [
-                              BoxShadow(
-                                color:
-                                    const Color(0xFF0284C7).withOpacity(0.25),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
+                            child: const Center(
+                              child: Icon(
+                                Icons.satellite_alt_rounded,
+                                color: Colors.white,
+                                size: 20,
                               ),
-                            ],
-                          ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.satellite_alt_rounded,
-                              color: Colors.white,
-                              size: 20,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'MONITOREO DE UNIDADES',
-                              style: TextStyle(
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF64748B),
-                                letterSpacing: 0.5,
-                              ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'MONITOREO DE UNIDADES',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF64748B),
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                Text(
+                                  'Rastreo Satelital',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F172A),
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                              ],
                             ),
-                            Text(
-                              'Rastreo Satelital',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F172A),
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
 
                     // Badge de Estado estilo Apple
                     Container(
@@ -1390,65 +1403,74 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Row(
-                      children: [
-                        // Squircle Ícono
-                        Container(
-                          width: 38,
-                          height: 38,
-                          decoration: BoxDecoration(
-                            gradient: const LinearGradient(
-                              colors: [
-                                Color(0xFF0891B2),
-                                Color(0xFF06B6D4),
+                    Expanded(
+                      child: Row(
+                        children: [
+                          // Squircle Ícono
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              gradient: const LinearGradient(
+                                colors: [
+                                  Color(0xFF0891B2),
+                                  Color(0xFF06B6D4),
+                                ],
+                                begin: Alignment.topLeft,
+                                end: Alignment.bottomRight,
+                              ),
+                              borderRadius: BorderRadius.circular(11),
+                              boxShadow: [
+                                BoxShadow(
+                                  color:
+                                      const Color(0xFF0891B2).withOpacity(0.25),
+                                  blurRadius: 6,
+                                  offset: const Offset(0, 2),
+                                ),
                               ],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
                             ),
-                            borderRadius: BorderRadius.circular(11),
-                            boxShadow: [
-                              BoxShadow(
-                                color:
-                                    const Color(0xFF0891B2).withOpacity(0.25),
-                                blurRadius: 6,
-                                offset: const Offset(0, 2),
+                            child: const Center(
+                              child: Icon(
+                                Icons.local_gas_station_rounded,
+                                color: Colors.white,
+                                size: 20,
                               ),
-                            ],
-                          ),
-                          child: const Center(
-                            child: Icon(
-                              Icons.local_gas_station_rounded,
-                              color: Colors.white,
-                              size: 20,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 12),
-                        const Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'CONTROL DE FLOTA',
-                              style: TextStyle(
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF64748B),
-                                letterSpacing: 0.5,
-                              ),
+                          const SizedBox(width: 12),
+                          const Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'CONTROL DE FLOTA',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF64748B),
+                                    letterSpacing: 0.5,
+                                  ),
+                                ),
+                                Text(
+                                  'Reabastecimiento',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF0F172A),
+                                    letterSpacing: -0.3,
+                                  ),
+                                ),
+                              ],
                             ),
-                            Text(
-                              'Reabastecimiento',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F172A),
-                                letterSpacing: -0.3,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
+                          ),
+                        ],
+                      ),
                     ),
+                    const SizedBox(width: 8),
 
                     // Chip Apple de categoría
                     Container(

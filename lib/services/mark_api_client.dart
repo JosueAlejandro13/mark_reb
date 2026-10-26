@@ -216,6 +216,7 @@ class MarkApiClient {
     Map<String, dynamic> body, {
     String? customToken,
     Duration timeout = const Duration(seconds: 25),
+    bool silent = false,
   }) async {
     final uri = _buildUri(action);
     final response = await http
@@ -226,7 +227,11 @@ class MarkApiClient {
         )
         .timeout(timeout);
 
-    if (action != 'notificaciones' && action != 'notificacionesLeer') {
+    final shouldLog = !silent &&
+        action != 'notificaciones' &&
+        action != 'notificacionesLeer';
+
+    if (shouldLog || response.statusCode != 200) {
       debugPrint(
           '========= [api.php?a=$action] HTTP ${response.statusCode} =========');
       if (response.statusCode != 200 ||
@@ -550,10 +555,16 @@ class MarkApiClient {
     return await _postAction('perfil', const {}, customToken: tokenOverride);
   }
 
-  Future<List<Map<String, dynamic>>> getVehiculos(
-      {String? tokenOverride}) async {
-    final data =
-        await _postAction('vehiculos', const {}, customToken: tokenOverride);
+  Future<List<Map<String, dynamic>>> getVehiculos({
+    int? idVehic,
+    String? tokenOverride,
+    bool silent = false,
+  }) async {
+    final body = <String, dynamic>{
+      if (idVehic != null && idVehic > 0) 'idVehic': idVehic,
+    };
+    final data = await _postAction('vehiculos', body,
+        customToken: tokenOverride, silent: silent);
     final list = data['vehiculos'] ?? data['data'] ?? [];
     if (list is List) {
       return list.whereType<Map<String, dynamic>>().toList();

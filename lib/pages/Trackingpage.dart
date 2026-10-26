@@ -26,9 +26,13 @@ class TrackingPage extends ConsumerStatefulWidget {
 }
 
 class _TrackingPageState extends ConsumerState<TrackingPage>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
   GoogleMapController? _mapController;
-  final Map<String, BitmapDescriptor> _markerIconCache = {};
+  final Map<String, BitmapDescriptor> _truckIconCache = {};
+  final Map<String, LatLng> _vehiclePositions = {};
+  final Map<String, double> _vehicleDirections = {};
+  final Map<String, Marker> _markerMap = {};
+  final Map<String, AnimationController> _movementAnimators = {};
   Set<Marker> _markers = {};
   late AnimationController _pulseController;
   bool _initialPositionSet = false;
@@ -53,6 +57,10 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
 
   @override
   void dispose() {
+    for (final controller in _movementAnimators.values) {
+      controller.dispose();
+    }
+    _movementAnimators.clear();
     _pulseController.dispose();
     _mapController?.dispose();
     super.dispose();
@@ -70,161 +78,300 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     return double.tryParse(s) ?? fallback;
   }
 
-  Future<BitmapDescriptor> _getMarkerIcon({
-    required bool isGreen,
-    required double direction,
+  Future<BitmapDescriptor> _getTruckMarkerIcon({
+    required bool isActive,
   }) async {
-    // Normalizar dirección a pasos de 15 grados para optimizar caché
-    final int roundedDirection = (direction / 15).round() * 15;
-    final String cacheKey = '${isGreen ? "green" : "grey"}_$roundedDirection';
-
-    if (_markerIconCache.containsKey(cacheKey)) {
-      return _markerIconCache[cacheKey]!;
+    final String cacheKey = isActive ? "top_active" : "top_off";
+    if (_truckIconCache.containsKey(cacheKey)) {
+      return _truckIconCache[cacheKey]!;
     }
 
-    final icon = await _drawCustomMarker(
-      isGreen: isGreen,
-      direction: direction,
-    );
-    _markerIconCache[cacheKey] = icon;
-    return icon;
+    try {
+      final String assetPath = isActive
+          ? 'assets/truck_top_active.png'
+          : 'assets/truck_top_off.png';
+
+      final ByteData data = await rootBundle.load(assetPath);
+      final ui.Codec codec = await ui.instantiateImageCodec(
+        data.buffer.asUint8List(),
+        targetWidth: 96,
+      );
+      final ui.FrameInfo fi = await codec.getNextFrame();
+      final ui.Image image = fi.image;
+
+      final ByteData? byteData =
+          await image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData != null) {
+        final icon =
+            BitmapDescriptor.fromBytes(byteData.buffer.asUint8List());
+        _truckIconCache[cacheKey] = icon;
+        return icon;
+      }
+    } catch (e) {
+      debugPrint('Error cargando icono top-down ($cacheKey): $e');
+    }
+
+    return BitmapDescriptor.defaultMarker;
   }
 
-  Future<BitmapDescriptor> _drawCustomMarker({
-    required bool isGreen,
-    required double direction,
-  }) async {
-    const double size = 96.0;
-    final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
-    final Canvas canvas = Canvas(pictureRecorder);
-
-    final primaryColor = isGreen
-        ? const Color(0xFF10B981) // Verde esmeralda moderno
-        : const Color(0xFF64748B); // Slate profesional
-    final ringColor = isGreen
-        ? const Color(0xFF10B981).withOpacity(0.25)
-        : const Color(0xFF64748B).withOpacity(0.20);
-
-    // Halo exterior de pulso
-    final Paint pulsePaint = Paint()
-      ..color = ringColor
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(
-        const Offset(size / 2, size / 2), size * 0.44, pulsePaint);
-
-    // Sombra del marcador
-    final Path shadowPath = Path()
-      ..addOval(Rect.fromCircle(
-        center: const Offset(size / 2, size / 2 + 3),
-        radius: size * 0.32,
-      ));
-    canvas.drawShadow(shadowPath, Colors.black.withOpacity(0.35), 6.0, false);
-
-    // Círculo blanco de fondo
-    final Paint whiteBgPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(
-        const Offset(size / 2, size / 2), size * 0.32, whiteBgPaint);
-
-    // Círculo principal con color de estado
-    final Paint circlePaint = Paint()
-      ..color = primaryColor
-      ..style = PaintingStyle.fill;
-    canvas.drawCircle(
-        const Offset(size / 2, size / 2), size * 0.26, circlePaint);
-
-    // Borde blanco interior
-    final Paint innerBorderPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.5;
-    canvas.drawCircle(
-        const Offset(size / 2, size / 2), size * 0.26, innerBorderPaint);
-
-    // Flecha / Indicador de dirección orientada
-    canvas.save();
-    canvas.translate(size / 2, size / 2);
-    canvas.rotate((direction * pi) / 180.0);
-
-    final Paint arrowPaint = Paint()
-      ..color = Colors.white
-      ..style = PaintingStyle.fill;
-
-    final Path arrowPath = Path()
-      ..moveTo(0, -size * 0.16)
-      ..lineTo(size * 0.11, size * 0.12)
-      ..lineTo(0, size * 0.05)
-      ..lineTo(-size * 0.11, size * 0.12)
-      ..close();
-
-    canvas.drawPath(arrowPath, arrowPaint);
-    canvas.restore();
-
-    final ui.Image image = await pictureRecorder.endRecording().toImage(
-          size.toInt(),
-          size.toInt(),
-        );
-    final ByteData? byteData =
-        await image.toByteData(format: ui.ImageByteFormat.png);
-
-    if (byteData == null) {
-      return BitmapDescriptor.defaultMarker;
-    }
-    return BitmapDescriptor.fromBytes(byteData.buffer.asUint8List());
+  double _interpolateAngle(double fromAngle, double toAngle, double t) {
+    double diff = (toAngle - fromAngle) % 360.0;
+    if (diff < -180.0) diff += 360.0;
+    if (diff > 180.0) diff -= 360.0;
+    return (fromAngle + diff * t) % 360.0;
   }
 
   Future<void> _buildMarkers(List<Map<String, dynamic>> devices) async {
-    final Set<Marker> newMarkers = {};
-
     for (final device in devices) {
       final lat = _parseCoordinate(device['lat']);
       final lng = _parseCoordinate(device['lng']);
 
       if (lat == 0.0 && lng == 0.0) continue;
 
+      final id = device['id'].toString();
+      final markerId = MarkerId(id);
       final bool isGreen = (device['ignStatus'] ?? 0) == 1;
       final double direction =
           double.tryParse(device['dir']?.toString() ?? '0.0') ?? 0.0;
-      final markerId = MarkerId(device['id'].toString());
+      final speed = device['speed']?.toString() ?? '0';
 
-      final icon = await _getMarkerIcon(
-        isGreen: isGreen,
-        direction: direction,
-      );
+      final icon = await _getTruckMarkerIcon(isActive: isGreen);
 
-      newMarkers.add(
-        Marker(
-          markerId: markerId,
-          position: LatLng(lat, lng),
-          icon: icon,
-          anchor: const Offset(0.5, 0.5),
-          flat: true,
-          rotation: 0.0, // La orientación ya se dibujó en el icono
-          infoWindow: InfoWindow(
-            title: (device['economico'] ??
-                    device['eco'] ??
-                    device['name'] ??
-                    'Vehículo')
-                .toString(),
-            snippet: isGreen ? 'En marcha' : 'Motor detenido',
-            onTap: () => _showVehicleFullDetails(context, device),
-          ),
-          onTap: () {
-            ref
-                .read(trackingProvider.notifier)
-                .selectVehicle(device['id'].toString());
-            _animateCameraToPosition(LatLng(lat, lng), 16.5);
-          },
+      final newTarget = LatLng(lat, lng);
+      final prevPos = _vehiclePositions[id];
+      final prevDir = _vehicleDirections[id];
+      final isCurrentlyAnimating = _movementAnimators.containsKey(id);
+
+      final bool hasMoved = prevPos != null &&
+          (prevPos.latitude != newTarget.latitude ||
+              prevPos.longitude != newTarget.longitude);
+
+      final double distanceMeters = hasMoved
+          ? Geolocator.distanceBetween(
+              prevPos.latitude,
+              prevPos.longitude,
+              newTarget.latitude,
+              newTarget.longitude,
+            )
+          : 0.0;
+
+      final title = (device['economico'] ??
+              device['eco'] ??
+              device['name'] ??
+              'Vehículo')
+          .toString();
+
+      final snippet = isGreen
+          ? (hasMoved && distanceMeters > 2.0
+              ? 'En marcha • Avanzando ($speed km/h)'
+              : 'En marcha • $speed km/h')
+          : 'Motor detenido (zzz)';
+
+      final baseMarker = Marker(
+        markerId: markerId,
+        position: prevPos ?? newTarget,
+        icon: icon,
+        anchor: const Offset(0.5, 0.5),
+        flat: true,
+        rotation: prevDir ?? direction,
+        infoWindow: InfoWindow(
+          title: title,
+          snippet: snippet,
+          onTap: () => _showVehicleFullDetails(context, device),
         ),
+        onTap: () {
+          ref
+              .read(trackingProvider.notifier)
+              .selectVehicle(id);
+          _animateCameraToPosition(newTarget, 16.5);
+        },
       );
+
+      _markerMap[id] = baseMarker;
+
+      // Si el motor está encendido y hubo avance de posición, animar suavemente posición y orientación 360°
+      if (isGreen && hasMoved && distanceMeters > 1.0) {
+        _animateVehicleAdvance(
+          id,
+          prevPos,
+          newTarget,
+          prevDir ?? direction,
+          direction,
+          baseMarker,
+        );
+      } else if (!isCurrentlyAnimating) {
+        _vehiclePositions[id] = newTarget;
+        _vehicleDirections[id] = direction;
+        _markerMap[id] = baseMarker.copyWith(
+          positionParam: newTarget,
+          rotationParam: direction,
+        );
+      }
     }
 
     if (mounted) {
       setState(() {
-        _markers = newMarkers;
+        _markers = _markerMap.values.toSet();
       });
     }
+  }
+
+  Future<void> _updateSingleVehicleMarker(Map<String, dynamic> device) async {
+    final lat = _parseCoordinate(device['lat']);
+    final lng = _parseCoordinate(device['lng']);
+
+    if (lat == 0.0 && lng == 0.0) return;
+
+    final id = device['id'].toString();
+    final markerId = MarkerId(id);
+    final bool isGreen = (device['ignStatus'] ?? 0) == 1;
+    final double direction =
+        double.tryParse(device['dir']?.toString() ?? '0.0') ?? 0.0;
+    final speed = device['speed']?.toString() ?? '0';
+
+    final icon = await _getTruckMarkerIcon(isActive: isGreen);
+
+    final newTarget = LatLng(lat, lng);
+    final prevPos = _vehiclePositions[id];
+    final prevDir = _vehicleDirections[id];
+    final isCurrentlyAnimating = _movementAnimators.containsKey(id);
+
+    final bool hasMoved = prevPos != null &&
+        (prevPos.latitude != newTarget.latitude ||
+            prevPos.longitude != newTarget.longitude);
+
+    final double distanceMeters = hasMoved
+        ? Geolocator.distanceBetween(
+            prevPos.latitude,
+            prevPos.longitude,
+            newTarget.latitude,
+            newTarget.longitude,
+          )
+        : 0.0;
+
+    final title = (device['economico'] ??
+            device['eco'] ??
+            device['name'] ??
+            'Vehículo')
+        .toString();
+
+    final snippet = isGreen
+        ? (hasMoved && distanceMeters > 2.0
+            ? 'En marcha • Avanzando ($speed km/h)'
+            : 'En marcha • $speed km/h')
+        : 'Motor detenido (zzz)';
+
+    final baseMarker = Marker(
+      markerId: markerId,
+      position: prevPos ?? newTarget,
+      icon: icon,
+      anchor: const Offset(0.5, 0.5),
+      flat: true,
+      rotation: prevDir ?? direction,
+      infoWindow: InfoWindow(
+        title: title,
+        snippet: snippet,
+        onTap: () => _showVehicleFullDetails(context, device),
+      ),
+      onTap: () {
+        ref.read(trackingProvider.notifier).selectVehicle(id);
+        _animateCameraToPosition(newTarget, 16.5);
+      },
+    );
+
+    _markerMap[id] = baseMarker;
+
+    if (isGreen && hasMoved && distanceMeters > 1.0) {
+      _animateVehicleAdvance(
+        id,
+        prevPos,
+        newTarget,
+        prevDir ?? direction,
+        direction,
+        baseMarker,
+      );
+    } else if (!isCurrentlyAnimating) {
+      _vehiclePositions[id] = newTarget;
+      _vehicleDirections[id] = direction;
+      _markerMap[id] = baseMarker.copyWith(
+        positionParam: newTarget,
+        rotationParam: direction,
+      );
+      if (mounted) {
+        setState(() {
+          _markers = _markerMap.values.toSet();
+        });
+      }
+    }
+  }
+
+  void _animateVehicleAdvance(
+    String id,
+    LatLng from,
+    LatLng to,
+    double fromDirection,
+    double toDirection,
+    Marker baseMarker,
+  ) {
+    _movementAnimators[id]?.stop();
+    _movementAnimators[id]?.dispose();
+
+    final controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    );
+    _movementAnimators[id] = controller;
+
+    final animation = CurvedAnimation(
+      parent: controller,
+      curve: Curves.easeInOutCubic,
+    );
+
+    controller.addListener(() {
+      final t = animation.value;
+      final currentLat = from.latitude + (to.latitude - from.latitude) * t;
+      final currentLng = from.longitude + (to.longitude - from.longitude) * t;
+      final currentPos = LatLng(currentLat, currentLng);
+      final currentDir = _interpolateAngle(fromDirection, toDirection, t);
+
+      _vehiclePositions[id] = currentPos;
+      _vehicleDirections[id] = currentDir;
+      if (_markerMap.containsKey(id)) {
+        _markerMap[id] = baseMarker.copyWith(
+          positionParam: currentPos,
+          rotationParam: currentDir,
+        );
+        if (mounted) {
+          setState(() {
+            _markers = _markerMap.values.toSet();
+          });
+        }
+      }
+    });
+
+    controller.addStatusListener((status) {
+      if (status == AnimationStatus.completed) {
+        _vehiclePositions[id] = to;
+        _vehicleDirections[id] = toDirection;
+        if (_markerMap.containsKey(id)) {
+          _markerMap[id] = baseMarker.copyWith(
+            positionParam: to,
+            rotationParam: toDirection,
+          );
+          if (mounted) {
+            setState(() {
+              _markers = _markerMap.values.toSet();
+            });
+          }
+        }
+        controller.dispose();
+        if (_movementAnimators[id] == controller) {
+          _movementAnimators.remove(id);
+        }
+      }
+    });
+
+    controller.forward();
   }
 
   void _animateCameraToPosition(LatLng position, [double zoom = 16.0]) {
@@ -316,7 +463,17 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     // Reconstruir marcadores si los dispositivos cambiaron
     ref.listen<TrackingState>(trackingProvider, (prev, next) {
       if (prev?.devices != next.devices) {
-        _buildMarkers(next.devices);
+        if (next.selectedVehicleId != null &&
+            prev?.devices != null &&
+            prev!.devices.length == next.devices.length) {
+          // Optimización: Solo actualizar el marcador del vehículo seleccionado
+          final sel = next.selectedVehicle;
+          if (sel != null) {
+            _updateSingleVehicleMarker(sel);
+          }
+        } else {
+          _buildMarkers(next.devices);
+        }
 
         // Primera vez que llegan datos, encuadrar la flota
         if (!_initialPositionSet && next.devices.isNotEmpty) {
@@ -677,15 +834,23 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
   ) {
     final isIOS = Theme.of(context).platform == TargetPlatform.iOS;
     final double size = isIOS ? 40 : 36;
+    final trackingState = ref.read(trackingProvider);
+    final hasSelection = trackingState.selectedVehicleId != null;
+
     return Material(
       color: Colors.transparent,
       child: Tooltip(
-        message: 'Actualizar unidades',
+        message: hasSelection ? 'Actualizar unidad' : 'Actualizar flotilla',
         child: InkWell(
           borderRadius: BorderRadius.circular(isIOS ? 14 : 12),
-          onTap: () {
-            notifier.loadDevices(widget.userId, showLoading: false);
-            _showSnackBar('Unidades Actualizadas');
+          onTap: () async {
+            if (hasSelection) {
+              await notifier.refreshSelectedVehicle(widget.userId);
+              _showSnackBar('Unidad Actualizada');
+            } else {
+              await notifier.loadDevices(widget.userId, showLoading: false);
+              _showSnackBar('Flotilla Actualizada');
+            }
           },
           child: Container(
             width: size,
