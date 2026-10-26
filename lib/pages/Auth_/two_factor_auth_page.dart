@@ -47,6 +47,11 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
   late String _currentMedio;
   late String _currentDesafio;
 
+  // Ronda 149: Configuración de correo si no es fijo
+  bool _isEmailStep = false;
+  bool _isSendingEmail = false;
+  late final TextEditingController _customEmailCtrl;
+
   @override
   void initState() {
     super.initState();
@@ -55,7 +60,16 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
         ? widget.challenge.enviado
         : (widget.challenge.sms.isNotEmpty ? 'sms' : 'correo');
     _currentDesafio = widget.challenge.desafio;
-    _startResendTimer();
+
+    // Si es alta exigida de 2 pasos y la cuenta no tiene correo fijo, pedir correo primero
+    _isEmailStep = widget.challenge.isConfiguracionExigida && !widget.challenge.correoFijo;
+    _customEmailCtrl = TextEditingController(
+      text: widget.challenge.correo.isNotEmpty ? widget.challenge.correo : widget.email,
+    );
+
+    if (!_isEmailStep) {
+      _startResendTimer();
+    }
   }
 
   void _startResendTimer() {
@@ -80,6 +94,7 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
   @override
   void dispose() {
     _timer?.cancel();
+    _customEmailCtrl.dispose();
     for (final c in _controllers) {
       c.dispose();
     }
@@ -95,6 +110,9 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
   String get _currentCode => _controllers.map((c) => c.text).join();
 
   String get _currentDestination {
+    if (_customEmailCtrl.text.trim().isNotEmpty && widget.challenge.isConfiguracionExigida) {
+      return _customEmailCtrl.text.trim();
+    }
     if (_currentMedio == 'sms') {
       return widget.challenge.sms.isNotEmpty
           ? widget.challenge.sms
@@ -103,6 +121,50 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
     return widget.challenge.correo.isNotEmpty
         ? widget.challenge.correo
         : widget.email;
+  }
+
+  Future<void> _handleSendEmail() async {
+    final email = _customEmailCtrl.text.trim();
+    if (email.isEmpty || !email.contains('@') || !email.contains('.')) {
+      SnackbarTop.showError(
+        context,
+        'Ingresa un correo electrónico válido.',
+        style: SnackbarTopStyle.appleCard,
+      );
+      return;
+    }
+
+    setState(() => _isSendingEmail = true);
+    try {
+      final res = await MarkApiClient.instance.dosPasosCorreo(
+        desafio: _currentDesafio,
+        correo: email,
+      );
+      if (res['desafio'] != null) {
+        _currentDesafio = res['desafio'].toString();
+      }
+      setState(() {
+        _isEmailStep = false;
+        _isSendingEmail = false;
+      });
+      _startResendTimer();
+      if (mounted) {
+        SnackbarTop.showSuccess(
+          context,
+          'Código enviado a $email.',
+          style: SnackbarTopStyle.appleCard,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSendingEmail = false);
+        SnackbarTop.showError(
+          context,
+          'No se pudo enviar el código: $e',
+          style: SnackbarTopStyle.appleCard,
+        );
+      }
+    }
   }
 
   void _onDigitChanged(int index, String value) {
@@ -194,10 +256,19 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
           );
         }
       } else {
-        final res = await MarkApiClient.instance.reenviarCodigo(
-          desafio: _currentDesafio,
-          medio: medioToSend,
-        );
+        final Map<String, dynamic> res;
+        if (widget.challenge.isConfiguracionExigida) {
+          final targetCorreo = widget.challenge.correoFijo ? 'cuenta' : _currentDestination;
+          res = await MarkApiClient.instance.dosPasosCorreo(
+            desafio: _currentDesafio,
+            correo: targetCorreo,
+          );
+        } else {
+          res = await MarkApiClient.instance.reenviarCodigo(
+            desafio: _currentDesafio,
+            medio: medioToSend,
+          );
+        }
         if (res['desafio'] != null) {
           _currentDesafio = res['desafio'].toString();
         }
@@ -557,10 +628,12 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
                                   const SizedBox(height: 12),
 
                                   // ── Título principal ────────────────────
-                                  const Text(
-                                    'Verificación en 2 Pasos',
-                                    style: TextStyle(
-                                      fontSize: 26,
+                                  Text(
+                                    widget.challenge.isConfiguracionExigida
+                                        ? 'Configurar Verificación en 2 Pasos'
+                                        : 'Verificación en 2 Pasos',
+                                    style: const TextStyle(
+                                      fontSize: 24,
                                       fontWeight: FontWeight.w900,
                                       color: Color(0xFF0F172A),
                                       letterSpacing: -0.5,
@@ -569,7 +642,11 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Hemos enviado un código de 6 dígitos a:\n$_currentDestination',
+                                    _isEmailStep
+                                        ? 'Tu empresa exige verificación en dos pasos. Ingresa tu correo para recibir tu código:'
+                                        : (widget.challenge.isConfiguracionExigida
+                                            ? 'Tu empresa exige verificación en dos pasos. Enviamos un código de 6 dígitos a:\n$_currentDestination'
+                                            : 'Hemos enviado un código de 6 dígitos a:\n$_currentDestination'),
                                     style: const TextStyle(
                                       fontSize: 13.5,
                                       color: Color(0xFF64748B),
@@ -580,49 +657,80 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
 
                                   const SizedBox(height: 20),
 
-                                  // ── Divisor decorativo ──────────────────
-                                  const Row(
-                                    children: [
-                                      Expanded(
-                                        child: Divider(
-                                          color: Color(0xFFE2E8F0),
-                                          thickness: 1,
-                                        ),
-                                      ),
-                                      Padding(
-                                        padding: EdgeInsets.symmetric(
-                                            horizontal: 12),
-                                        child: Text(
-                                          'Código de seguridad',
-                                          style: TextStyle(
-                                            fontSize: 11.5,
-                                            color: Color(0xFF94A3B8),
-                                            fontWeight: FontWeight.w500,
-                                          ),
-                                        ),
-                                      ),
-                                      Expanded(
-                                        child: Divider(
-                                          color: Color(0xFFE2E8F0),
-                                          thickness: 1,
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-
-                                  const SizedBox(height: 24),
-
-                                  // ── Cajas de 6 dígitos ───────────────────
-                                  AutofillGroup(
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: List.generate(
-                                        _codeLength,
-                                        (index) => _buildDigitBox(index),
+                                  if (_isEmailStep) ...[
+                                    const SizedBox(height: 14),
+                                    TextField(
+                                      controller: _customEmailCtrl,
+                                      keyboardType: TextInputType.emailAddress,
+                                      decoration: InputDecoration(
+                                        labelText: 'Correo electrónico',
+                                        prefixIcon: const Icon(Icons.email_outlined, color: Color(0xFF0886B5)),
+                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
                                       ),
                                     ),
-                                  ),
+                                    const SizedBox(height: 16),
+                                    ElevatedButton(
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color(0xFF0886B5),
+                                        foregroundColor: Colors.white,
+                                        padding: const EdgeInsets.symmetric(vertical: 14),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        elevation: 0,
+                                      ),
+                                      onPressed: _isSendingEmail ? null : _handleSendEmail,
+                                      child: _isSendingEmail
+                                          ? const SizedBox(
+                                              width: 18,
+                                              height: 18,
+                                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                            )
+                                          : const Text('Enviar código al correo', style: TextStyle(fontWeight: FontWeight.w800)),
+                                    ),
+                                  ] else ...[
+                                    // ── Divisor decorativo ──────────────────
+                                    const Row(
+                                      children: [
+                                        Expanded(
+                                          child: Divider(
+                                            color: Color(0xFFE2E8F0),
+                                            thickness: 1,
+                                          ),
+                                        ),
+                                        Padding(
+                                          padding: EdgeInsets.symmetric(
+                                              horizontal: 12),
+                                          child: Text(
+                                            'Código de seguridad',
+                                            style: TextStyle(
+                                              fontSize: 11.5,
+                                              color: Color(0xFF94A3B8),
+                                              fontWeight: FontWeight.w500,
+                                            ),
+                                          ),
+                                        ),
+                                        Expanded(
+                                          child: Divider(
+                                            color: Color(0xFFE2E8F0),
+                                            thickness: 1,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+
+                                    const SizedBox(height: 24),
+
+                                    // ── Cajas de 6 dígitos ───────────────────
+                                    AutofillGroup(
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: List.generate(
+                                          _codeLength,
+                                          (index) => _buildDigitBox(index),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
 
                                   // ── Mensaje de error ─────────────────────
                                   if (_errorMessage != null) ...[

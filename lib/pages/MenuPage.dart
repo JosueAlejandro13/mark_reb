@@ -6,6 +6,7 @@ import 'package:mark_v3/pages/Trackingpage.dart';
 import 'package:mark_v3/pages/Vehicles_/vehicles_page.dart';
 import 'package:mark_v3/pages/reports_page.dart';
 import 'package:mark_v3/pages/tasks_page.dart';
+import 'package:mark_v3/pages/Custodia_/custodia_page.dart';
 import 'package:mark_v3/providers/Routes_/routes_provider.dart';
 import 'package:mark_v3/models/Routes_/driver_day_models.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
@@ -190,6 +191,26 @@ class MenuPage extends ConsumerWidget {
             );
           },
         ),
+      _buildAppleListTile(
+        icon: Icons.shield_outlined,
+        iconGradient: const [
+          Color(0xFF0284C7),
+          Color(0xFF38BDF8),
+        ],
+        title: 'Custodia y Rondines',
+        subtitle: 'Servicios de custodia en convoy y rondines de vigilancia',
+        badgeText: 'Custodia',
+        badgeColor: const Color(0xFFE0F2FE),
+        badgeTextColor: const Color(0xFF0369A1),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const CustodiaPage(),
+            ),
+          );
+        },
+      ),
       if (canRegisterFuel)
         _buildAppleListTile(
           icon: Icons.local_gas_station_rounded,

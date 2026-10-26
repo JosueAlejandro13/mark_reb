@@ -169,6 +169,14 @@ class Login2FaChallenge {
   final String correo;
   final String sms;
   final String error;
+  // Ronda 149: Alta exigida de 2 pasos desde la app
+  final bool configurar;
+  final String codigo;
+  final String correoSugerido;
+  final bool correoFijo;
+
+  bool get isConfiguracionExigida =>
+      configurar || codigo == 'CONFIGURAR_2PASOS';
 
   const Login2FaChallenge({
     required this.desafio,
@@ -176,15 +184,24 @@ class Login2FaChallenge {
     this.correo = '',
     this.sms = '',
     this.error = '',
+    this.configurar = false,
+    this.codigo = '',
+    this.correoSugerido = '',
+    this.correoFijo = true,
   });
 
   factory Login2FaChallenge.fromJson(Map<String, dynamic> json) {
+    final rawCorreo = (json['correo'] ?? json['correoSugerido'] ?? '').toString();
     return Login2FaChallenge(
       desafio: (json['desafio'] ?? '').toString(),
       enviado: (json['enviado'] ?? '').toString(),
-      correo: (json['correo'] ?? '').toString(),
+      correo: rawCorreo,
       sms: (json['sms'] ?? '').toString(),
       error: (json['error'] ?? '').toString(),
+      configurar: json['configurar'] == true,
+      codigo: (json['codigo'] ?? '').toString(),
+      correoSugerido: (json['correoSugerido'] ?? rawCorreo).toString(),
+      correoFijo: json['correoFijo'] == null ? true : json['correoFijo'] == true,
     );
   }
 }
@@ -1447,6 +1464,47 @@ class DayPackage {
         'config': config.toJson(),
         'rutas': rutas.map((e) => e.toJson()).toList(),
         'catalogo': catalogo.map((e) => e.toJson()).toList(),
+      };
+}
+
+/// Ronda 146: Estructura de paradas pendientes al registrar fin de ruta
+class PendientesVisitas {
+  final int sinResultado;
+  final int sinVisitar;
+  final List<String> foliosSinResultado;
+  final List<String> foliosSinVisitar;
+
+  const PendientesVisitas({
+    this.sinResultado = 0,
+    this.sinVisitar = 0,
+    this.foliosSinResultado = const [],
+    this.foliosSinVisitar = const [],
+  });
+
+  bool get isEmpty => sinResultado == 0 && sinVisitar == 0;
+  bool get isNotEmpty => !isEmpty;
+  int get total => sinResultado + sinVisitar;
+
+  factory PendientesVisitas.fromJson(Map<String, dynamic> json) {
+    return PendientesVisitas(
+      sinResultado: int.tryParse(json['sinResultado']?.toString() ?? '0') ?? 0,
+      sinVisitar: int.tryParse(json['sinVisitar']?.toString() ?? '0') ?? 0,
+      foliosSinResultado: (json['foliosSinResultado'] as List<dynamic>? ?? [])
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList(),
+      foliosSinVisitar: (json['foliosSinVisitar'] as List<dynamic>? ?? [])
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList(),
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'sinResultado': sinResultado,
+        'sinVisitar': sinVisitar,
+        'foliosSinResultado': foliosSinResultado,
+        'foliosSinVisitar': foliosSinVisitar,
       };
 }
 

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'Profile_/EditProfilePage.dart';
 import 'Profile_/change_password_page.dart';
+import 'Profile_/two_factor_settings_page.dart';
 import 'Profile_/LicenseDetailsPage.dart';
 import 'package:mark_v3/providers/Profile_/profile_provider.dart';
 import 'package:mark_v3/providers/Profile_/edit_profile_provider.dart';
@@ -171,6 +172,28 @@ class ProfilePage extends ConsumerWidget {
                                     usuario: usuario,
                                     userId: userId,
                                     idMainAccount: idMainAccount,
+                                  ),
+                                ),
+                              );
+                            },
+                            isLast: false,
+                          ),
+                          // Verificación en 2 Pasos (Ronda 149)
+                          _buildAppleListTile(
+                            icon: Icons.shield_rounded,
+                            iconGradient: const [
+                              Color(0xFF0284C7),
+                              Color(0xFF0369A1),
+                            ],
+                            title: 'Verificación en 2 Pasos',
+                            subtitle:
+                                'Protege tu cuenta con códigos de acceso',
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) => TwoFactorSettingsPage(
+                                    usuario: usuario,
                                   ),
                                 ),
                               );

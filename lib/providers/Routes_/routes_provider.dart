@@ -16,6 +16,7 @@ import 'package:mark_v3/services/mark_api_client.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter/widgets.dart';
 import 'package:mark_v3/services/local_notification_service.dart';
+import 'package:mark_v3/providers/Custodia_/custodia_provider.dart';
 
 class ActionExecutionResult {
   final bool queuedOrApplied;
@@ -25,6 +26,7 @@ class ActionExecutionResult {
   final bool needsConfirmDifference; // BULTOS o PENDIENTES o VISITAS_PENDIENTES
   final bool hasVisitasPendientes;    // Ronda 146: Quedaron paradas sin visita
   final List<String> pendingFolios;
+  final PendientesVisitas? pendientesVisitas;
 
   const ActionExecutionResult({
     required this.queuedOrApplied,
@@ -33,6 +35,7 @@ class ActionExecutionResult {
     this.needsConfirmDifference = false,
     this.hasVisitasPendientes = false,
     this.pendingFolios = const [],
+    this.pendientesVisitas,
   });
 }
 
@@ -173,6 +176,7 @@ class RoutesNotifier extends Notifier<RoutesState> {
   bool _isInitialized = false;
   DateTime? _rateLimitUntil;
   DateTime? _lastPeriodicDayRefresh;
+  final Map<String, Map<String, dynamic>> _lastBatchResults = {};
 
   static String _todayString() =>
       DateFormat('yyyy-MM-dd').format(DateTime.now());
@@ -362,7 +366,13 @@ class RoutesNotifier extends Notifier<RoutesState> {
         await syncPendingQueueAndRefreshDay(forceRefreshDay: true);
       } else if (tipo == 'aviso') {
         // Ronda 54: Push de avisos de la plataforma { "tipo": "aviso", "id": "...", "nivel": "...", "categoria": "..." }
-        // La app solo lo muestra (trae notification visible); no debe tratarlo como cambio de ruta ni pedir a=dia.
+        // Ronda 151: Push de custodia { "tipo": "aviso", "categoria": "6" }
+        // La app vuelve a pedir a=custodia. Avisa de mensajes, solicitudes de estatus y check-in vencido.
+        final categoria = message.data['categoria']?.toString();
+        if (categoria == '6') {
+          debugPrint('Push FCM Custodia recibido (categoria: 6). Recargando a=custodia...');
+          ref.read(custodiaProvider.notifier).cargarCustodia(silent: true);
+        }
         debugPrint(
             'Push FCM aviso de plataforma recibido (id: ${message.data['id']}, nivel: ${message.data['nivel']})');
       }
@@ -665,6 +675,7 @@ class RoutesNotifier extends Notifier<RoutesState> {
           for (final res in resultados) {
             final uuid = (res['uuid'] ?? '').toString();
             if (uuid.isEmpty) continue;
+            _lastBatchResults[uuid] = res;
             final estado = (res['estado'] ?? '').toString();
             final rawAvisos = (res['avisos'] as List<dynamic>? ?? [])
                 .whereType<Map<String, dynamic>>()
@@ -1263,26 +1274,53 @@ class RoutesNotifier extends Notifier<RoutesState> {
           state.rejectedActions.where((a) => a.uuid == actionUuid).toList();
       if (rejected.isNotEmpty) {
         final act = rejected.first;
-        final hasVisitas = act.avisos.any((n) => n.codigo == 'VISITAS_PENDIENTES');
+        final resJson = _lastBatchResults[actionUuid];
+        PendientesVisitas? pendientes;
+        if (resJson != null && resJson['pendientesVisitas'] is Map) {
+          pendientes = PendientesVisitas.fromJson(
+              Map<String, dynamic>.from(resJson['pendientesVisitas'] as Map));
+        }
+
+        final hasVisitas = act.avisos.any((n) => n.codigo == 'VISITAS_PENDIENTES') ||
+            (resJson != null && resJson['codigo'] == 'VISITAS_PENDIENTES') ||
+            (pendientes != null && pendientes.isNotEmpty);
         final needsDiff = act.avisos.any(
           (n) => n.codigo == 'BULTOS' || n.codigo == 'PENDIENTES' || n.codigo == 'VISITAS_PENDIENTES',
-        );
+        ) || (resJson != null && (resJson['codigo'] == 'PENDIENTES' || resJson['codigo'] == 'VISITAS_PENDIENTES')) ||
+            hasVisitas;
+
+        List<String> folios = [];
+        if (pendientes != null) {
+          folios = [...pendientes.foliosSinResultado, ...pendientes.foliosSinVisitar];
+        } else if (resJson != null && resJson['pendientes'] is List) {
+          folios = (resJson['pendientes'] as List).map((e) => e.toString()).toList();
+        }
+
         return ActionExecutionResult(
           queuedOrApplied: false,
           estado: 'rechazada',
           avisos: act.avisos,
           needsConfirmDifference: needsDiff,
           hasVisitasPendientes: hasVisitas,
+          pendingFolios: folios,
+          pendientesVisitas: pendientes,
         );
       }
 
       final stillPending =
           state.pendingActions.where((a) => a.uuid == actionUuid).toList();
       if (stillPending.isEmpty) {
+        final resJson = _lastBatchResults[actionUuid];
+        PendientesVisitas? pendientes;
+        if (resJson != null && resJson['pendientesVisitas'] is Map) {
+          pendientes = PendientesVisitas.fromJson(
+              Map<String, dynamic>.from(resJson['pendientesVisitas'] as Map));
+        }
         return ActionExecutionResult(
           queuedOrApplied: true,
           estado: 'aplicada',
           avisos: state.recentNotices,
+          pendientesVisitas: pendientes,
         );
       }
     }
@@ -1652,8 +1690,8 @@ class RoutesNotifier extends Notifier<RoutesState> {
     required int idRuta,
     bool confirmarDiferencia = false,
     bool revisarVisitas = true,
-  }) {
-    return _enqueueAndExecuteAction(
+  }) async {
+    final result = await _enqueueAndExecuteAction(
       tipo: 'fin',
       idRuta: idRuta,
       customFields: {
@@ -1661,6 +1699,20 @@ class RoutesNotifier extends Notifier<RoutesState> {
         if (revisarVisitas && !confirmarDiferencia) 'revisarVisitas': true,
       },
     );
+
+    if (confirmarDiferencia && result.estado == 'aplicada') {
+      final oldFinRejected = state.rejectedActions
+          .where((a) => a.tipo == 'fin' && a.idRuta == idRuta)
+          .toList();
+      for (final old in oldFinRejected) {
+        await _db.removeAction(old.uuid);
+      }
+      if (oldFinRejected.isNotEmpty) {
+        await _reloadQueuesFromDb();
+      }
+    }
+
+    return result;
   }
 
   /// 9. VISITA (Rutas Diarias modalidad 2 y Fijas modalidad 3, o fuera de ruta con idClie)

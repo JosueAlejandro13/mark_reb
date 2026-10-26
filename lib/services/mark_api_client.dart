@@ -369,6 +369,7 @@ class MarkApiClient {
       'appVersion': appVersion,
       'fcm': fcm,
       'dosPasos': true, // Soporte 2FA Ronda 134
+      'configurar2Pasos': true, // Ronda 149
       if (confianzaGuardada != null && confianzaGuardada.isNotEmpty)
         'confianza': confianzaGuardada,
       // Ronda 146: Datos del teléfono para registro de accesos en el servidor
@@ -405,6 +406,64 @@ class MarkApiClient {
     }
 
     return LoginAuthResult.success(session);
+  }
+
+  /// Ronda 149: Mandar código al correo para configurar 2 pasos en login (sin token)
+  Future<Map<String, dynamic>> dosPasosCorreo({
+    required String desafio,
+    required String correo,
+  }) async {
+    final body = <String, dynamic>{
+      'desafio': desafio,
+      'correo': correo.trim(),
+    };
+    return await _postAction('dosPasosCorreo', body);
+  }
+
+  /// Ronda 149: Consultar estado de 2 pasos del usuario actual (con token)
+  Future<Map<String, dynamic>> getDosPasosEstado({String? tokenOverride}) async {
+    return await _postAction('dosPasos', const {}, customToken: tokenOverride);
+  }
+
+  /// Ronda 149: Iniciar activación de 2 pasos desde la app (con token)
+  Future<Map<String, dynamic>> dosPasosActivar({
+    required String password,
+    required String correo,
+    String? tokenOverride,
+  }) async {
+    final body = <String, dynamic>{
+      'password': password,
+      'correo': correo.trim(),
+    };
+    return await _postAction('dosPasosActivar', body, customToken: tokenOverride);
+  }
+
+  /// Ronda 149: Iniciar desactivación de 2 pasos desde la app (con token)
+  Future<Map<String, dynamic>> dosPasosApagar({
+    required String password,
+    String? tokenOverride,
+  }) async {
+    final body = <String, dynamic>{
+      'password': password,
+    };
+    return await _postAction('dosPasosApagar', body, customToken: tokenOverride);
+  }
+
+  /// Ronda 149: Confirmar activación o apagado de 2 pasos con el código (con token)
+  Future<Map<String, dynamic>> dosPasosConfirmar({
+    required String desafio,
+    required String codigo,
+    String? tokenOverride,
+  }) async {
+    final body = <String, dynamic>{
+      'desafio': desafio,
+      'codigo': codigo.trim(),
+    };
+    final res = await _postAction('dosPasosConfirmar', body, customToken: tokenOverride);
+    if (res['confianza'] != null) {
+      await saveTrustToken(res['confianza'].toString());
+    }
+    return res;
   }
 
   /// Confirmar código de 2 pasos contra POST api.php?a=login2pasos
@@ -570,6 +629,27 @@ class MarkApiClient {
       return list.whereType<Map<String, dynamic>>().toList();
     }
     return const [];
+  }
+
+  /// Ronda 156: Seguir un vehículo en el mapa (a=posicion)
+  /// idVehic: int, lista de ints o String separado por comas (máx 50).
+  /// desde: opcional gps.fecha (Y-m-d H:i:s). Si no hay posición más nueva, posiciones viene vacía.
+  Future<Map<String, dynamic>> getPosicion({
+    required dynamic idVehic,
+    String? desde,
+    String? tokenOverride,
+    bool silent = true,
+  }) async {
+    final body = <String, dynamic>{
+      'idVehic': idVehic,
+      if (desde != null && desde.trim().isNotEmpty) 'desde': desde.trim(),
+    };
+    return await _postAction(
+      'posicion',
+      body,
+      customToken: tokenOverride,
+      silent: silent,
+    );
   }
 
   Future<Map<String, dynamic>> getVehiculo(int idVehic,
@@ -910,5 +990,27 @@ class MarkApiClient {
           .toList();
     }
     return const [];
+  }
+
+  /// Ronda 151: CUSTODIA Y RONDINES
+  Future<Map<String, dynamic>> getCustodia({String? tokenOverride}) async {
+    return _postAction('custodia', const {}, customToken: tokenOverride);
+  }
+
+  Future<Map<String, dynamic>> configurarCustodiaClaves({
+    required String password,
+    required String clave,
+    required String coaccion,
+    String? tokenOverride,
+  }) async {
+    return _postAction(
+      'custodiaClaves',
+      {
+        'password': password,
+        'clave': clave,
+        'coaccion': coaccion,
+      },
+      customToken: tokenOverride,
+    );
   }
 }

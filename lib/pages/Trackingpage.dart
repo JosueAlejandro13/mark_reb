@@ -26,7 +26,7 @@ class TrackingPage extends ConsumerStatefulWidget {
 }
 
 class _TrackingPageState extends ConsumerState<TrackingPage>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   GoogleMapController? _mapController;
   final Map<String, BitmapDescriptor> _truckIconCache = {};
   final Map<String, LatLng> _vehiclePositions = {};
@@ -40,6 +40,7 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _pulseController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 2),
@@ -56,7 +57,22 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
   }
 
   @override
+  void didChangeAppLifecycleState(AppLifecycleState appState) {
+    super.didChangeAppLifecycleState(appState);
+    final notifier = ref.read(trackingProvider.notifier);
+    if (appState == AppLifecycleState.resumed) {
+      notifier.resumePolling(widget.userId);
+    } else if (appState == AppLifecycleState.paused ||
+        appState == AppLifecycleState.inactive ||
+        appState == AppLifecycleState.hidden) {
+      notifier.pausePolling();
+    }
+  }
+
+  @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    ref.read(trackingProvider.notifier).stopPolling();
     for (final controller in _movementAnimators.values) {
       controller.dispose();
     }

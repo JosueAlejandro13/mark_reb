@@ -43,6 +43,23 @@ class TrackingconService {
     }
   }
 
+  /// Ronda 156: Obtener posiciones nuevas de vehículos mediante a=posicion
+  Future<Map<String, dynamic>> obtenerPosicion({
+    required dynamic idVehic,
+    String? desde,
+  }) async {
+    try {
+      return await _client.getPosicion(
+        idVehic: idVehic,
+        desde: desde,
+        silent: true,
+      );
+    } catch (e) {
+      debugPrint('Error en TrackingconService.obtenerPosicion: $e');
+      rethrow;
+    }
+  }
+
   Map<String, dynamic> _normalizeDevice(Map<String, dynamic> v) {
     final gps = v['gps'] is Map<String, dynamic>
         ? v['gps'] as Map<String, dynamic>

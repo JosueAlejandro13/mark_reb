@@ -2395,123 +2395,127 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
             res.avisos.any((a) =>
                 a.codigo == 'VISITAS_PENDIENTES' || a.codigo == 'NO_VISITADAS');
 
-        final confirm = await showDialog<bool>(
-          context: context,
-          builder: (ctx) {
-            final mediaQuery = MediaQuery.of(ctx);
-            final isLandscape = mediaQuery.orientation == Orientation.landscape;
-            final screenHeight = mediaQuery.size.height;
+        final bool? confirm = isVisitasPendientes
+            ? await _showVisitasPendientesDialog(
+                context: context,
+                result: res,
+                rawNoticeMessage: msg,
+              )
+            : await showDialog<bool>(
+                context: context,
+                builder: (ctx) {
+                  final mediaQuery = MediaQuery.of(ctx);
+                  final isLandscape =
+                      mediaQuery.orientation == Orientation.landscape;
+                  final screenHeight = mediaQuery.size.height;
 
-            return AlertDialog(
-              backgroundColor: Colors.white,
-              surfaceTintColor: Colors.transparent,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(18),
-              ),
-              insetPadding: EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: isLandscape ? 12 : 24,
-              ),
-              titlePadding: EdgeInsets.fromLTRB(
-                20,
-                isLandscape ? 14 : 20,
-                20,
-                isLandscape ? 6 : 10,
-              ),
-              contentPadding: EdgeInsets.fromLTRB(
-                20,
-                0,
-                20,
-                isLandscape ? 8 : 12,
-              ),
-              actionsPadding: EdgeInsets.fromLTRB(
-                16,
-                0,
-                16,
-                isLandscape ? 10 : 16,
-              ),
-              title: Text(
-                isVisitasPendientes
-                    ? 'Visitas pendientes de resultado'
-                    : 'Paquetes pendientes en CEDI',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                ),
-              ),
-              content: ConstrainedBox(
-                constraints: BoxConstraints(
-                  maxWidth: 440,
-                  maxHeight:
-                      isLandscape ? screenHeight * 0.45 : double.infinity,
-                ),
-                child: SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: Text(
-                    isVisitasPendientes
-                        ? '$msg\n\nTienes paradas con llegada pero sin resultado de visita registrado.\nSi cierras la ruta ahora, quedarán marcadas como incidencia (Motivo 39).\n\n¿Deseas regresar a registrarlas o confirmar cierre con visitas pendientes?'
-                        : (msg.isNotEmpty
-                            ? '$msg\n\n¿Desea ir al CEDI a descargarlos o confirmar terminar la ruta con paquetes pendientes?'
-                            : 'Aún existen paquetes sin descargar en el CEDI. ¿Desea confirmar el fin de ruta?'),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF475569),
-                      height: 1.4,
-                    ),
-                  ),
-                ),
-              ),
-              actions: [
-                OutlinedButton(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF64748B),
-                    side: const BorderSide(color: Color(0xFFCBD5E1)),
+                  return AlertDialog(
+                    backgroundColor: Colors.white,
+                    surfaceTintColor: Colors.transparent,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                      borderRadius: BorderRadius.circular(18),
                     ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 8,
+                    insetPadding: EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: isLandscape ? 12 : 24,
                     ),
-                    minimumSize: const Size(0, 38),
-                  ),
-                  onPressed: () => Navigator.of(ctx).pop(false),
-                  child: const Text(
-                    'Ir a CEDI / Revisar',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      fontSize: 12.5,
+                    titlePadding: EdgeInsets.fromLTRB(
+                      20,
+                      isLandscape ? 14 : 20,
+                      20,
+                      isLandscape ? 6 : 10,
                     ),
-                  ),
-                ),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD97706),
-                    foregroundColor: Colors.white,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
+                    contentPadding: EdgeInsets.fromLTRB(
+                      20,
+                      0,
+                      20,
+                      isLandscape ? 8 : 12,
                     ),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
+                    actionsPadding: EdgeInsets.fromLTRB(
+                      16,
+                      0,
+                      16,
+                      isLandscape ? 10 : 16,
                     ),
-                    minimumSize: const Size(0, 38),
-                  ),
-                  onPressed: () => Navigator.of(ctx).pop(true),
-                  child: const Text(
-                    'Confirmar y Terminar',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w800,
-                      fontSize: 12.5,
+                    title: const Text(
+                      'Paquetes pendientes en CEDI',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
                     ),
-                  ),
-                ),
-              ],
-            );
-          },
-        );
+                    content: ConstrainedBox(
+                      constraints: BoxConstraints(
+                        maxWidth: 440,
+                        maxHeight:
+                            isLandscape ? screenHeight * 0.45 : double.infinity,
+                      ),
+                      child: SingleChildScrollView(
+                        physics: const BouncingScrollPhysics(),
+                        child: Text(
+                          msg.isNotEmpty
+                              ? '$msg\n\n¿Desea ir al CEDI a descargarlos o confirmar terminar la ruta con paquetes pendientes?'
+                              : 'Aún existen paquetes sin descargar en el CEDI. ¿Desea confirmar el fin de ruta?',
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: Color(0xFF475569),
+                            height: 1.4,
+                          ),
+                        ),
+                      ),
+                    ),
+                    actions: [
+                      OutlinedButton(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF64748B),
+                          side: const BorderSide(color: Color(0xFFCBD5E1)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          minimumSize: const Size(0, 38),
+                        ),
+                        onPressed: () => Navigator.of(ctx).pop(false),
+                        child: const Text(
+                          'Ir a CEDI / Revisar',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ),
+                      ElevatedButton(
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFD97706),
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
+                          ),
+                          minimumSize: const Size(0, 38),
+                        ),
+                        onPressed: () => Navigator.of(ctx).pop(true),
+                        child: const Text(
+                          'Confirmar y Terminar',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 12.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              );
+
         if (confirm == true && mounted) {
           await _handleFinRuta(route, confirmarDiferencia: true);
         }
@@ -2522,11 +2526,20 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
       final msg = res.avisos.isNotEmpty
           ? res.avisos.map((a) => a.displayTexto).join('\n')
           : 'Ruta cerrada correctamente.';
-      SnackbarTop.showSuccess(
-        context,
-        msg,
-        title: 'Correcto',
-      );
+      final hasNoVisitas = res.avisos.any((a) => a.codigo == 'NO_VISITAS');
+      if (hasNoVisitas) {
+        SnackbarTop.showInfo(
+          context,
+          msg,
+          title: 'Ruta cerrada con observaciones',
+        );
+      } else {
+        SnackbarTop.showSuccess(
+          context,
+          msg,
+          title: 'Correcto',
+        );
+      }
     } catch (e) {
       _dismissAppleLoadingDialog();
       if (!mounted) return;
@@ -2539,6 +2552,377 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
     } finally {
       if (mounted) setState(() => _isExecutingRouteAction = false);
     }
+  }
+
+  /// Ronda 146: Diálogo detallado cuando el servidor rechaza el fin de ruta
+  /// con VISITAS_PENDIENTES (paradas con llegada sin resultado o sin visitar).
+  Future<bool?> _showVisitasPendientesDialog({
+    required BuildContext context,
+    required ActionExecutionResult result,
+    required String rawNoticeMessage,
+  }) async {
+    final pendientes = result.pendientesVisitas;
+    final int sinResultado = pendientes?.sinResultado ?? 0;
+    final int sinVisitar = pendientes?.sinVisitar ?? 0;
+    final List<String> foliosSinResultado =
+        pendientes?.foliosSinResultado ?? const [];
+    final List<String> foliosSinVisitar =
+        pendientes?.foliosSinVisitar ?? const [];
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        final mediaQuery = MediaQuery.of(ctx);
+        final isLandscape = mediaQuery.orientation == Orientation.landscape;
+        final screenHeight = mediaQuery.size.height;
+
+        return AlertDialog(
+          backgroundColor: Colors.white,
+          surfaceTintColor: Colors.transparent,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(22),
+          ),
+          insetPadding: EdgeInsets.symmetric(
+            horizontal: 20,
+            vertical: isLandscape ? 12 : 24,
+          ),
+          titlePadding: const EdgeInsets.fromLTRB(22, 22, 22, 12),
+          contentPadding: const EdgeInsets.fromLTRB(22, 0, 22, 16),
+          actionsPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
+          title: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 44,
+                height: 44,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF3C7),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: const Color(0xFFFDE68A)),
+                ),
+                child: const Icon(
+                  Icons.assignment_late_rounded,
+                  color: Color(0xFFD97706),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Visitas pendientes',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                        letterSpacing: -0.3,
+                      ),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Paradas sin resultado registrado',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF64748B),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          content: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 460,
+              maxHeight: isLandscape ? screenHeight * 0.55 : screenHeight * 0.6,
+            ),
+            child: SingleChildScrollView(
+              physics: const BouncingScrollPhysics(),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const SizedBox(height: 6),
+                  if (rawNoticeMessage.isNotEmpty)
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 14),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: const Color(0xFFE2E8F0)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.info_outline_rounded,
+                              size: 17, color: Color(0xFF64748B)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              rawNoticeMessage,
+                              style: const TextStyle(
+                                fontSize: 12.5,
+                                color: Color(0xFF334155),
+                                height: 1.35,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+
+                  // Tarjeta 1: Paradas con llegada pero sin resultado (Motivo 39)
+                  if (sinResultado > 0 || (pendientes == null && !result.hasVisitasPendientes))
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 10),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFFFBEB),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFDE68A)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.pending_actions_rounded,
+                                  size: 18, color: Color(0xFFD97706)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  sinResultado > 0
+                                      ? '$sinResultado ${sinResultado == 1 ? "parada con llegada" : "paradas con llegada"}'
+                                      : 'Paradas con llegada sin visita',
+                                  style: const TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF92400E),
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFDE68A),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'Motivo 39',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF78350F),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'Se registró llegada al punto pero no se capturó venta o motivo de no atención. Al confirmar cierre quedarán con Motivo 39 (Incidencia).',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF78350F),
+                              height: 1.35,
+                            ),
+                          ),
+                          if (foliosSinResultado.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: foliosSinResultado.map((folio) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                        color: const Color(0xFFFCD34D)),
+                                  ),
+                                  child: Text(
+                                    folio,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF92400E),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+
+                  // Tarjeta 2: Paradas sin visitar (Motivo 38)
+                  if (sinVisitar > 0 || (pendientes == null && !result.hasVisitasPendientes))
+                    Container(
+                      margin: const EdgeInsets.only(bottom: 12),
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFFFECACA)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.cancel_outlined,
+                                  size: 18, color: Color(0xFFDC2626)),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  sinVisitar > 0
+                                      ? '$sinVisitar ${sinVisitar == 1 ? "parada sin visitar" : "paradas sin visitar"}'
+                                      : 'Paradas pendientes de visita',
+                                  style: const TextStyle(
+                                    fontSize: 13.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF991B1B),
+                                  ),
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 7, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFECACA),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Text(
+                                  'Motivo 38',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF7F1D1D),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          const Text(
+                            'No se registró llegada ni visita. Al confirmar cierre quedarán con Motivo 38 (No se visitó).',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF7F1D1D),
+                              height: 1.35,
+                            ),
+                          ),
+                          if (foliosSinVisitar.isNotEmpty) ...[
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 4,
+                              children: foliosSinVisitar.map((folio) {
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 8, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                        color: const Color(0xFFFCA5A5)),
+                                  ),
+                                  child: Text(
+                                    folio,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      color: Color(0xFF991B1B),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 2, vertical: 4),
+                    child: Text(
+                      'Puedes regresar a la ruta para registrar las visitas pendientes, o confirmar el cierre con diferencias si ya terminaste tu recorrido.',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: Color(0xFF64748B),
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF334155),
+                      side: const BorderSide(
+                          color: Color(0xFFCBD5E1), width: 1.2),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      minimumSize: const Size(0, 42),
+                    ),
+                    onPressed: () => Navigator.of(ctx).pop(false),
+                    child: const Text(
+                      'Revisar visitas',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFD97706),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      minimumSize: const Size(0, 42),
+                    ),
+                    onPressed: () => Navigator.of(ctx).pop(true),
+                    child: const Text(
+                      'Confirmar cierre',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w800,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        );
+      },
+    );
   }
 
   Future<void> _launchPhoneCall(String phone) async {
