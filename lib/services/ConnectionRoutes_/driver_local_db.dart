@@ -208,44 +208,71 @@ class DriverLocalDb {
     final db = await database;
     final List<DriverRoute> updatedRoutes = [];
 
+    // Conservar metadatos locales de paradas (como distanciaLlegada manual) guardados previamente en SQLite
+    final Map<int, String> cachedDistancias = {};
+    try {
+      final existingPkg = await getDayPackage(pkg.fecha);
+      if (existingPkg != null) {
+        for (final r in existingPkg.rutas) {
+          for (final p in r.paradas) {
+            if (p.distanciaLlegada != null && p.distanciaLlegada!.isNotEmpty) {
+              cachedDistancias[p.idParada] = p.distanciaLlegada!;
+            }
+          }
+        }
+      }
+    } catch (_) {}
+
     for (final route in pkg.rutas) {
-      final geo = route.geometria;
+      DriverRoute currentRoute = route;
+      if (cachedDistancias.isNotEmpty) {
+        currentRoute = currentRoute.copyWith(
+          paradas: currentRoute.paradas.map((p) {
+            if (p.distanciaLlegada == null && cachedDistancias.containsKey(p.idParada)) {
+              return p.copyWith(distanciaLlegada: cachedDistancias[p.idParada]);
+            }
+            return p;
+          }).toList(),
+        );
+      }
+
+      final geo = currentRoute.geometria;
       if (geo != null) {
         if (geo.polilinea != null && geo.polilinea!.isNotEmpty) {
           await db.insert(
             'route_polylines',
             {
-              'id_ruta': route.idRuta,
+              'id_ruta': currentRoute.idRuta,
               'huella': geo.huella,
               'polilinea': geo.polilinea!,
               'updated_at': DateTime.now().toIso8601String(),
             },
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
-          updatedRoutes.add(route);
+          updatedRoutes.add(currentRoute);
         } else if (geo.igual) {
           // Conservar la polilínea guardada localmente para esta ruta
           final rows = await db.query(
             'route_polylines',
             where: 'id_ruta = ?',
-            whereArgs: [route.idRuta],
+            whereArgs: [currentRoute.idRuta],
             limit: 1,
           );
           if (rows.isNotEmpty) {
             final cachedPoly = rows.first['polilinea']?.toString();
             updatedRoutes.add(
-              route.copyWith(
+              currentRoute.copyWith(
                 geometria: geo.copyWith(polilinea: cachedPoly),
               ),
             );
           } else {
-            updatedRoutes.add(route);
+            updatedRoutes.add(currentRoute);
           }
         } else {
-          updatedRoutes.add(route);
+          updatedRoutes.add(currentRoute);
         }
       } else {
-        updatedRoutes.add(route);
+        updatedRoutes.add(currentRoute);
       }
     }
 

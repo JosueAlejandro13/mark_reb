@@ -652,6 +652,7 @@ class RoutesNotifier extends Notifier<RoutesState> {
       }
 
       // 2. ENVIAR ACCIONES EN ORDEN ESTRICTO DE CREACIÓN (Lotes de hasta 200)
+      bool hasFinAction = false;
       final pending = await _db.getPendingActions(limit: 200);
       if (pending.isNotEmpty) {
         // Filtrar acciones cuyas fotos aún no terminaron de subir para no provocar FOTO_PENDIENTE innecesario,
@@ -669,6 +670,7 @@ class RoutesNotifier extends Notifier<RoutesState> {
         }
 
         if (readyBatch.isNotEmpty) {
+          hasFinAction = readyBatch.any((a) => a.tipo == 'fin');
           final payloads = readyBatch.map((a) => a.payload).toList();
           final resultados = await _api.sendActions(payloads);
 
@@ -702,6 +704,7 @@ class RoutesNotifier extends Notifier<RoutesState> {
 
       // 3. ACTUALIZAR PAQUETE DEL DÍA (a=dia) DESPUÉS DE VACIAR LA COLA, NO ANTES
       final needsDayRefresh = forceRefreshDay ||
+          hasFinAction ||
           collectedNotices.any((n) =>
               n.codigo == 'RUTA' ||
               n.codigo == 'PARADA' ||
@@ -718,7 +721,39 @@ class RoutesNotifier extends Notifier<RoutesState> {
           fecha: targetDate,
           huellas: huellas,
         );
-        final savedPkg = await _db.saveDayPackage(freshPkg);
+
+        // Conservar metadatos locales (como distanciaLlegada manual) que el servidor no devuelve en su JSON
+        final currentPkg = state.dayPackage;
+        final Map<int, String> localDistancias = {};
+        if (currentPkg != null) {
+          for (final r in currentPkg.rutas) {
+            for (final p in r.paradas) {
+              if (p.distanciaLlegada != null && p.distanciaLlegada!.isNotEmpty) {
+                localDistancias[p.idParada] = p.distanciaLlegada!;
+              }
+            }
+          }
+        }
+
+        final pkgToSave = localDistancias.isEmpty
+            ? freshPkg
+            : freshPkg.copyWith(
+                rutas: freshPkg.rutas.map((route) {
+                  return route.copyWith(
+                    paradas: route.paradas.map((stop) {
+                      if (stop.distanciaLlegada == null &&
+                          localDistancias.containsKey(stop.idParada)) {
+                        return stop.copyWith(
+                          distanciaLlegada: localDistancias[stop.idParada],
+                        );
+                      }
+                      return stop;
+                    }).toList(),
+                  );
+                }).toList(),
+              );
+
+        final savedPkg = await _db.saveDayPackage(pkgToSave);
         _lastPeriodicDayRefresh = DateTime.now();
         if (state.selectedDate == targetDate && (savedPkg.fecha.isEmpty || savedPkg.fecha == targetDate)) {
           state = state.copyWith(
@@ -936,6 +971,24 @@ class RoutesNotifier extends Notifier<RoutesState> {
     final pkg = state.dayPackage;
     if (pkg == null) return;
 
+    // 3. Procesar Fin de ruta confirmado por el servidor
+    if (originalAction?.tipo == 'fin' && originalAction?.idRuta != null) {
+      final idRutaFin = originalAction!.idRuta!;
+      final updatedRoutes = pkg.rutas.map((r) {
+        if (r.idRuta == idRutaFin) {
+          final newOpRoute = r.isCerradaPorMotor ? 3 : 2;
+          return r.copyWith(
+            operacional: false,
+            operationalRoute: newOpRoute,
+          );
+        }
+        return r;
+      }).toList();
+      final updatedPkg = pkg.copyWith(rutas: updatedRoutes);
+      state = state.copyWith(dayPackage: updatedPkg);
+      unawaited(_db.saveDayPackage(updatedPkg));
+    }
+
     // Actualizar guías confirmadas por el servidor (guias[])
     final guiasList = (res['guias'] as List<dynamic>? ?? [])
         .whereType<Map<String, dynamic>>()
@@ -1081,26 +1134,42 @@ class RoutesNotifier extends Notifier<RoutesState> {
   }
 
   /// Calcula la distancia en metros entre la unidad/chofer y un punto (cliente / parada).
-  /// LÓGICA HÍBRIDA INTELIGENTE (TOLERANCIA DE LATENCIA 3-5 MIN + ANTI-TRAMPAS):
-  /// 1. El GPS del celular es instantáneo (0s de retardo y alta precisión satelital en mano).
-  /// 2. La telemetría del servidor del camión puede tardar 2 a 5 minutos en sincronizar por red celular.
-  /// 3. SI EL CELULAR LLEGA AL CLIENTE (<= 300m):
-  ///    - Verificamos que el camión esté en la zona (<= 1.5 km, distancia normal de 3-5 min de manejo).
-  ///    - Si el camión está en la zona, la llegada se valida DE INMEDIATO con el celular, sin hacer esperar al chofer.
-  ///    - Si el camión está a más de 1.5 km (otro barrio/lejos), se bloquea por sospecha de trampa.
-  /// 4. SI EL CAMIÓN LLEGA PRIMERO (<= 400m), valida la llegada por telemetría.
-  /// 5. SI SE PIERDE LA SEÑAL DEL SERVIDOR (> 45s), el GPS satelital del celular toma el control total.
+  /// LÓGICA HÍBRIDA INTELIGENTE (TOLERANCIA DE LATENCIA 10-15 MIN + FALLBACK SATELITAL):
+  /// 1. El GPS del celular es satelital directo (0s de retardo y funciona sin internet).
+  /// 2. La telemetría del camión depende de internet y conexión con el servidor.
+  /// 3. SI LA TELEMETRÍA DEL CAMIÓN NO SE RECIBE EN MÁS DE 10 A 15 MINUTOS (sin señal / sin internet):
+  ///    - La posición del camión se declara expirada / congelada (stale).
+  ///    - El GPS satelital del celular toma el control total automáticamente.
+  ///    - Si el celular llega al cliente (<= distAviso), se dispara la llegada automática de inmediato.
+  /// 4. SI LA TELEMETRÍA DEL CAMIÓN ESTÁ ACTIVA Y RECIENTE (< 10-15 min):
+  ///    - Se aplica validación dual anti-trampas:
+  ///      - Si el celular llega al cliente (<= distAviso, ej 300m), verificamos que el camión esté
+  ///        en un radio razonable considerando el tiempo transcurrido (hasta 1.8 km).
+  ///      - Si el camión llega primero por telemetría (<= distAviso), valida la llegada.
+  ///      - En ruta normal devuelve la posición más avanzada coherente.
   double? calculateDistanceMeters(double targetLat, double targetLng) {
     if (targetLat == 0 && targetLng == 0) return null;
 
     final vLat = state.lastVehicleLat;
     final vLng = state.lastVehicleLng;
+    final vehicleTime = state.lastVehiclePositionTime;
+    final now = DateTime.now();
 
     final pos = state.lastKnownPosition;
     final hasPhone = pos != null && (pos.latitude != 0.0 || pos.longitude != 0.0);
-    final hasVehicle = vLat != null && vLng != null && (vLat != 0.0 || vLng != 0.0);
 
-    // 1. SI TENEMOS AMBAS FUENTES (Vehículo y Teléfono):
+    // Tolerancia de 10 a 15 minutos sin señal de telemetría del camión:
+    // Si han pasado 10 o más minutos sin actualización del camión (o no hay internet),
+    // la coordenada del vehículo queda obsoleta y el GPS satelital del celular toma el control total.
+    final bool isVehicleStale = vehicleTime == null ||
+        now.difference(vehicleTime).inMinutes >= 10;
+
+    final hasVehicle = vLat != null &&
+        vLng != null &&
+        (vLat != 0.0 || vLng != 0.0) &&
+        !isVehicleStale;
+
+    // 1. SI TENEMOS AMBAS FUENTES FRESCAS (Vehículo activo < 10 min y Teléfono satelital):
     if (hasVehicle && hasPhone) {
       final distPhone = Geolocator.distanceBetween(
         pos.latitude,
@@ -1119,16 +1188,20 @@ class RoutesNotifier extends Notifier<RoutesState> {
       // Radio configurado en la cuenta web (distAviso, ej. 300m)
       final configDist = state.dayPackage?.config.distAviso ?? 300;
       final arrivalRadius = (configDist > 0 ? configDist : 300).toDouble();
-      // Margen de proximidad del vehículo: máximo 600m (o el doble de distAviso)
-      final maxVehicleMargin = (arrivalRadius * 2.0).clamp(500.0, 600.0);
+
+      // Margen dinámico de proximidad del vehículo:
+      // Si el camión actualizó hace unos minutos, permitimos un radio de desplazamiento
+      // razonable mientras esté dentro de los 10 minutos (mínimo 600m, hasta 1,800m).
+      final elapsedMinutes = vehicleTime != null ? now.difference(vehicleTime).inMinutes : 0;
+      final dynamicVehicleMargin = (arrivalRadius * 2.0 + (elapsedMinutes * 150.0)).clamp(600.0, 1800.0);
 
       // CASO A: El celular llega al cliente dentro del radio configurado (<= 300m)
-      // Si el camión está en el perímetro inmediato (<= 600m), se valida la llegada
+      // Si el camión está en el perímetro de proximidad (<= dynamicVehicleMargin), se valida la llegada
       if (distPhone <= arrivalRadius) {
-        if (distVehicle <= maxVehicleMargin) {
+        if (distVehicle <= dynamicVehicleMargin) {
           return distPhone; // Llegada verificada y precisa
         } else {
-          // El camión está a más de 600m: posible inconsistencia / trampa
+          // El camión está a más de dynamicVehicleMargin con telemetría reciente: posible inconsistencia
           return distVehicle;
         }
       }
@@ -1138,17 +1211,17 @@ class RoutesNotifier extends Notifier<RoutesState> {
         return distVehicle < distPhone ? distVehicle : distPhone;
       }
 
-      // CASO C: En ruta normal, si ambos son coherentes (diferencia <= 600m),
-      // mostramos la distancia más avanzada (la más cercana entre ambos):
-      if ((distVehicle - distPhone).abs() <= maxVehicleMargin) {
+      // CASO C: En ruta normal, si ambos son coherentes dentro del margen:
+      if ((distVehicle - distPhone).abs() <= dynamicVehicleMargin) {
         return distPhone < distVehicle ? distPhone : distVehicle;
       }
 
-      // Si hay discrepancia mayor a 600m, el camión manda por seguridad
+      // Si hay discrepancia mayor mientras el camión está reportando activamente, manda el camión
       return distVehicle;
     }
 
-    // 2. Si solo tenemos el teléfono (sin telemetría o señal de servidor caída)
+    // 2. Si solo tenemos el teléfono (o la posición del camión tiene más de 10-15 min / sin internet):
+    // El GPS satelital del celular toma el control total automáticamente
     if (hasPhone) {
       return Geolocator.distanceBetween(
         pos.latitude,
@@ -1158,7 +1231,7 @@ class RoutesNotifier extends Notifier<RoutesState> {
       );
     }
 
-    // 3. Si solo tenemos el vehículo
+    // 3. Si solo tenemos el vehículo y está fresco (< 10 min)
     if (hasVehicle) {
       return Geolocator.distanceBetween(
         vLat,
@@ -1274,6 +1347,27 @@ class RoutesNotifier extends Notifier<RoutesState> {
           state.rejectedActions.where((a) => a.uuid == actionUuid).toList();
       if (rejected.isNotEmpty) {
         final act = rejected.first;
+
+        // Si la acción 'fin' fue rechazada por el servidor (ej. VISITAS_PENDIENTES o PENDIENTES):
+        // Revertir cualquier cambio optimista en la ruta para que vuelva a estar activa (operationalRoute: 1)
+        if (tipo == 'fin' && idRuta != null) {
+          final pkg = state.dayPackage;
+          if (pkg != null) {
+            final revertedRoutes = pkg.rutas.map((r) {
+              if (r.idRuta == idRuta) {
+                return r.copyWith(
+                  operacional: true,
+                  operationalRoute: 1,
+                );
+              }
+              return r;
+            }).toList();
+            final revertedPkg = pkg.copyWith(rutas: revertedRoutes);
+            state = state.copyWith(dayPackage: revertedPkg);
+            unawaited(_db.saveDayPackage(revertedPkg));
+          }
+        }
+
         final resJson = _lastBatchResults[actionUuid];
         PendientesVisitas? pendientes;
         if (resJson != null && resJson['pendientesVisitas'] is Map) {
@@ -1363,13 +1457,17 @@ class RoutesNotifier extends Notifier<RoutesState> {
         );
       }
       if (tipo == 'fin') {
-        // fin solo de activa (1) a terminada (2).
-        // Un fin que llega después de que el motor la cerró (3) no cambia el estado.
-        final newOpRoute = route.isCerradaPorMotor ? 3 : 2;
-        return route.copyWith(
-          operacional: false,
-          operationalRoute: newOpRoute,
-        );
+        // Solo aplicar optimistamente si se confirmó diferencia (confirmarDiferencia: true).
+        // Si no está confirmada, la ruta debe permanecer ACTIVA (operationalRoute: 1)
+        // mientras se consulta al servidor si existen visitas o paquetes pendientes.
+        if (payload['confirmarDiferencia'] == true) {
+          final newOpRoute = route.isCerradaPorMotor ? 3 : 2;
+          return route.copyWith(
+            operacional: false,
+            operationalRoute: newOpRoute,
+          );
+        }
+        return route;
       }
 
       if (tipo == 'descarga' || tipo == 'carga') {
@@ -1447,6 +1545,7 @@ class RoutesNotifier extends Notifier<RoutesState> {
           return stop.copyWith(
             visitada: true,
             visitaOrigen: stop.visitaOrigen == 'gps' ? 'ambos' : 'app',
+            distanciaLlegada: payload['distanciaLlegada']?.toString(),
             unsyncedLocal: true,
           );
         }
@@ -1567,12 +1666,16 @@ class RoutesNotifier extends Notifier<RoutesState> {
   Future<ActionExecutionResult> registrarLlegada({
     required int idRuta,
     required int idParada,
+    String? distanciaLlegada,
   }) {
     return _enqueueAndExecuteAction(
       tipo: 'llegada',
       idRuta: idRuta,
       idParada: idParada,
-      customFields: const {},
+      customFields: {
+        if (distanciaLlegada != null && distanciaLlegada.isNotEmpty)
+          'distanciaLlegada': distanciaLlegada,
+      },
     );
   }
 
@@ -1700,7 +1803,7 @@ class RoutesNotifier extends Notifier<RoutesState> {
       },
     );
 
-    if (confirmarDiferencia && result.estado == 'aplicada') {
+    if (confirmarDiferencia && (result.estado == 'aplicada' || result.queuedOrApplied)) {
       final oldFinRejected = state.rejectedActions
           .where((a) => a.tipo == 'fin' && a.idRuta == idRuta)
           .toList();
@@ -1710,6 +1813,8 @@ class RoutesNotifier extends Notifier<RoutesState> {
       if (oldFinRejected.isNotEmpty) {
         await _reloadQueuesFromDb();
       }
+      // Forzar actualización completa del día para asegurar que la ruta queda como cerrada (2) en SQLite y memoria
+      await syncPendingQueueAndRefreshDay(forceRefreshDay: true);
     }
 
     return result;

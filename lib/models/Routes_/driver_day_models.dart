@@ -1080,6 +1080,7 @@ class RouteStop {
   final bool unsyncedLocal;
   final bool visitaCerrada; // Ronda 146: Parada cerrada con acción visita
   final int? visitaMotivo;  // Motivo 31-37 si no hubo venta
+  final String? distanciaLlegada; // Distancia fija registrada si se forzó llegada manual fuera de rango (ej. '3.4 km')
 
   const RouteStop({
     required this.idParada,
@@ -1096,6 +1097,7 @@ class RouteStop {
     this.unsyncedLocal = false,
     this.visitaCerrada = false,
     this.visitaMotivo,
+    this.distanciaLlegada,
   });
 
   bool get isClientStop => tipo == 'cliente';
@@ -1154,6 +1156,7 @@ class RouteStop {
     bool? unsyncedLocal,
     bool? visitaCerrada,
     int? visitaMotivo,
+    String? distanciaLlegada,
   }) {
     return RouteStop(
       idParada: idParada,
@@ -1170,6 +1173,7 @@ class RouteStop {
       unsyncedLocal: unsyncedLocal ?? this.unsyncedLocal,
       visitaCerrada: visitaCerrada ?? this.visitaCerrada,
       visitaMotivo: visitaMotivo ?? this.visitaMotivo,
+      distanciaLlegada: distanciaLlegada ?? this.distanciaLlegada,
     );
   }
 
@@ -1218,6 +1222,7 @@ class RouteStop {
       unsyncedLocal: _toBool(json['unsyncedLocal']),
       visitaCerrada: _toBool(json['visitaCerrada']),
       visitaMotivo: json['visitaMotivo'] != null ? _toInt(json['visitaMotivo']) : null,
+      distanciaLlegada: json['distanciaLlegada']?.toString(),
     );
   }
 
@@ -1234,6 +1239,9 @@ class RouteStop {
         'recoger': recoger.map((e) => e.toJson()).toList(),
         'entregar': entregar.map((e) => e.toJson()).toList(),
         'unsyncedLocal': unsyncedLocal,
+        'visitaCerrada': visitaCerrada,
+        if (visitaMotivo != null) 'visitaMotivo': visitaMotivo,
+        if (distanciaLlegada != null) 'distanciaLlegada': distanciaLlegada,
       };
 }
 

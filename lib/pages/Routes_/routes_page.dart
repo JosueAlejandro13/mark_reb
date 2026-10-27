@@ -2527,17 +2527,26 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
           ? res.avisos.map((a) => a.displayTexto).join('\n')
           : 'Ruta cerrada correctamente.';
       final hasNoVisitas = res.avisos.any((a) => a.codigo == 'NO_VISITAS');
-      if (hasNoVisitas) {
-        SnackbarTop.showInfo(
-          context,
-          msg,
-          title: 'Ruta cerrada con observaciones',
-        );
+
+      if (res.estado == 'aplicada' || res.queuedOrApplied) {
+        if (hasNoVisitas) {
+          SnackbarTop.showInfo(
+            context,
+            msg,
+            title: 'Ruta cerrada con observaciones',
+          );
+        } else {
+          SnackbarTop.showSuccess(
+            context,
+            msg,
+            title: 'Correcto',
+          );
+        }
       } else {
-        SnackbarTop.showSuccess(
+        SnackbarTop.showError(
           context,
-          msg,
-          title: 'Correcto',
+          msg.isNotEmpty ? msg : 'No se pudo cerrar la ruta en el servidor.',
+          title: 'Ruta no finalizada',
         );
       }
     } catch (e) {
@@ -4655,9 +4664,15 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
         subtitle: 'Validando ubicación con ${client.nombre}',
       );
       try {
+        final distStr = isFar && distMeters != null
+            ? (distMeters >= 1000
+                ? '${(distMeters / 1000).toStringAsFixed(1)} km'
+                : '${distMeters.round()} m')
+            : null;
         final res = await ref.read(routesProvider.notifier).registrarLlegada(
               idRuta: route.idRuta,
               idParada: stop.idParada,
+              distanciaLlegada: distStr,
             );
         _dismissAppleLoadingDialog();
         if (!mounted) return;
@@ -4725,11 +4740,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
         .read(routesProvider.notifier)
         .calculateDistanceMeters(client.lat, client.lng);
     final isFar = distMeters != null && distMeters > config.distAviso;
-    // La advertencia de fuera de rango solo aplica si el usuario la marcó desde la app (no si fue automática por GPS del camión)
-    final bool isManualFarArrival = !stop.visitaCerrada &&
-        stop.visitada &&
-        stop.visitaOrigen != 'gps' &&
-        isFar;
+    // La distancia calculada solo se usa como referencia previa a la llegada en distMeters
     final String distanciaText = distMeters != null
         ? (isFar
             ? (distMeters >= 1000
@@ -5154,93 +5165,102 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                           ),
                         ),
                       ] else ...[
-                        // Ya llegó: chip de llegada confirmada (o advertencia si se marcó fuera de rango) + botón de llamada
-                        Row(
-                          children: [
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: stop.visitaCerrada
-                                    ? const Color(0xFFECFDF5)
-                                    : (isManualFarArrival
-                                        ? const Color(0xFFFFFBEB)
-                                        : const Color(0xFFECFDF5)),
-                                borderRadius: BorderRadius.circular(7),
-                                border: Border.all(
+                        // Ya llegó: chip de llegada confirmada (o advertencia si se forzó llegada manual fuera de rango) + botón de llamada
+                        Builder(builder: (context) {
+                          final bool hasManualFarArrival =
+                              stop.distanciaLlegada != null &&
+                                  stop.distanciaLlegada!.isNotEmpty;
+                          final bool showFarWarning =
+                              hasManualFarArrival && !stop.visitaCerrada;
+                          return Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
                                   color: stop.visitaCerrada
-                                      ? const Color(0xFFA7F3D0)
-                                      : (isManualFarArrival
-                                          ? const Color(0xFFFDE68A)
-                                          : const Color(0xFFA7F3D0)),
-                                ),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(
-                                    stop.visitaCerrada
-                                        ? Icons.check_circle_rounded
-                                        : (isManualFarArrival
-                                            ? Icons.warning_amber_rounded
-                                            : Icons.check_circle_rounded),
-                                    size: 13,
+                                      ? const Color(0xFFECFDF5)
+                                      : (showFarWarning
+                                          ? const Color(0xFFFFFBEB)
+                                          : const Color(0xFFECFDF5)),
+                                  borderRadius: BorderRadius.circular(7),
+                                  border: Border.all(
                                     color: stop.visitaCerrada
-                                        ? const Color(0xFF047857)
-                                        : (isManualFarArrival
-                                            ? const Color(0xFFB45309)
-                                            : const Color(0xFF047857)),
+                                        ? const Color(0xFFA7F3D0)
+                                        : (showFarWarning
+                                            ? const Color(0xFFFDE68A)
+                                            : const Color(0xFFA7F3D0)),
                                   ),
-                                  const SizedBox(width: 4),
-                                  Text(
-                                    stop.visitaCerrada
-                                        ? 'Visita concluida'
-                                        : (isManualFarArrival
-                                            ? 'Llegó a ${distMeters != null ? (distMeters >= 1000 ? "${(distMeters / 1000).toStringAsFixed(1)} km" : "${distMeters.round()} m") : ""} del destino'
-                                            : 'Llegada registrada'),
-                                    style: TextStyle(
-                                      fontSize: 10.5,
-                                      fontWeight: FontWeight.w800,
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      stop.visitaCerrada
+                                          ? Icons.check_circle_rounded
+                                          : (showFarWarning
+                                              ? Icons.warning_amber_rounded
+                                              : Icons.check_circle_rounded),
+                                      size: 13,
                                       color: stop.visitaCerrada
                                           ? const Color(0xFF047857)
-                                          : (isManualFarArrival
+                                          : (showFarWarning
                                               ? const Color(0xFFB45309)
                                               : const Color(0xFF047857)),
                                     ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (client.telefono.isNotEmpty) ...[
-                              const SizedBox(width: 6),
-                              IconButton.filledTonal(
-                                style: IconButton.styleFrom(
-                                  minimumSize: const Size(28, 28),
-                                  padding: EdgeInsets.zero,
-                                  backgroundColor: const Color(0xFFF1F5F9),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      stop.visitaCerrada
+                                          ? 'Visita concluida'
+                                          : (showFarWarning
+                                              ? 'Llegó a ${stop.distanciaLlegada} del destino'
+                                              : 'Llegada registrada'),
+                                      style: TextStyle(
+                                        fontSize: 10.5,
+                                        fontWeight: FontWeight.w800,
+                                        color: stop.visitaCerrada
+                                            ? const Color(0xFF047857)
+                                            : (showFarWarning
+                                                ? const Color(0xFFB45309)
+                                                : const Color(0xFF047857)),
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                onPressed: () =>
-                                    _launchPhoneCall(client.telefono),
-                                icon: const Icon(Icons.phone_rounded,
-                                    size: 14, color: Color(0xFF334155)),
-                                tooltip: 'Llamar a ${client.telefono}',
                               ),
+                              if (client.telefono.isNotEmpty) ...[
+                                const SizedBox(width: 6),
+                                IconButton.filledTonal(
+                                  style: IconButton.styleFrom(
+                                    minimumSize: const Size(28, 28),
+                                    padding: EdgeInsets.zero,
+                                    backgroundColor: const Color(0xFFF1F5F9),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                    ),
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  onPressed: () =>
+                                      _launchPhoneCall(client.telefono),
+                                  icon: const Icon(Icons.phone_rounded,
+                                      size: 14, color: Color(0xFF334155)),
+                                  tooltip: 'Llamar a ${client.telefono}',
+                                ),
+                              ],
                             ],
-                          ],
-                        ),
+                          );
+                        }),
                       ],
                     ],
                   ),
                 ),
-                // Mostrar botón IR si no ha llegado, O si el usuario marcó llegada manualmente desde el teléfono pero está fuera de rango (> distAviso)
+                // Mostrar botón IR si no ha llegado, O si forzó llegada manualmente fuera de rango pero aún no concluye la visita
                 if (!isCompleted &&
                     (!stop.visitada ||
-                        (isManualFarArrival && !stop.visitaCerrada))) ...[
+                        (stop.distanciaLlegada != null &&
+                            stop.distanciaLlegada!.isNotEmpty &&
+                            !stop.visitaCerrada))) ...[
                   const SizedBox(width: 10),
 
                   // Botón Navegar ("IR") estilo Apple Squircle
