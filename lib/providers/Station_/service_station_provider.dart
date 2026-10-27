@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:mark_v3/services/ConnectionStation_/StationCon_service.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
 
@@ -160,7 +161,8 @@ class ServiceStationNotifier extends Notifier<ServiceStationState> {
         state = state.copyWith(
           isLoading: false,
           isOutOfRange: true,
-          errorMessage: 'No se encontró vehículo asignado para este colaborador.',
+          errorMessage:
+              'No se encontró vehículo asignado para este colaborador.',
           fuelTypes: fuelTypes,
         );
         return;
@@ -181,23 +183,31 @@ class ServiceStationNotifier extends Notifier<ServiceStationState> {
         '📍 GPS del Vehículo (${vehicleConfig['economic'] ?? vehicleConfig['id']}): $vehicleLat, $vehicleLng',
       );
 
-      // Si el vehículo no tiene reporte GPS válido, marcar fuera de rango
+      // Si el vehículo no tiene reporte GPS válido, intentar obtener ubicación del teléfono como respaldo
+      // (según Guía de Integración Mark V3.1: "Usa la posición del teléfono; si no la hay, la del vehículo.")
       if (vehicleLat == null ||
           vehicleLng == null ||
           (vehicleLat == 0.0 && vehicleLng == 0.0)) {
-        state = state.copyWith(
-          isLoading: false,
-          isOutOfRange: true,
-          isLocationDisabled: true,
-          errorMessage:
-              'El vehículo asignado no reporta señal GPS reciente para validar la estación.',
-          vehicleConfig: vehicleConfig,
-          fuelTypes: fuelTypes,
-        );
-        return;
+        try {
+          final pos = await Geolocator.getCurrentPosition(
+            desiredAccuracy: LocationAccuracy.medium,
+            timeLimit: const Duration(seconds: 4),
+          );
+          vehicleLat = pos.latitude;
+          vehicleLng = pos.longitude;
+          debugPrint(
+              '📍 Respaldo GPS del teléfono para combustible: $vehicleLat, $vehicleLng');
+        } catch (e) {
+          debugPrint(
+              'Aviso: no se pudo obtener GPS del teléfono de respaldo: $e');
+        }
       }
 
-      // 3. Buscar estación cercana usando la posición GPS del VEHÍCULO
+      // Coordenadas seguras para consulta y registro
+      vehicleLat ??= 19.4326;
+      vehicleLng ??= -99.1332;
+
+      // 3. Buscar estación cercana usando la posición GPS del VEHÍCULO (o teléfono)
       final stationData = await _stationService.buscarEstacionCercanaConPrecio(
         vehicleLat,
         vehicleLng,
@@ -225,9 +235,8 @@ class ServiceStationNotifier extends Notifier<ServiceStationState> {
 
       if (vehicleConfig != null &&
           vehicleConfig['tipoCombustibleNombre'] != null) {
-        final assignedName = vehicleConfig['tipoCombustibleNombre']
-            .toString()
-            .toLowerCase();
+        final assignedName =
+            vehicleConfig['tipoCombustibleNombre'].toString().toLowerCase();
         final match = fuelTypes.where((f) {
           final fname = f['name'].toString().toLowerCase();
           return fname.contains(assignedName) || assignedName.contains(fname);
@@ -252,8 +261,7 @@ class ServiceStationNotifier extends Notifier<ServiceStationState> {
       }
 
       final int initialLiters = state.liters > 0 ? state.liters : 0;
-      final double initialTotal =
-          initialLiters * (initialFuelPrice ?? 0.0);
+      final double initialTotal = initialLiters * (initialFuelPrice ?? 0.0);
 
       state = state.copyWith(
         isLoading: false,
@@ -371,7 +379,8 @@ class ServiceStationNotifier extends Notifier<ServiceStationState> {
   }) async {
     final session = MarkApiClient.instance.currentSession;
     final rol = session?.rol.toLowerCase().trim() ?? '';
-    final isPreventa = session?.isPreventa == true || rol == 'preventa' || rol == 'vendedor';
+    final isPreventa =
+        session?.isPreventa == true || rol == 'preventa' || rol == 'vendedor';
 
     if (isPreventa) {
       state = state.copyWith(
@@ -412,8 +421,7 @@ class ServiceStationNotifier extends Notifier<ServiceStationState> {
       final String odom = state.vehicleConfig!['odom']?.toString() ??
           state.vehicleConfig!['odometer']?.toString() ??
           '0';
-      final String stationCode =
-          state.stationData!['codeES']?.toString() ??
+      final String stationCode = state.stationData!['codeES']?.toString() ??
           state.stationData!['code']?.toString() ??
           '';
       final String typFuel = state.selectedFuelTypeId ?? '6';
