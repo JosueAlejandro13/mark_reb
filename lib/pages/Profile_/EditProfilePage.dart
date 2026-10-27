@@ -588,10 +588,12 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                                               child: SizedBox(
                                                 width: 22,
                                                 height: 22,
-                                                child: CircularProgressIndicator(
+                                                child:
+                                                    CircularProgressIndicator(
                                                   strokeWidth: 2.0,
                                                   valueColor:
-                                                      AlwaysStoppedAnimation<Color>(
+                                                      AlwaysStoppedAnimation<
+                                                              Color>(
                                                           Color(0xFF0284C7)),
                                                 ),
                                               ),
@@ -636,8 +638,9 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                                       height: 24,
                                       child: CircularProgressIndicator(
                                         strokeWidth: 2.2,
-                                        valueColor: AlwaysStoppedAnimation<Color>(
-                                            Colors.white),
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                                Colors.white),
                                       ),
                                     ),
                                   ),
@@ -704,7 +707,8 @@ class _EditProfilePageState extends ConsumerState<EditProfilePage> {
                 if (profileState.imageFile != null && canEdit) ...[
                   const SizedBox(width: 12),
                   GestureDetector(
-                    onTap: () => ref.read(profileProvider.notifier).removeImage(),
+                    onTap: () =>
+                        ref.read(profileProvider.notifier).removeImage(),
                     child: Container(
                       width: 32,
                       height: 32,

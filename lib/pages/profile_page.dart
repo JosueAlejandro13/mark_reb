@@ -8,6 +8,7 @@ import 'package:mark_v3/providers/Profile_/profile_provider.dart';
 import 'package:mark_v3/providers/Profile_/edit_profile_provider.dart';
 import 'package:mark_v3/providers/Routes_/routes_provider.dart';
 import 'package:mark_v3/services/ConnectionRoutes_/driver_local_db.dart';
+import 'package:mark_v3/providers/Custodia_/custodia_provider.dart';
 import 'package:mark_v3/providers/Notification_/notifications_provider.dart';
 import 'package:mark_v3/providers/Home_/home_provider.dart';
 import 'package:mark_v3/pages/Auth_/login_page.dart';
@@ -961,6 +962,7 @@ class ProfilePage extends ConsumerWidget {
                     ref.invalidate(routesProvider);
                     ref.invalidate(notificationsProvider);
                     ref.invalidate(homeProvider);
+                    ref.invalidate(custodiaProvider);
 
                     if (outerContext.mounted) {
                       Navigator.of(outerContext).pushAndRemoveUntil(

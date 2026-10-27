@@ -669,22 +669,13 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
                                       ),
                                     ),
                                     const SizedBox(height: 16),
-                                    ElevatedButton(
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color(0xFF0886B5),
-                                        foregroundColor: Colors.white,
-                                        padding: const EdgeInsets.symmetric(vertical: 14),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                        elevation: 0,
-                                      ),
-                                      onPressed: _isSendingEmail ? null : _handleSendEmail,
-                                      child: _isSendingEmail
-                                          ? const SizedBox(
-                                              width: 18,
-                                              height: 18,
-                                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                                            )
-                                          : const Text('Enviar código al correo', style: TextStyle(fontWeight: FontWeight.w800)),
+                                    LoadingActionButton(
+                                      text: 'Enviar código al correo',
+                                      isLoading: _isSendingEmail,
+                                      icon: Icons.send_rounded,
+                                      height: 50,
+                                      borderRadius: 14,
+                                      onPressed: _handleSendEmail,
                                     ),
                                   ] else ...[
                                     // ── Divisor decorativo ──────────────────

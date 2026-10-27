@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
+import 'package:mark_v3/widgets/app_skeleton.dart';
 import 'package:mark_v3/widgets/loading_action_button.dart';
 import 'package:mark_v3/widgets/snackbar_top.dart';
 
@@ -839,12 +840,7 @@ class _TwoFactorSettingsPageState extends State<TwoFactorSettingsPage> {
         backgroundColor: _bg,
         body: SafeArea(
           child: _isLoading
-              ? const Center(
-                  child: CircularProgressIndicator(
-                    color: _primary,
-                    strokeWidth: 2.6,
-                  ),
-                )
+              ? _buildSkeleton(context, isSmallScreen)
               : RefreshIndicator(
                   onRefresh: _loadStatus,
                   color: _primary,
@@ -1094,27 +1090,19 @@ class _TwoFactorSettingsPageState extends State<TwoFactorSettingsPage> {
                                   onPressed: _startActivation,
                                 )
                               : (!_exigido
-                                  ? SizedBox(
-                                      width: double.infinity,
+                                  ? LoadingActionButton(
+                                      text: 'Desactivar Verificación en 2 Pasos',
+                                      isLoading: _isActionLoading,
+                                      icon: Icons.power_settings_new_rounded,
                                       height: 50,
-                                      child: OutlinedButton.icon(
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: _red,
-                                          side: const BorderSide(color: Color(0xFFFCA5A5), width: 1.2),
-                                          shape: RoundedRectangleBorder(
-                                            borderRadius: BorderRadius.circular(16),
-                                          ),
-                                        ),
-                                        onPressed: _isActionLoading ? null : _startDeactivation,
-                                        icon: const Icon(Icons.power_settings_new_rounded, size: 19),
-                                        label: const Text(
-                                          'Desactivar Verificación en 2 Pasos',
-                                          style: TextStyle(
-                                            fontSize: 14.5,
-                                            fontWeight: FontWeight.w700,
-                                          ),
-                                        ),
+                                      borderRadius: 16,
+                                      backgroundColor: const Color(0xFFDC2626),
+                                      gradient: const LinearGradient(
+                                        colors: [Color(0xFFDC2626), Color(0xFFB91C1C)],
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
                                       ),
+                                      onPressed: _startDeactivation,
                                     )
                                   : const SizedBox.shrink()),
                           5,
@@ -1129,15 +1117,109 @@ class _TwoFactorSettingsPageState extends State<TwoFactorSettingsPage> {
     );
   }
 
+  Widget _buildSkeleton(BuildContext context, bool isSmallScreen) {
+    return SingleChildScrollView(
+      physics: const NeverScrollableScrollPhysics(),
+      padding: EdgeInsets.symmetric(
+        horizontal: isSmallScreen ? 14.0 : 18.0,
+        vertical: 10.0,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _buildMarkHeader(context, isDisabled: true),
+          const SizedBox(height: 16),
+
+          // Título de Estado Shimmer
+          const AppShimmerBox.text(width: 140, height: 11),
+          const SizedBox(height: 8),
+
+          // Tarjeta Principal de Estado Shimmer
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _border),
+            ),
+            child: Row(
+              children: [
+                const AppShimmerBox(width: 52, height: 52, shape: BoxShape.circle),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: const [
+                      AppShimmerBox.text(width: 110, height: 10),
+                      SizedBox(height: 8),
+                      AppShimmerBox.text(width: 160, height: 16),
+                      SizedBox(height: 6),
+                      AppShimmerBox.text(width: double.infinity, height: 12),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+
+          // Título Detalles Shimmer
+          const AppShimmerBox.text(width: 170, height: 11),
+          const SizedBox(height: 8),
+
+          // Tarjeta Inset de Detalles Shimmer
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: _border),
+            ),
+            child: Column(
+              children: const [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    AppShimmerBox.text(width: 100, height: 13),
+                    AppShimmerBox.text(width: 140, height: 13),
+                  ],
+                ),
+                Padding(
+                  padding: EdgeInsets.symmetric(vertical: 12),
+                  child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+                ),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    AppShimmerBox.text(width: 110, height: 13),
+                    AppShimmerBox.text(width: 90, height: 13),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Botón de acción Shimmer
+          const AppShimmerBox(
+            width: double.infinity,
+            height: 50,
+            borderRadius: 16,
+          ),
+        ],
+      ),
+    );
+  }
+
   // --- ENCABEZADO INSTITUCIONAL DE MARK (IDÉNTICO A EDITPROFILEPAGE / CHANGEPASSWORDPAGE) ---
-  Widget _buildMarkHeader(BuildContext context) {
+  Widget _buildMarkHeader(BuildContext context, {bool isDisabled = false}) {
     return Row(
       children: [
         Material(
           color: Colors.transparent,
           child: InkWell(
             borderRadius: BorderRadius.circular(12),
-            onTap: _isActionLoading ? null : () => Navigator.pop(context),
+            onTap: (isDisabled || _isActionLoading) ? null : () => Navigator.pop(context),
             child: Container(
               width: 38,
               height: 38,

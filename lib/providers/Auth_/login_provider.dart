@@ -12,12 +12,14 @@ import 'package:mark_v3/services/mark_api_client.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
+import 'package:mark_v3/widgets/loading_action_button.dart';
 import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:mark_v3/pages/home_page.dart';
 import 'package:mark_v3/pages/Auth_/two_factor_auth_page.dart';
 import 'package:mark_v3/providers/Routes_/routes_provider.dart';
 import 'package:mark_v3/services/ConnectionRoutes_/driver_local_db.dart';
 import 'package:mark_v3/providers/Notification_/notifications_provider.dart';
+import 'package:mark_v3/providers/Custodia_/custodia_provider.dart';
 import 'package:mark_v3/providers/Home_/home_provider.dart';
 import 'package:mark_v3/providers/Profile_/profile_provider.dart';
 import 'package:mark_v3/providers/Profile_/edit_profile_provider.dart';
@@ -326,6 +328,7 @@ class LoginNotifier extends Notifier<LoginState> {
     ref.invalidate(routesProvider);
     ref.invalidate(notificationsProvider);
     ref.invalidate(homeProvider);
+    ref.invalidate(custodiaProvider);
 
     // 4. Actualizar token FCM en el servidor si está disponible
     try {
@@ -565,74 +568,53 @@ class LoginNotifier extends Notifier<LoginState> {
                       ],
                     ),
                     const SizedBox(height: 14),
-                    ElevatedButton(
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF0284C7),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      onPressed: isVerifying
-                          ? null
-                          : () async {
-                              final code = codeController.text.trim();
-                              if (code.length != 6) {
-                                SnackbarTop.showError(
-                                  context,
-                                  "El código debe tener 6 dígitos.",
-                                  title: "Código Incompleto",
-                                );
-                                return;
-                              }
+                    LoadingActionButton(
+                      text: 'Verificar y Entrar',
+                      isLoading: isVerifying,
+                      icon: Icons.check_circle_rounded,
+                      borderRadius: 14,
+                      height: 50,
+                      fontSize: 15,
+                      onPressed: () async {
+                        final code = codeController.text.trim();
+                        if (code.length != 6) {
+                          SnackbarTop.showError(
+                            context,
+                            "El código debe tener 6 dígitos.",
+                            title: "Código Incompleto",
+                          );
+                          return;
+                        }
 
-                              setSheetState(() => isVerifying = true);
-                              final res = await apiClient.login2pasos(
-                                desafio: challenge.desafio,
-                                codigo: code,
-                                recordar: rememberDevice,
-                              );
-                              setSheetState(() => isVerifying = false);
+                        setSheetState(() => isVerifying = true);
+                        final res = await apiClient.login2pasos(
+                          desafio: challenge.desafio,
+                          codigo: code,
+                          recordar: rememberDevice,
+                        );
+                        setSheetState(() => isVerifying = false);
 
-                              if (!res.isSuccess || res.session == null) {
-                                if (context.mounted) {
-                                  SnackbarTop.showError(
-                                    context,
-                                    res.errorMessage ??
-                                        'Código incorrecto. Intenta nuevamente.',
-                                    title: "Código Inválido",
-                                  );
-                                }
-                                return;
-                              }
+                        if (!res.isSuccess || res.session == null) {
+                          if (context.mounted) {
+                            SnackbarTop.showError(
+                              context,
+                              res.errorMessage ??
+                                  'Código incorrecto. Intenta nuevamente.',
+                              title: "Código Inválido",
+                            );
+                          }
+                          return;
+                        }
 
-                              Navigator.of(sheetContext).pop();
-                              await _completeSuccessfulLogin(
-                                context: context,
-                                session: res.session!,
-                                email: email,
-                                password: password,
-                                rememberMe: rememberMe,
-                              );
-                            },
-                      child: isVerifying
-                          ? const SizedBox(
-                              height: 20,
-                              width: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: Colors.white,
-                              ),
-                            )
-                          : const Text(
-                              'Verificar y Entrar',
-                              style: TextStyle(
-                                fontSize: 15,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
+                        Navigator.of(sheetContext).pop();
+                        await _completeSuccessfulLogin(
+                          context: context,
+                          session: res.session!,
+                          email: email,
+                          password: password,
+                          rememberMe: rememberMe,
+                        );
+                      },
                     ),
                     const SizedBox(height: 8),
                     Row(

@@ -53,6 +53,7 @@ class CustodiaState {
     bool? isSubmitting,
     String? errorMessage,
     bool clearError = false,
+    bool clearData = false,
     CustodiaDataResponse? data,
     int? selectedTab,
     int? activeServicioId,
@@ -64,7 +65,7 @@ class CustodiaState {
       isLoading: isLoading ?? this.isLoading,
       isSubmitting: isSubmitting ?? this.isSubmitting,
       errorMessage: clearError ? null : (errorMessage ?? this.errorMessage),
-      data: data ?? this.data,
+      data: clearData ? null : (data ?? this.data),
       selectedTab: selectedTab ?? this.selectedTab,
       activeServicioId: activeServicioId ?? this.activeServicioId,
       activeRondinId: activeRondinId ?? this.activeRondinId,
@@ -93,6 +94,12 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
 
     Future.microtask(() => cargarCustodia());
     return const CustodiaState(isLoading: true);
+  }
+
+  /// Limpia completamente el estado de custodia en memoria (al cerrar sesión o cambiar de perfil)
+  void reset() {
+    _countdownTimer?.cancel();
+    state = const CustodiaState(isLoading: false);
   }
 
   void setSelectedTab(int index) {
@@ -125,14 +132,18 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
         );
         _recalcularCountdown();
       } else {
+        _countdownTimer?.cancel();
         state = state.copyWith(
           isLoading: false,
+          clearData: true,
           errorMessage: res['error']?.toString() ?? 'Error al cargar custodia',
         );
       }
     } catch (e) {
+      _countdownTimer?.cancel();
       state = state.copyWith(
         isLoading: false,
+        clearData: true,
         errorMessage: 'Error de conexión: $e',
       );
     }

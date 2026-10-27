@@ -13,6 +13,7 @@ import 'notifications_page.dart';
 import 'package:mark_v3/widgets/modern_floating_nav_bar.dart';
 import 'package:mark_v3/widgets/loading_action_button.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
+import 'package:mark_v3/providers/Custodia_/custodia_provider.dart';
 import 'package:mark_v3/providers/Profile_/profile_provider.dart';
 import 'package:mark_v3/providers/Profile_/edit_profile_provider.dart';
 
@@ -205,6 +206,7 @@ class _HomePageState extends ConsumerState<HomePage>
     ref.invalidate(routesProvider);
     ref.invalidate(notificationsProvider);
     ref.invalidate(homeProvider);
+    ref.invalidate(custodiaProvider);
     Get.offAllNamed('/login');
   }
 
