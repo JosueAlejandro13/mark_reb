@@ -103,7 +103,7 @@ class ProfilePage extends ConsumerWidget {
                     _buildAnimatedItem(
                       _buildAppleSectionHeader(
                         title: 'CUENTA Y CREDENCIALES',
-                        badge: '3 OPCIONES',
+                        badge: '4 OPCIONES',
                       ),
                       2,
                     ),
@@ -121,6 +121,9 @@ class ProfilePage extends ConsumerWidget {
                             title: 'Datos Personales',
                             subtitle:
                                 'Nombre, teléfono y datos de contacto',
+                            badgeText: 'Perfil',
+                            badgeColor: const Color(0xFFE0F2FE),
+                            badgeTextColor: const Color(0xFF0369A1),
                             onTap: () {
                               Navigator.push(
                                 context,
@@ -137,12 +140,15 @@ class ProfilePage extends ConsumerWidget {
                           _buildAppleListTile(
                             icon: Icons.badge_rounded,
                             iconGradient: const [
-                              Color(0xFF0369A1),
-                              Color(0xFF0284C7),
+                              Color(0xFF0D9488),
+                              Color(0xFF14B8A6),
                             ],
                             title: 'Licencia de Conducir',
                             subtitle:
                                 'Estatus, vigencia y tipo de documento',
+                            badgeText: 'Licencia',
+                            badgeColor: const Color(0xFFCCFBF1),
+                            badgeTextColor: const Color(0xFF0F766E),
                             onTap: () {
                               Navigator.push(
                                 context,
@@ -159,12 +165,15 @@ class ProfilePage extends ConsumerWidget {
                           _buildAppleListTile(
                             icon: Icons.lock_rounded,
                             iconGradient: const [
-                              Color(0xFF0F172A),
-                              Color(0xFF1E3A8A),
+                              Color(0xFF4F46E5),
+                              Color(0xFF818CF8),
                             ],
                             title: 'Cambiar Contraseña',
                             subtitle:
                                 'Modifica tu clave de acceso a la cuenta',
+                            badgeText: 'Acceso',
+                            badgeColor: const Color(0xFFEEF2FF),
+                            badgeTextColor: const Color(0xFF4338CA),
                             onTap: () {
                               Navigator.push(
                                 context,
@@ -179,16 +188,19 @@ class ProfilePage extends ConsumerWidget {
                             },
                             isLast: false,
                           ),
-                          // Verificación en 2 Pasos (Ronda 149)
+                          // Verificación en 2 Pasos
                           _buildAppleListTile(
                             icon: Icons.shield_rounded,
                             iconGradient: const [
-                              Color(0xFF0284C7),
-                              Color(0xFF0369A1),
+                              Color(0xFF2563EB),
+                              Color(0xFF60A5FA),
                             ],
                             title: 'Verificación en 2 Pasos',
                             subtitle:
                                 'Protege tu cuenta con códigos de acceso',
+                            badgeText: 'Seguridad',
+                            badgeColor: const Color(0xFFEFF6FF),
+                            badgeTextColor: const Color(0xFF1D4ED8),
                             onTap: () {
                               Navigator.push(
                                 context,
@@ -682,6 +694,9 @@ class ProfilePage extends ConsumerWidget {
     required String title,
     required String subtitle,
     required VoidCallback onTap,
+    String? badgeText,
+    Color? badgeColor,
+    Color? badgeTextColor,
     bool isLast = false,
   }) {
     return Material(
@@ -696,7 +711,7 @@ class ProfilePage extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               child: Row(
                 children: [
-                  // Ícono Squircle con degradado azul
+                  // Ícono Squircle con degradado
                   Container(
                     width: 38,
                     height: 38,
@@ -709,7 +724,7 @@ class ProfilePage extends ConsumerWidget {
                       borderRadius: BorderRadius.circular(11),
                       boxShadow: [
                         BoxShadow(
-                          color: iconGradient.first.withOpacity(0.26),
+                          color: iconGradient.first.withOpacity(0.28),
                           blurRadius: 6,
                           offset: const Offset(0, 2),
                         ),
@@ -738,8 +753,6 @@ class ProfilePage extends ConsumerWidget {
                             color: Color(0xFF0F172A),
                             letterSpacing: -0.3,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -747,14 +760,37 @@ class ProfilePage extends ConsumerWidget {
                           style: const TextStyle(
                             fontSize: 11.5,
                             color: Color(0xFF64748B),
-                            height: 1.2,
+                            height: 1.25,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
                   ),
+
+                  // Badge opcional estilo iOS (como en MenuPage)
+                  if (badgeText != null) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 2.5,
+                      ),
+                      decoration: BoxDecoration(
+                        color: badgeColor ?? const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        badgeText,
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w700,
+                          color: badgeTextColor ?? const Color(0xFF475569),
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                    ),
+                  ],
+
                   const SizedBox(width: 10),
 
                   // Chevron de navegación iOS
@@ -841,8 +877,6 @@ class ProfilePage extends ConsumerWidget {
                           color: Color(0xFFEF4444),
                           letterSpacing: -0.2,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                       SizedBox(height: 2),
                       Text(
@@ -850,10 +884,8 @@ class ProfilePage extends ConsumerWidget {
                         style: TextStyle(
                           fontSize: 11.5,
                           color: Color(0xFF94A3B8),
-                          height: 1.2,
+                          height: 1.25,
                         ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),

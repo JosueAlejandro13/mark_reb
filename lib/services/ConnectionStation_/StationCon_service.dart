@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
 import 'package:uuid/uuid.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
 
@@ -87,7 +89,7 @@ class StationService {
     }
   }
 
-  /// Obtener vehículos asignados para el módulo de reabastecimiento
+  /// Obtener vehículos asignados para el módulo de reabastecimiento (con GPS del vehículo)
   Future<List<Map<String, dynamic>>> getresupply(String collaboratorId) async {
     try {
       final list = await _client.getVehiculos();
@@ -103,6 +105,26 @@ class StationService {
         int capacidadTanque = 60;
         final dynamic odomGps = v['gps']?['odometro'] ?? 0;
 
+        // Extraer coordenadas de GPS del vehículo
+        double? latGps;
+        double? lngGps;
+
+        final gpsMap = v['gps'] is Map ? (v['gps'] as Map) : null;
+        if (gpsMap != null) {
+          if (gpsMap['lat'] != null) {
+            latGps = double.tryParse(gpsMap['lat'].toString());
+          }
+          if (gpsMap['lng'] != null) {
+            lngGps = double.tryParse(gpsMap['lng'].toString());
+          }
+        }
+        if (latGps == null && v['lat'] != null) {
+          latGps = double.tryParse(v['lat'].toString());
+        }
+        if (lngGps == null && v['lng'] != null) {
+          lngGps = double.tryParse(v['lng'].toString());
+        }
+
         // Si es el primer vehículo o la unidad del chofer, enriquecer con a=vehiculo
         if (results.isEmpty && intVehicId > 0) {
           try {
@@ -116,7 +138,41 @@ class StationService {
               capacidadTanque =
                   int.tryParse(vData['capacidadTanque'].toString()) ?? 60;
             }
+            final fichaGps =
+                vData['gps'] is Map ? (vData['gps'] as Map) : null;
+            if (fichaGps != null) {
+              if (fichaGps['lat'] != null) {
+                final l = double.tryParse(fichaGps['lat'].toString());
+                if (l != null && l != 0.0) latGps = l;
+              }
+              if (fichaGps['lng'] != null) {
+                final l = double.tryParse(fichaGps['lng'].toString());
+                if (l != null && l != 0.0) lngGps = l;
+              }
+            }
           } catch (_) {}
+
+          // Si aún no hay GPS en ficha y se requiere telemetría en tiempo real:
+          if ((latGps == null || latGps == 0.0) && intVehicId > 0) {
+            try {
+              final posData = await _client.getPosicion(
+                idVehic: intVehicId,
+                silent: true,
+              );
+              final posiciones = posData['posiciones'];
+              if (posiciones is List && posiciones.isNotEmpty) {
+                final lastPos = posiciones.last;
+                final pGps =
+                    lastPos['gps'] is Map ? lastPos['gps'] as Map : lastPos;
+                if (pGps['lat'] != null) {
+                  latGps = double.tryParse(pGps['lat'].toString());
+                }
+                if (pGps['lng'] != null) {
+                  lngGps = double.tryParse(pGps['lng'].toString());
+                }
+              }
+            } catch (_) {}
+          }
         }
 
         results.add({
@@ -132,6 +188,10 @@ class StationService {
           'odom': odomGps,
           'tipoCombustibleNombre': combustible,
           'combustible': combustible,
+          'lat': latGps,
+          'lng': lngGps,
+          'latitude': latGps,
+          'longitude': lngGps,
         });
       }
 
@@ -177,22 +237,46 @@ class StationService {
     }
   }
 
-  /// Buscar estación cercana con precios de referencia de combustible
+  /// Buscar estación cercana con precios de combustible consultando a la API
   Future<Map<String, dynamic>?> buscarEstacionCercanaConPrecio(
     double lat,
     double lng,
   ) async {
-    return {
-      'id': 1,
-      'code': 'PL/2071/EXP/ES/2015',
-      'codeES': '2071',
-      'reg': 'PL/2071/EXP/ES/2015',
-      'name': 'Estación de Servicio Cercana',
-      'dist': 50,
-      'fecha': DateTime.now().toIso8601String().substring(0, 10),
-      'regular': 23.99,
-      'premium': 25.89,
-      'diesel': 25.19,
-    };
+    // Si el GPS del vehículo es inválido o 0,0, no hay estación disponible
+    if (lat == 0.0 && lng == 0.0) {
+      debugPrint('Coordenadas GPS del vehículo no válidas ($lat, $lng)');
+      return null;
+    }
+
+    try {
+      // 1. Intentar consulta vía endpoint dedicado de gasolineras / estación cercana
+      final Uri uri = Uri.parse('${_client.serverBaseUrl}deliveryPHP/operacion/get_nearest_station.php');
+      final response = await http.post(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          if (_client.token != null) 'Authorization': 'Bearer ${_client.token}',
+        },
+        body: jsonEncode({
+          'lat': lat,
+          'lng': lng,
+          if (_client.token != null) 'token': _client.token,
+        }),
+      );
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body);
+        if (data is Map && (data['ok'] == true || data['success'] == true)) {
+          final raw = data['data'] ?? data['estacion'] ?? data;
+          if (raw is Map) {
+            return Map<String, dynamic>.from(raw);
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Error al consultar estación cercana en la API: $e');
+    }
+
+    return null;
   }
 }

@@ -138,8 +138,8 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
               _buildAppleHeader(context),
               const SizedBox(height: 24),
 
-              // 1. ACCIONES RÁPIDAS
-              _buildSectionTitle('ACCIONES RÁPIDAS'),
+              // 1. SERVICIOS Y FICHA TÉCNICA
+              _buildSectionTitle('SERVICIOS Y FICHA TÉCNICA'),
               const SizedBox(height: 8),
               _buildQuickActionsGroup(),
               const SizedBox(height: 24),
@@ -260,14 +260,6 @@ class _VehicleDetailPageState extends ConsumerState<VehicleDetailPage> {
       icon: Icons.build_outlined,
       iconGradient: const [Color(0xFF0F172A), Color(0xFF334155)], // Slate
       onTap: () => _handleMenuSelection('Mantenimiento'),
-    ));
-
-    children.add(_buildCupertinoListTile(
-      title: 'Reabastecimiento',
-      subtitle: 'Registro de carga de combustible, litros y costos',
-      icon: Icons.local_gas_station_rounded,
-      iconGradient: const [Color(0xFF0284C7), Color(0xFF0EA5E9)],
-      onTap: () => _handleMenuSelection('Reabastecimiento'),
       isLast: true,
     ));
 

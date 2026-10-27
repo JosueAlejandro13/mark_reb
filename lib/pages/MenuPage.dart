@@ -801,8 +801,6 @@ class MenuPage extends ConsumerWidget {
                             color: Color(0xFF0F172A),
                             letterSpacing: -0.3,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -810,10 +808,8 @@ class MenuPage extends ConsumerWidget {
                           style: const TextStyle(
                             fontSize: 11.5,
                             color: Color(0xFF64748B),
-                            height: 1.2,
+                            height: 1.25,
                           ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),

@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart';
 import 'package:mark_v3/services/ConnectionStation_/StationCon_service.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
 
@@ -139,65 +138,17 @@ class ServiceStationNotifier extends Notifier<ServiceStationState> {
     );
 
     try {
-      // 1. Verificar GPS y Permisos
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        state = state.copyWith(
-          isLoading: false,
-          isLocationDisabled: true,
-          errorMessage: 'El servicio de ubicación está deshabilitado.',
-        );
-        return;
-      }
-
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-        if (permission == LocationPermission.denied) {
-          state = state.copyWith(
-            isLoading: false,
-            isPermissionDenied: true,
-            errorMessage: 'Permiso de ubicación denegado.',
-          );
-          return;
-        }
-      }
-
-      if (permission == LocationPermission.deniedForever) {
-        state = state.copyWith(
-          isLoading: false,
-          isPermissionDenied: true,
-          errorMessage:
-              'Los permisos de ubicación están denegados permanentemente.',
-        );
-        return;
-      }
-
-      // 2. Obtener posición GPS
-      final Position position = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.high,
-      );
-
-      final double lat = position.latitude;
-      final double lng = position.longitude;
-
-      debugPrint('📍 ServiceStation GPS: $lat, $lng');
-
-      // 3. Ejecutar consultas concurrentes
-      final nearestFuture =
-          _stationService.buscarEstacionCercanaConPrecio(lat, lng);
+      // 1. Obtener vehículos asignados y catálogo de tipos de combustible en paralelo
       final resupplyFuture = _stationService.getresupply(idCollaborator);
       final fuelTypesFuture = _stationService.getTypeFuel();
 
       final results = await Future.wait([
-        nearestFuture,
         resupplyFuture,
         fuelTypesFuture,
       ]);
 
-      final stationData = results[0] as Map<String, dynamic>?;
-      final configList = results[1] as List<Map<String, dynamic>>;
-      final rawFuelTypes = results[2] as List<Map<String, dynamic>>;
+      final configList = results[0];
+      final rawFuelTypes = results[1];
 
       final fuelTypes = rawFuelTypes
           .where((f) => f['id'] != null && f['name'] != null)
@@ -205,11 +156,58 @@ class ServiceStationNotifier extends Notifier<ServiceStationState> {
 
       final vehicleConfig = configList.isNotEmpty ? configList.first : null;
 
+      if (vehicleConfig == null) {
+        state = state.copyWith(
+          isLoading: false,
+          isOutOfRange: true,
+          errorMessage: 'No se encontró vehículo asignado para este colaborador.',
+          fuelTypes: fuelTypes,
+        );
+        return;
+      }
+
+      // 2. Extraer posición GPS del VEHÍCULO (no del celular)
+      double? vehicleLat;
+      double? vehicleLng;
+
+      if (vehicleConfig['lat'] != null) {
+        vehicleLat = double.tryParse(vehicleConfig['lat'].toString());
+      }
+      if (vehicleConfig['lng'] != null) {
+        vehicleLng = double.tryParse(vehicleConfig['lng'].toString());
+      }
+
+      debugPrint(
+        '📍 GPS del Vehículo (${vehicleConfig['economic'] ?? vehicleConfig['id']}): $vehicleLat, $vehicleLng',
+      );
+
+      // Si el vehículo no tiene reporte GPS válido, marcar fuera de rango
+      if (vehicleLat == null ||
+          vehicleLng == null ||
+          (vehicleLat == 0.0 && vehicleLng == 0.0)) {
+        state = state.copyWith(
+          isLoading: false,
+          isOutOfRange: true,
+          isLocationDisabled: true,
+          errorMessage:
+              'El vehículo asignado no reporta señal GPS reciente para validar la estación.',
+          vehicleConfig: vehicleConfig,
+          fuelTypes: fuelTypes,
+        );
+        return;
+      }
+
+      // 3. Buscar estación cercana usando la posición GPS del VEHÍCULO
+      final stationData = await _stationService.buscarEstacionCercanaConPrecio(
+        vehicleLat,
+        vehicleLng,
+      );
+
       if (stationData == null) {
         state = state.copyWith(
           isLoading: false,
-          latitude: lat,
-          longitude: lng,
+          latitude: vehicleLat,
+          longitude: vehicleLng,
           isOutOfRange: true,
           vehicleConfig: vehicleConfig,
           fuelTypes: fuelTypes,
@@ -259,8 +257,8 @@ class ServiceStationNotifier extends Notifier<ServiceStationState> {
 
       state = state.copyWith(
         isLoading: false,
-        latitude: lat,
-        longitude: lng,
+        latitude: vehicleLat,
+        longitude: vehicleLng,
         stationData: cleanStation,
         vehicleConfig: vehicleConfig,
         fuelTypes: fuelTypes,

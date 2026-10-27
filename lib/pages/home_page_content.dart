@@ -58,11 +58,14 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
     final query = homeState.searchQuery.toLowerCase();
 
     // Detección de rol y estado de ruta activa
-    final session = routesState.session;
+    final apiSession = MarkApiClient.instance.currentSession;
+    final session = routesState.session ?? apiSession;
     final rol = (session?.rol ?? '').trim().toLowerCase();
+    final isUsuarioOnly = rol == 'usuario';
     final isPreventa =
         session?.isPreventa == true || rol == 'preventa' || rol == 'vendedor';
-    final isChofer = rol == 'chofer' || (!isPreventa && rol.isNotEmpty);
+    final isChofer =
+        rol == 'chofer' || (!isPreventa && !isUsuarioOnly && rol.isNotEmpty);
 
     final rutas = routesState.dayPackage?.rutas ?? const [];
     // Prioridad: ruta activa, luego primera ruta no finalizada, o primera ruta detectada
@@ -104,6 +107,15 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
         'estacion'.contains(query) ||
         'carga'.contains(query) ||
         'odometro'.contains(query));
+
+    final showSafetyProtocol = query.isEmpty ||
+        'seguridad'.contains(query) ||
+        'protocolo'.contains(query) ||
+        'buenas'.contains(query) ||
+        'practicas'.contains(query) ||
+        'vial'.contains(query) ||
+        'inspeccion'.contains(query) ||
+        'prevencion'.contains(query);
 
     final mediaQuery = MediaQuery.of(context);
     final clampedScaler = mediaQuery.textScaler.clamp(
@@ -176,6 +188,12 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
                     // WIDGET DE REABASTECIMIENTO DE COMBUSTIBLE (Estilo Apple Card)
                     if (showRefill) ...[
                       _buildFuelRefillCard(context),
+                      const SizedBox(height: 14),
+                    ],
+
+                    // PROTOCOLO DE SEGURIDAD VIAL Y BUENAS PRÁCTICAS (Estilo Apple Card)
+                    if (showSafetyProtocol) ...[
+                      _buildSafetyProtocolCard(context),
                       const SizedBox(height: 20),
                     ],
 
@@ -1518,10 +1536,6 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
                   runSpacing: 6,
                   children: [
                     _buildFeatureTag(
-                      icon: Icons.confirmation_number_outlined,
-                      label: 'Registro de Ticket',
-                    ),
-                    _buildFeatureTag(
                       icon: Icons.speed_rounded,
                       label: 'Lectura de Odómetro',
                     ),
@@ -1599,6 +1613,401 @@ class _HomePageContentState extends ConsumerState<HomePageContent> {
           ),
         ],
       ),
+    );
+  }
+
+  // --- WIDGET PROTOCOLO DE SEGURIDAD VIAL Y BUENAS PRÁCTICAS (Estilo Apple Card) ---
+  Widget _buildSafetyProtocolCard(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: const Color(0xFFE2E8F0).withOpacity(0.85),
+          width: 0.9,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0A1E34).withOpacity(0.035),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: () => _showSafetyProtocolModal(context),
+          splashColor: const Color(0xFF0D9488).withOpacity(0.06),
+          highlightColor: const Color(0xFFF8FAFC),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Cabecera: Squircle degradado verde azulado + Títulos + Badge
+                Row(
+                  children: [
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        gradient: const LinearGradient(
+                          colors: [
+                            Color(0xFF0D9488),
+                            Color(0xFF14B8A6),
+                          ],
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                        ),
+                        borderRadius: BorderRadius.circular(13),
+                        boxShadow: [
+                          BoxShadow(
+                            color: const Color(0xFF0D9488).withOpacity(0.28),
+                            blurRadius: 8,
+                            offset: const Offset(0, 3),
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.health_and_safety_rounded,
+                          color: Colors.white,
+                          size: 23,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'SEGURIDAD OPERATIVA',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF0F766E).withOpacity(0.9),
+                              letterSpacing: 0.6,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Seguridad Vial y Buenas Prácticas',
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF0F172A),
+                              letterSpacing: -0.3,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFCCFBF1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.check_circle_rounded,
+                            color: Color(0xFF0F766E),
+                            size: 11,
+                          ),
+                          SizedBox(width: 4),
+                          Text(
+                            'Protocolo',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF0F766E),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+
+                // Descripción completa sin truncar
+                const Text(
+                  'Prioriza tu integridad y la de tu equipo. Aplica las normas básicas de prevención antes y durante cada jornada operativa.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: Color(0xFF64748B),
+                    height: 1.3,
+                  ),
+                ),
+                const SizedBox(height: 12),
+
+                // Tags de Características estilo Apple Pills
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _buildFeatureTag(
+                      icon: Icons.checklist_rounded,
+                      label: 'Inspección Previa',
+                    ),
+                    _buildFeatureTag(
+                      icon: Icons.speed_rounded,
+                      label: 'Velocidad Segura',
+                    ),
+                    _buildFeatureTag(
+                      icon: Icons.phone_disabled_rounded,
+                      label: 'Cero Celular',
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // Botón Acción estilo Apple
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 9.5),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF0F766E),
+                    borderRadius: BorderRadius.circular(13),
+                    boxShadow: [
+                      BoxShadow(
+                        color: const Color(0xFF0F766E).withOpacity(0.24),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.verified_user_rounded,
+                        color: Colors.white,
+                        size: 15,
+                      ),
+                      SizedBox(width: 6),
+                      Text(
+                        'Consultar protocolo de seguridad',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.1,
+                        ),
+                      ),
+                      SizedBox(width: 5),
+                      Icon(
+                        Icons.arrow_forward_rounded,
+                        color: Colors.white,
+                        size: 14,
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  // --- MODAL PROTOCOLO DE SEGURIDAD VIAL ESTILO APPLE HIG ---
+  void _showSafetyProtocolModal(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: EdgeInsets.only(
+            top: 12,
+            left: 20,
+            right: 20,
+            bottom: MediaQuery.of(ctx).padding.bottom + 20,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Barra de arrastre estilo iOS
+              Center(
+                child: Container(
+                  width: 38,
+                  height: 4.5,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFCBD5E1),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // Cabecera del modal
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCCFBF1),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: const Icon(
+                      Icons.health_and_safety_rounded,
+                      color: Color(0xFF0F766E),
+                      size: 22,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Protocolo de Seguridad',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF0F172A),
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        SizedBox(height: 2),
+                        Text(
+                          'Normas de prevención y buenas prácticas en campo',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            color: Color(0xFF64748B),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+
+              // Elementos del protocolo
+              _buildProtocolItem(
+                icon: Icons.fact_check_rounded,
+                title: '1. Inspección 360° antes de salir',
+                description:
+                    'Verifica presión de neumáticos, niveles de fluidos, luces y documentación de la unidad asignada.',
+              ),
+              const SizedBox(height: 12),
+              _buildProtocolItem(
+                icon: Icons.airline_seat_recline_normal_rounded,
+                title: '2. Cinturón y postura defensiva',
+                description:
+                    'Uso obligatorio del cinturón de seguridad en todo momento y conservar distancia prudencial de frenado.',
+              ),
+              const SizedBox(height: 12),
+              _buildProtocolItem(
+                icon: Icons.phone_disabled_rounded,
+                title: '3. Cero distracciones al volante',
+                description:
+                    'Prohibido manipular el celular durante el trayecto. Para llamadas operativas o navegación, estaciónate en zona segura.',
+              ),
+              const SizedBox(height: 12),
+              _buildProtocolItem(
+                icon: Icons.emergency_rounded,
+                title: '4. Reporte oportuno de incidencias',
+                description:
+                    'Ante cualquier anomalía mecánica, siniestro o percance vial, notifica de inmediato a través del módulo de incidencias.',
+              ),
+              const SizedBox(height: 22),
+
+              // Botón Entendido estilo Apple
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0A1E34),
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 13),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                  ),
+                  child: const Text(
+                    'Entendido y Aceptado',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildProtocolItem({
+    required IconData icon,
+    required String title,
+    required String description,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(9),
+          ),
+          child: Icon(
+            icon,
+            size: 17,
+            color: const Color(0xFF0F766E),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                description,
+                style: const TextStyle(
+                  fontSize: 11.5,
+                  color: Color(0xFF64748B),
+                  height: 1.25,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

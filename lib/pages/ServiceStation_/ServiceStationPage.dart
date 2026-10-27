@@ -741,17 +741,15 @@ class _ServiceStationFormState extends ConsumerState<ServiceStationForm> {
             state.isLocationDisabled ||
             state.isPermissionDenied)) {
       String title = "Sin estaciones cercanas";
-      String description =
-          "No encontramos estaciones de servicio dentro de tu rango. Por favor, verifica tu ubicación e intenta de nuevo.";
+      String description = state.errorMessage ??
+          "No encontramos estaciones de servicio dentro del rango de tu vehículo. Por favor, verifica la ubicación de la unidad e intenta de nuevo.";
 
       if (state.isLocationDisabled) {
-        title = "Ubicación desactivada";
-        description =
-            "Por favor activa el GPS de tu dispositivo para detectar las estaciones cercanas.";
+        title = "GPS del vehículo sin señal";
       } else if (state.isPermissionDenied) {
         title = "Permiso denegado";
         description =
-            "Es necesario otorgar permisos de ubicación para verificar la estación de servicio.";
+            "Es necesario otorgar permisos para verificar la estación de servicio.";
       }
 
       return ServiceStationRagePage(

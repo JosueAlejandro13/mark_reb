@@ -983,43 +983,6 @@ class _CirculationCardPageState extends ConsumerState<CirculationCardPage> {
                 children: [
                   _buildHeader(context, hasCard: hasCard),
                   const SizedBox(height: 12),
-                  if (!_canEdit && !_canCreate && !hasCard)
-                    Container(
-                      margin: const EdgeInsets.only(bottom: 12),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFEFF6FF),
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: const Color(0xFFBFDBFE),
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(
-                            Icons.lock_outline_rounded,
-                            size: 18,
-                            color: Color(0xFF0284C7),
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              'Modo solo lectura: Tu rol cuenta con permisos para consultar la tarjeta de circulación y sus vigencias, pero no para registrar o modificar datos.',
-                              style: TextStyle(
-                                fontSize: 12,
-                                color:
-                                    const Color(0xFF1E3A8A).withOpacity(0.9),
-                                fontWeight: FontWeight.w500,
-                                height: 1.35,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   if (cardState.isLoading)
                     _buildSkeleton(isSmallScreen)
                   else if (_isEditing)
