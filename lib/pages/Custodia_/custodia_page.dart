@@ -1,3 +1,4 @@
+import 'package:mark_v3/pages/Custodia_/custodia_route_map_widget.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -2112,10 +2113,13 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
           ),
         ),
 
-        // 4. Puntos de Control y Casetas de Ruta en Tránsito (Ronda 151)
+        // 4. Trazado de Ruta y Corredor en Mapa (Ronda 151)
+        CustodiaRouteMapCard(servicio: servicio),
+
+        // Puntos de Control y Casetas de Ruta en Tránsito
         if (servicio.ruta != null && servicio.ruta!.puntos.isNotEmpty) ...[
-          const SizedBox(height: 16),
           _buildAppleRutaControlPointsCard(servicio.ruta!),
+          const SizedBox(height: 16),
         ],
 
         const SizedBox(height: 16),
@@ -2935,6 +2939,9 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
         ),
         const SizedBox(height: 16),
 
+        // Mapa de puntos de control del Rondín
+        CustodiaRondinMapCard(rondin: rondin),
+
         const Padding(
           padding: EdgeInsets.only(left: 4, bottom: 8),
           child: Text(
@@ -3122,6 +3129,9 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
           idRondinDia: rondin.idRondinDia,
           mensajes: rondin.mensajes,
         ),
+
+        // Bitácora de Eventos del Rondín
+        _buildAppleRondinBitacoraCard(rondin),
       ],
     );
   }
@@ -3335,4 +3345,197 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
       },
     );
   }
+
+  Widget _buildAppleRondinBitacoraCard(RondinDia rondin) {
+    final eventos = <_BitacoraItem>[];
+
+    for (final p in rondin.puntos) {
+      for (final paso in p.pasos) {
+        final isLlegada = paso.momento == 'llegue';
+        eventos.add(
+          _BitacoraItem(
+            hora: paso.fecha.length >= 16 ? paso.fecha.substring(11, 16) : (paso.fecha.isNotEmpty ? paso.fecha : '--:--'),
+            fechaCompleta: paso.fecha,
+            titulo: isLlegada
+                ? 'Llegó al punto «${p.nombre}»'
+                : 'Salió del punto «${p.nombre}»',
+            subtitulo: paso.conQr ? 'Validado con código QR' : 'Validado con GPS',
+            icono: isLlegada ? Icons.login_rounded : Icons.logout_rounded,
+            color: isLlegada ? const Color(0xFF16A34A) : const Color(0xFF0284C7),
+          ),
+        );
+      }
+    }
+
+    for (final s in rondin.solicitudes) {
+      eventos.add(
+        _BitacoraItem(
+          hora: s.fecha.length >= 16 ? s.fecha.substring(11, 16) : (s.fecha.isNotEmpty ? s.fecha : '--:--'),
+          fechaCompleta: s.fecha,
+          titulo: 'Solicitud de estatus de monitoreo',
+          subtitulo: '«${s.texto}» · Plazo: ${s.plazo}',
+          icono: Icons.notification_important_rounded,
+          color: const Color(0xFFD97706),
+        ),
+      );
+    }
+
+    for (final m in rondin.mensajes) {
+      eventos.add(
+        _BitacoraItem(
+          hora: m.fecha.length >= 16 ? m.fecha.substring(11, 16) : (m.fecha.isNotEmpty ? m.fecha : '--:--'),
+          fechaCompleta: m.fecha,
+          titulo: m.mio ? 'Mensaje enviado a monitoreo' : 'Mensaje de ${m.quien}',
+          subtitulo: m.texto,
+          icono: Icons.chat_bubble_outline_rounded,
+          color: const Color(0xFF64748B),
+        ),
+      );
+    }
+
+    if (eventos.isEmpty) return const SizedBox.shrink();
+
+    eventos.sort((a, b) => b.fechaCompleta.compareTo(a.fechaCompleta));
+
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withOpacity(0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.history_rounded, size: 16, color: Color(0xFF0F172A)),
+                  SizedBox(width: 8),
+                  Text(
+                    'Bitácora de Eventos',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${eventos.length} eventos',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          ListView.separated(
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: eventos.length,
+            separatorBuilder: (_, __) => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 4),
+              child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+            ),
+            itemBuilder: (ctx, idx) {
+              final ev = eventos[idx];
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      ev.hora,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    width: 26,
+                    height: 26,
+                    margin: const EdgeInsets.only(right: 10),
+                    decoration: BoxDecoration(
+                      color: ev.color.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Icon(ev.icono, size: 14, color: ev.color),
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          ev.titulo,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                        if (ev.subtitulo.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            ev.subtitulo,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _BitacoraItem {
+  final String hora;
+  final String fechaCompleta;
+  final String titulo;
+  final String subtitulo;
+  final IconData icono;
+  final Color color;
+
+  const _BitacoraItem({
+    required this.hora,
+    required this.fechaCompleta,
+    required this.titulo,
+    required this.subtitulo,
+    required this.icono,
+    required this.color,
+  });
 }
