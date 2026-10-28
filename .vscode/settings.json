@@ -1,5 +1,5 @@
 {
-  "dart.flutterSdkPath": ".fvm/versions/3.24.0",
+  "dart.flutterSdkPath": "C:\\src\\flutter",
   "editor.inlineSuggest.syntaxHighlightingEnabled": true,
   "editor.suggest.showConstants": false,
   "java.server.launchMode": "LightWeight",

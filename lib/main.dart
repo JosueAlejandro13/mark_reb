@@ -31,6 +31,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:firebase_crashlytics/firebase_crashlytics.dart';
 import 'package:responsive_framework/responsive_framework.dart';
 import 'package:mark_v3/services/local_notification_service.dart';
+import 'package:mark_v3/pages/Custodia_/custodia_page.dart';
 
 //Autor: Josue Hernandez
 @pragma('vm:entry-point')
@@ -162,6 +163,20 @@ class _MyAppState extends State<MyApp> {
       FirebaseMessaging.onMessage.listen((RemoteMessage message) {
         debugPrint("Mensaje en primer plano: ${message.notification?.title}");
 
+        // Ronda 151: Manejo de Push de Custodia (data: {tipo: "aviso", categoria: "6"})
+        final isCustodia = message.data['categoria']?.toString() == '6' ||
+            message.data['tipo']?.toString() == 'custodia';
+        if (isCustodia) {
+          final body = message.notification?.body ??
+              message.data['mensaje']?.toString() ??
+              message.data['texto']?.toString() ??
+              'Actualización en tu servicio de custodia o rondín.';
+          LocalNotificationService.showCustodiaSolicitudNotification(
+            texto: body,
+            plazo: 'Inmediato',
+          );
+        }
+
         if (message.notification?.title != null &&
             message.notification?.body != null) {
           String notificationId = message.data.containsKey('id')
@@ -182,6 +197,16 @@ class _MyAppState extends State<MyApp> {
 
       FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
         debugPrint("Notificación abierta: ${message.notification?.title}");
+        final isCustodia = message.data['categoria']?.toString() == '6' ||
+            message.data['tipo']?.toString() == 'custodia';
+        if (isCustodia) {
+          try {
+            Get.to(() => const CustodiaPage());
+            return;
+          } catch (e) {
+            debugPrint("Error navegando a Custodia: $e");
+          }
+        }
         // Ronda 146: Al tocar la notificación abre la bandeja de notificaciones
         try {
           final prefs = await SharedPreferences.getInstance();

@@ -1,3 +1,4 @@
+import 'package:mark_v3/pages/Custodia_/custodia_route_map_widget.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mark_v3/models/Custodia_/custodia_models.dart';
 
@@ -203,6 +204,23 @@ void main() {
       expect(p2.salio, isFalse);
       expect(p2.completado, isFalse);
       expect(p2.dentro, isTrue); // Indica que el GPS del teléfono está dentro del punto
+    });
+
+    test('Decodificación de Polilínea (Polyline5) para trazado de ruta en mapa', () {
+      // Polilínea codificada estándar de Google: (38.5, -120.2), (40.7, -120.95), (43.252, -126.453)
+      const encoded = '_p~iF~ps|U_ulLnnqC_mqNvxq`@';
+      final points = Polyline5Decoder.decode(encoded);
+
+      expect(points.length, 3);
+      expect(points[0].latitude, closeTo(38.5, 0.001));
+      expect(points[0].longitude, closeTo(-120.2, 0.001));
+      expect(points[1].latitude, closeTo(40.7, 0.001));
+      expect(points[1].longitude, closeTo(-120.95, 0.001));
+      expect(points[2].latitude, closeTo(43.252, 0.001));
+      expect(points[2].longitude, closeTo(-126.453, 0.001));
+
+      // Cadena vacía regresa lista vacía sin excepciones
+      expect(Polyline5Decoder.decode('').isEmpty, isTrue);
     });
   });
 }

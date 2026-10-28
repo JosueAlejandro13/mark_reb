@@ -2,7 +2,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mark_v3/models/Routes_/driver_day_models.dart';
 
 void main() {
-  group('Módulo de Rutas: Paradas y Gestión de Guías (Recojo, Entrega, Incidencia)', () {
+  group(
+      'Módulo de Rutas: Paradas y Gestión de Guías (Recojo, Entrega, Incidencia)',
+      () {
     test('GuiaItem labels según estado numérico', () {
       expect(GuiaItem.estadoLabel(0), equals('Capturada'));
       expect(GuiaItem.estadoLabel(1), equals('Recogida'));
@@ -13,7 +15,9 @@ void main() {
       expect(GuiaItem.estadoLabel(9), equals('Cancelada'));
     });
 
-    test('Acción recojo en Modalidad 1 (Mensajería): Pasa directo a estado 3 (En reparto)', () {
+    test(
+        'Acción recojo en Modalidad 1 (Mensajería): Pasa directo a estado 3 (En reparto)',
+        () {
       const guiaMensajeria = GuiaItem(
         idGuia: 101,
         folio: 'M-001',
@@ -32,7 +36,9 @@ void main() {
       expect(updated.estadoTexto, equals('En reparto'));
     });
 
-    test('Acción recojo en Modalidad 0 (Por pedido): Pasa a estado 1 (Recogida)', () {
+    test(
+        'Acción recojo en Modalidad 0 (Por pedido): Pasa a estado 1 (Recogida)',
+        () {
       const guiaPedido = GuiaItem(
         idGuia: 102,
         folio: 'P-001',
@@ -51,7 +57,9 @@ void main() {
       expect(updated.estadoTexto, equals('Recogida'));
     });
 
-    test('Acción entrega: Pasa guía a estado 4 (Entregada) y marca parada como visitada', () {
+    test(
+        'Acción entrega: Pasa guía a estado 4 (Entregada) y marca parada como visitada',
+        () {
       const guia = GuiaItem(
         idGuia: 103,
         folio: 'E-001',
@@ -84,7 +92,8 @@ void main() {
       expect(updatedStop.visitada, isTrue);
     });
 
-    test('Acción incidencia: Registra motivo y mantiene estado consistente', () {
+    test('Acción incidencia: Registra motivo y mantiene estado consistente',
+        () {
       const guia = GuiaItem(
         idGuia: 104,
         folio: 'I-001',
