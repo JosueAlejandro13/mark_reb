@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:intl/intl.dart';
 import 'package:mark_v3/models/Custodia_/custodia_models.dart';
+import 'package:mark_v3/services/local_notification_service.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
 import 'package:uuid/uuid.dart';
 
@@ -99,6 +100,7 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
   /// Limpia completamente el estado de custodia en memoria (al cerrar sesión o cambiar de perfil)
   void reset() {
     _countdownTimer?.cancel();
+    LocalNotificationService.cancelCustodiaCheckinReminder();
     state = const CustodiaState(isLoading: false);
   }
 
@@ -131,6 +133,7 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
           clearError: true,
         );
         _recalcularCountdown();
+        _programarNotificacionesLocales(parsed);
       } else {
         _countdownTimer?.cancel();
         state = state.copyWith(
@@ -149,6 +152,41 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
     }
   }
 
+  void _programarNotificacionesLocales(CustodiaDataResponse parsed) {
+    try {
+      final srv = state.activeServicio ?? (parsed.servicios.isNotEmpty ? parsed.servicios.first : null);
+      if (srv != null && srv.checkin != null) {
+        final chk = srv.checkin!;
+        final vTs = chk.venceTs;
+        if (vTs != null && vTs > 0 && !chk.vencido) {
+          LocalNotificationService.scheduleCustodiaCheckinReminder(
+            venceTs: vTs,
+            cadaMin: chk.cadaMin,
+          );
+        }
+        if (srv.solicitudes.isNotEmpty) {
+          final sol = srv.solicitudes.first;
+          LocalNotificationService.showCustodiaSolicitudNotification(
+            texto: sol.texto,
+            plazo: sol.plazo,
+            plazoTs: sol.plazoTs,
+          );
+        }
+      }
+      final rondin = state.activeRondin ?? (parsed.rondines.isNotEmpty ? parsed.rondines.first : null);
+      if (rondin != null && rondin.solicitudes.isNotEmpty) {
+        final sol = rondin.solicitudes.first;
+        LocalNotificationService.showCustodiaSolicitudNotification(
+          texto: sol.texto,
+          plazo: sol.plazo,
+          plazoTs: sol.plazoTs,
+        );
+      }
+    } catch (e) {
+      // Ignorar en tests o entornos sin servicio nativo
+    }
+  }
+
   void _recalcularCountdown() {
     _countdownTimer?.cancel();
     final srv = state.activeServicio;
@@ -162,6 +200,9 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
       final nowSec = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       final diff = venceTs - nowSec;
       if (diff <= 0) {
+        if (!state.isVencido) {
+          LocalNotificationService.showCustodiaVencidoNotification();
+        }
         state = state.copyWith(secondsRemaining: 0, isVencido: true);
       } else {
         state = state.copyWith(secondsRemaining: diff, isVencido: false);
@@ -249,6 +290,7 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
       final estado = firstRes?['estado']?.toString();
 
       if (estado == 'aplicada' || estado == 'repetida') {
+        await LocalNotificationService.cancelCustodiaCheckinReminder();
         await cargarCustodia(silent: true);
         return true;
       } else {
