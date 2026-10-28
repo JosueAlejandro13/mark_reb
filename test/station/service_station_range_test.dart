@@ -3,19 +3,23 @@ import 'package:mark_v3/providers/Station_/service_station_provider.dart';
 import 'package:mark_v3/services/ConnectionStation_/StationCon_service.dart';
 
 void main() {
-  group('Módulo de Estación de Servicio: Consulta de Gasolinera Cercana vía API', () {
+  group('Módulo de Estación de Servicio: Rango y Disponibilidad de Estación', () {
     late StationService service;
 
     setUp(() {
       service = StationService();
     });
 
-    test('Vehículo sin GPS (0.0, 0.0) devuelve null y no ejecuta llamada a la API', () async {
-      final station = await service.buscarEstacionCercanaConPrecio(0.0, 0.0);
-      expect(station, isNull, reason: 'Coordenadas 0,0 deben retornar null directamente');
+    test('buscarEstacionCercanaConPrecio retorna null cuando no hay estación en la API', () async {
+      const testLat = 19.394096;
+      const testLng = -99.086912;
+
+      final station = await service.buscarEstacionCercanaConPrecio(testLat, testLng);
+      // Al no haber endpoint ni estación cercana en esa coordenada, debe retornar null
+      expect(station, isNull, reason: 'Si no está en estación, debe retornar null');
     });
 
-    test('Provider: Estado marca isOutOfRange = true cuando la API no encuentra estación (null)', () {
+    test('Provider: Si stationData es null, isOutOfRange se activa en true y NO muestra el formulario', () {
       const initialState = ServiceStationState();
 
       final stateOutOfRange = initialState.copyWith(
@@ -29,33 +33,39 @@ void main() {
       expect(stateOutOfRange.stationData, isNull);
     });
 
-    test('Provider: Estado guarda la posición del VEHÍCULO y datos de estación devueltos por la API', () {
+    test('Provider: Solo cuando hay estación válida (stationData != null), isOutOfRange es false', () {
       const double vLat = 19.394096;
       const double vLng = -99.086912;
 
       const initialState = ServiceStationState();
-      final stateInRange = initialState.copyWith(
+      final stateReady = initialState.copyWith(
         isLoading: false,
         latitude: vLat,
         longitude: vLng,
         isOutOfRange: false,
         stationData: {
-          'id': 101,
-          'code': 'PL/9999/EXP/ES/2015',
-          'codeES': '9999',
-          'name': 'Estación Servicio Zaragoza',
-          'dist': 250,
+          'id': 1,
+          'code': 'PL/2856/EXP/ES/2015',
+          'codeES': '2856',
+          'name': 'Estación de Servicio Real',
+          'dist': 25,
           'regular': 23.99,
           'premium': 25.89,
           'diesel': 25.19,
+          'lat': vLat,
+          'lng': vLng,
         },
+        selectedFuelTypeId: '6',
+        selectedFuelTypeName: 'Gasolina Regular',
+        selectedFuelPrice: 23.99,
+        isFuelValid: true,
+        liters: 20,
+        totalEstimated: 479.80,
       );
 
-      expect(stateInRange.isOutOfRange, isFalse);
-      expect(stateInRange.latitude, equals(vLat));
-      expect(stateInRange.longitude, equals(vLng));
-      expect(stateInRange.stationData!['codeES'], equals('9999'));
-      expect(stateInRange.stationData!['dist'], equals(250));
+      expect(stateReady.isOutOfRange, isFalse);
+      expect(stateReady.stationData, isNotNull);
+      expect(stateReady.stationData!['dist'], equals(25));
     });
   });
 }

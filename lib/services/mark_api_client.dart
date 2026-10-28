@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
@@ -345,6 +346,16 @@ class MarkApiClient {
   // 1. AUTENTICACIÓN Y SESIÓN (a=login, a=login2pasos, a=reenviarCodigo, a=yo, a=fcm)
   // ===========================================================================
 
+  /// Ronda 146: El registro de accesos guarda solo texto simple (sin emojis)
+  static String _stripEmojis(String text) {
+    if (text.isEmpty) return text;
+    final emojiRegex = RegExp(
+      r'[\u{1F600}-\u{1F64F}\u{1F300}-\u{1F5FF}\u{1F680}-\u{1F6FF}\u{1F700}-\u{1F77F}\u{1F780}-\u{1F7FF}\u{1F800}-\u{1F8FF}\u{1F900}-\u{1F9FF}\u{1FA00}-\u{1FA6F}\u{1FA70}-\u{1FAFF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}\u{2300}-\u{23FF}\u{2B50}\u{200D}\u{FE0F}]',
+      unicode: true,
+    );
+    return text.replaceAll(emojiRegex, '').trim();
+  }
+
   /// Iniciar sesión oficial contra POST api.php?a=login
   Future<LoginAuthResult> login({
     required String usuario,
@@ -365,19 +376,19 @@ class MarkApiClient {
     final body = <String, dynamic>{
       'usuario': usuario.trim(),
       'password': password,
-      'dispositivo': dispositivo,
+      'dispositivo': _stripEmojis(dispositivo),
       'appVersion': appVersion,
       'fcm': fcm,
       'dosPasos': true, // Soporte 2FA Ronda 134
       'configurar2Pasos': true, // Ronda 149
       if (confianzaGuardada != null && confianzaGuardada.isNotEmpty)
         'confianza': confianzaGuardada,
-      // Ronda 146: Datos del teléfono para registro de accesos en el servidor
+      // Ronda 146: Datos del teléfono para registro de accesos en el servidor (sin emojis)
       if (uuid != null && uuid.isNotEmpty) 'uuid': uuid,
       if (manufacturer != null && manufacturer.isNotEmpty)
-        'manufacturer': manufacturer,
-      if (model != null && model.isNotEmpty) 'model': model,
-      if (os != null && os.isNotEmpty) 'os': os,
+        'manufacturer': _stripEmojis(manufacturer),
+      if (model != null && model.isNotEmpty) 'model': _stripEmojis(model),
+      if (os != null && os.isNotEmpty) 'os': _stripEmojis(os),
       if (lat != null && lat != 0) 'lat': lat,
       if (lng != null && lng != 0) 'lng': lng,
       if (acur != null && acur > 0) 'acur': acur,
@@ -403,6 +414,16 @@ class MarkApiClient {
     updateSession(session);
     if (session.token.isNotEmpty) {
       await saveToken(session.token);
+    }
+
+    // Ronda 146: "login y a=yo traen push: true|false : si la sesión ya tiene token. Con false, manda a=fcm."
+    if (session.push == false) {
+      try {
+        final fcmToken = await FirebaseMessaging.instance.getToken();
+        if (fcmToken != null && fcmToken.isNotEmpty) {
+          unawaited(updateFcm(fcmToken, tokenOverride: session.token));
+        }
+      } catch (_) {}
     }
 
     return LoginAuthResult.success(session);
@@ -467,10 +488,12 @@ class MarkApiClient {
   }
 
   /// Confirmar código de 2 pasos contra POST api.php?a=login2pasos
+  /// Ronda 146: Mandar token FCM y campos opcionales del teléfono sin emojis
   Future<LoginAuthResult> login2pasos({
     required String desafio,
     required String codigo,
     bool recordar = true,
+    String? fcm,
     String? uuid,
     String? manufacturer,
     String? model,
@@ -483,11 +506,13 @@ class MarkApiClient {
       'desafio': desafio,
       'codigo': codigo.trim(),
       'recordar': recordar,
+      if (fcm != null && fcm.isNotEmpty) 'fcm': fcm,
+      // Ronda 146: Datos del teléfono para registro de accesos en el servidor (sin emojis)
       if (uuid != null && uuid.isNotEmpty) 'uuid': uuid,
       if (manufacturer != null && manufacturer.isNotEmpty)
-        'manufacturer': manufacturer,
-      if (model != null && model.isNotEmpty) 'model': model,
-      if (os != null && os.isNotEmpty) 'os': os,
+        'manufacturer': _stripEmojis(manufacturer),
+      if (model != null && model.isNotEmpty) 'model': _stripEmojis(model),
+      if (os != null && os.isNotEmpty) 'os': _stripEmojis(os),
       if (lat != null && lat != 0) 'lat': lat,
       if (lng != null && lng != 0) 'lng': lng,
       if (acur != null && acur > 0) 'acur': acur,
@@ -514,6 +539,16 @@ class MarkApiClient {
       await saveToken(session.token);
     }
 
+    // Ronda 146: "login y a=yo traen push: true|false : si la sesión ya tiene token. Con false, manda a=fcm."
+    if (session.push == false) {
+      try {
+        final fcmToken = fcm ?? await FirebaseMessaging.instance.getToken();
+        if (fcmToken != null && fcmToken.isNotEmpty) {
+          unawaited(updateFcm(fcmToken, tokenOverride: session.token));
+        }
+      } catch (_) {}
+    }
+
     return LoginAuthResult.success(session);
   }
 
@@ -537,20 +572,43 @@ class MarkApiClient {
     };
     final session = DriverSession.fromJson(merged);
     updateSession(session);
+    // Ronda 146: "login y a=yo traen push: true|false : si la sesión ya tiene token. Con false, manda a=fcm."
+    if (session.push == false) {
+      try {
+        final fcmToken = await FirebaseMessaging.instance.getToken();
+        if (fcmToken != null && fcmToken.isNotEmpty) {
+          unawaited(updateFcm(fcmToken, tokenOverride: session.token));
+        }
+      } catch (_) {}
+    }
     return session;
   }
 
-  /// Actualizar token FCM en el servidor (a=fcm)
+  /// Actualizar token FCM en el servidor (a=fcm) - Ronda 146
   Future<bool> updateFcm(String fcmToken, {String? tokenOverride}) async {
     if (fcmToken.isEmpty) return false;
     try {
       final res = await _postAction('fcm', {'fcm': fcmToken}, customToken: tokenOverride);
-      final isSaved = res['guardado'] == true ||
-          (res['ok'] == true && res['guardado'] != false);
+      // Ronda 146: a=fcm responde {ok:true, guardado:true|false}
+      // con false el token falta o no es válido; hay que leer guardado, no ok
+      final isSaved = res['guardado'] == true;
       if (!isSaved) {
-        debugPrint(' [MarkApiClient] a=fcm: guardado=false: ${res['error']}');
+        debugPrint(' [MarkApiClient] a=fcm: guardado=false: ${res['error']}. Reintentando con Firebase...');
+        try {
+          final refreshed = await FirebaseMessaging.instance.getToken();
+          if (refreshed != null && refreshed.isNotEmpty && refreshed != fcmToken) {
+            final retryRes = await _postAction('fcm', {'fcm': refreshed}, customToken: tokenOverride);
+            return retryRes['guardado'] == true;
+          }
+        } catch (_) {}
       }
       return isSaved;
+    } on MarkApiException catch (e) {
+      if (e.isUnauthorized) {
+        debugPrint(' [MarkApiClient] HTTP 401 en a=fcm: sesión vencida.');
+        clearSession();
+      }
+      return false;
     } catch (e) {
       debugPrint(' [MarkApiClient] Error actualizando FCM token: $e');
       return false;

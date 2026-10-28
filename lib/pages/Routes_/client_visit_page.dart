@@ -491,23 +491,35 @@ class _VisitRecordPageState extends ConsumerState<VisitRecordPage>
                                       padding: const EdgeInsets.symmetric(
                                           horizontal: 10, vertical: 8),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFFFEF2F2),
+                                        color: isIncidence
+                                            ? const Color(0xFFFEF2F2)
+                                            : const Color(0xFFF0F9FF),
                                         borderRadius: BorderRadius.circular(10),
                                         border: Border.all(
-                                            color: const Color(0xFFFCA5A5)),
+                                            color: isIncidence
+                                                ? const Color(0xFFFCA5A5)
+                                                : const Color(0xFFBAE6FD)),
                                       ),
-                                      child: const Row(
+                                      child: Row(
                                         children: [
-                                          Icon(Icons.camera_alt_outlined,
-                                              color: Color(0xFFDC2626),
-                                              size: 16),
-                                          SizedBox(width: 8),
+                                          Icon(
+                                            Icons.camera_alt_outlined,
+                                            color: isIncidence
+                                                ? const Color(0xFFDC2626)
+                                                : const Color(0xFF0284C7),
+                                            size: 16,
+                                          ),
+                                          const SizedBox(width: 8),
                                           Expanded(
                                             child: Text(
-                                              'Toma la foto primero usando el botón antes de confirmar y mandar.',
+                                              isIncidence
+                                                  ? 'Foto recomendada o requerida si la cuenta exige foto en incidencias.'
+                                                  : 'Foto opcional para registrar esta visita sin venta.',
                                               style: TextStyle(
                                                 fontSize: 11.5,
-                                                color: Color(0xFF991B1B),
+                                                color: isIncidence
+                                                    ? const Color(0xFF991B1B)
+                                                    : const Color(0xFF0369A1),
                                                 fontWeight: FontWeight.w600,
                                               ),
                                             ),
@@ -596,11 +608,14 @@ class _VisitRecordPageState extends ConsumerState<VisitRecordPage>
                                       ),
                                     ),
                                     onPressed: () {
-                                      // Exigir fotografía obligatoria: se debe tomar antes, NO auto-mandar
-                                      if (_photoUuids.isEmpty) {
+                                      final dayPkg = ref.read(routesProvider).dayPackage;
+                                      final config = dayPkg?.config ?? const DayConfig();
+                                      final bool photoRequired = isIncidence && (config.fotoIncidencia == 1);
+
+                                      if (photoRequired && _photoUuids.isEmpty) {
                                         SnackbarTop.showInfo(
                                           context,
-                                          'Primero debes tomar la foto de evidencia antes de confirmar.',
+                                          'La cuenta requiere evidencia fotográfica para registrar esta incidencia.',
                                           style: SnackbarTopStyle.appleCard,
                                         );
                                         return;
@@ -792,11 +807,18 @@ class _VisitRecordPageState extends ConsumerState<VisitRecordPage>
     List<Map<String, dynamic>> pedido = const [],
     int? motivo,
   }) async {
-    // Si se está registrando un motivo (No compró o No se pudo atender), la fotografía es obligatoria
-    if (motivo != null && _photoUuids.isEmpty) {
+    // Guía pág 34-35: La visita se cierra con UNA acción sin foto obligatoria.
+    // Solo si es una incidencia (motivos 31, 32, 36, 37) y la cuenta exige foto (config.fotoIncidencia == 1),
+    // se requiere fotografía de evidencia.
+    final dayPkg = ref.read(routesProvider).dayPackage;
+    final config = dayPkg?.config ?? const DayConfig();
+    final bool isIncidence = motivo != null && (motivo == 31 || motivo == 32 || motivo == 36 || motivo == 37);
+    final bool photoRequired = isIncidence && (config.fotoIncidencia == 1);
+
+    if (photoRequired && _photoUuids.isEmpty) {
       SnackbarTop.showInfo(
         context,
-        'Primero debes tomar la foto de evidencia antes de confirmar.',
+        'La cuenta requiere evidencia fotográfica para registrar esta incidencia.',
         style: SnackbarTopStyle.appleCard,
       );
       return;

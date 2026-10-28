@@ -111,7 +111,6 @@ flutter:
     - assets/car.jpg
     - assets/logomejor.jpg
     - assets/iconik.png
-    - assets/gps.png
     - assets/loading.json
     - assets/sindatos.json
     - assets/error.json
@@ -122,8 +121,11 @@ flutter:
     - assets/caleni_rutas_lottie.json
     - assets/caleni_splash_telematics.json
     - assets/truck_top_active.png
+    - assets/truck_top_active_glow_0.png
+    - assets/truck_top_active_glow_1.png
+    - assets/truck_top_active_glow_2.png
+    - assets/truck_top_active_glow_3.png
     - assets/truck_top_off.png
-    - assets/truck_top_green.png
     - assets/person_marker.png
 
 

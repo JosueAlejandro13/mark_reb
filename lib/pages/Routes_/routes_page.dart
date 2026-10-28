@@ -1164,8 +1164,8 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
             BitmapDescriptor.fromBytes(personBytes.buffer.asUint8List());
       }
 
-      // 2. Icono de vehículo en ruta (top-down 360°, Verde Esmeralda de alta visibilidad)
-      final truckData = await rootBundle.load('assets/truck_top_green.png');
+      // 2. Icono de vehículo en ruta (top-down 360°, Azul Activo)
+      final truckData = await rootBundle.load('assets/truck_top_active.png');
       final truckCodec = await ui.instantiateImageCodec(
         truckData.buffer.asUint8List(),
         targetWidth: 80,
@@ -1587,23 +1587,55 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
       }
     }
 
-    final Set<Polyline> polylines = {
-      Polyline(
-        polylineId: const PolylineId('full_route_dimmed'),
-        points: decoded,
-        width: 5,
-        color: const Color(0xFF94A3B8),
-      ),
-    };
+    final Set<Polyline> polylines = {};
 
+    // 1. Tramo completado: Gris pizarra equilibrado (#64748B), sólido y continuo (sin recortes para no perderse)
+    if (splitIndex > 0) {
+      final completedPoints = decoded.sublist(0, splitIndex + 1);
+      if (completedPoints.length >= 2) {
+        polylines.add(
+          Polyline(
+            polylineId: const PolylineId('completed_route_gray'),
+            points: completedPoints,
+            width: 5,
+            color: const Color(0xFF64748B),
+            startCap: Cap.roundCap,
+            endCap: Cap.roundCap,
+            jointType: JointType.round,
+            zIndex: 1,
+          ),
+        );
+      }
+    }
+
+    // 2. Tramo pendiente: Dual Casing con tu azul original (0xFF0284C7) + Corriente animada fluida
     final remainingPoints = decoded.sublist(splitIndex);
     if (remainingPoints.length >= 2) {
+      // 2a. Delineado exterior / borde de contraste en azul marino profundo
       polylines.add(
         Polyline(
-          polylineId: const PolylineId('remaining_route_active'),
+          polylineId: const PolylineId('remaining_route_casing'),
           points: remainingPoints,
           width: 6,
+          color: const Color(0xFF082F49),
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+          jointType: JointType.round,
+          zIndex: 2,
+        ),
+      );
+
+      // 2b. Centro con tu azul original exacto (0xFF0284C7)
+      polylines.add(
+        Polyline(
+          polylineId: const PolylineId('remaining_route_core'),
+          points: remainingPoints,
+          width: 4,
           color: const Color(0xFF0284C7),
+          startCap: Cap.roundCap,
+          endCap: Cap.roundCap,
+          jointType: JointType.round,
+          zIndex: 3,
         ),
       );
     }
@@ -6111,45 +6143,54 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                         onTap: () async {
                           Navigator.of(ctx).pop();
 
-                          // Ronda 146: El servidor exige foto del negocio para reportar motivos de no venta
-                          final picker = ImagePicker();
-                          final picked = await picker.pickImage(
-                            source: ImageSource.camera,
-                            imageQuality: 85,
-                          );
+                          // Guía pág 34-35: La visita no exige foto obligatoria.
+                          // Solo si es una incidencia (motivos 31, 32, 36, 37) y la cuenta exige foto (config.fotoIncidencia == 1)
+                          final dayPkg = ref.read(routesProvider).dayPackage;
+                          final config = dayPkg?.config ?? const DayConfig();
+                          final bool isIncidence = codigo == 31 || codigo == 32 || codigo == 36 || codigo == 37;
+                          final bool photoRequired = isIncidence && (config.fotoIncidencia == 1);
 
-                          if (picked == null) {
-                            if (!mounted) return;
-                            SnackbarTop.showError(
-                              context,
-                              'Se requiere una foto del negocio como evidencia para reportar: $nombre',
-                              title: 'Foto Obligatoria',
+                          final List<String> fotos = [];
+                          if (photoRequired) {
+                            final picker = ImagePicker();
+                            final picked = await picker.pickImage(
+                              source: ImageSource.camera,
+                              imageQuality: 85,
                             );
-                            return;
+
+                            if (picked == null) {
+                              if (!mounted) return;
+                              SnackbarTop.showError(
+                                context,
+                                'La cuenta requiere evidencia fotográfica para reportar: $nombre',
+                                title: 'Foto Requerida',
+                              );
+                              return;
+                            }
+                            final photoUuid = await ref
+                                .read(routesProvider.notifier)
+                                .registerLocalPhoto(File(picked.path));
+                            fotos.add(photoUuid);
                           }
 
                           _showAppleLoadingDialog(
                             title: 'Registrando visita...',
-                            subtitle: 'Guardando evidencia y motivo: $nombre',
+                            subtitle: 'Guardando motivo: $nombre',
                           );
                           try {
-                            final photoUuid = await ref
-                                .read(routesProvider.notifier)
-                                .registerLocalPhoto(File(picked.path));
-
                             await ref
                                 .read(routesProvider.notifier)
                                 .registrarVisita(
                               idRuta: route.idRuta,
                               idParada: stop.idParada,
                               motivo: codigo,
-                              fotosUuids: [photoUuid],
+                              fotosUuids: fotos,
                             );
                             _dismissAppleLoadingDialog();
                             if (!mounted) return;
                             SnackbarTop.showSuccess(
                               context,
-                              'Visita a ${client.nombre} cerrada con foto (Motivo: $nombre).',
+                              'Visita a ${client.nombre} registrada (Motivo: $nombre).',
                               title: 'Visita Registrada',
                             );
                           } catch (e) {

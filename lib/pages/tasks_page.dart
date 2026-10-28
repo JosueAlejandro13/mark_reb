@@ -1168,8 +1168,26 @@ class _TaskDetailModalState extends State<_TaskDetailModal> {
     }
   }
 
-  Future<void> _addComment() async {
-    final text = _commentController.text.trim();
+  static const List<String> _quickNotes = [
+    'En proceso',
+    'Refacciones listas',
+    'En espera de piezas',
+    'Trabajo terminado',
+    'Requiere revisión',
+    'Sin novedades',
+  ];
+
+  String get _currentUserName {
+    final session = _client.currentSession;
+    if (session == null) return '';
+    if (session.chofer.nombre.isNotEmpty) return session.chofer.nombre;
+    if (session.usuario.nombre.isNotEmpty) return session.usuario.nombre;
+    if (session.usuario.usuario.isNotEmpty) return session.usuario.usuario;
+    return '';
+  }
+
+  Future<void> _addComment({String? textOverride}) async {
+    final text = (textOverride ?? _commentController.text).trim();
     if (text.isEmpty) return;
 
     setState(() => _isSending = true);
@@ -1183,14 +1201,17 @@ class _TaskDetailModalState extends State<_TaskDetailModal> {
       };
 
       await _client.sendActions([action]);
-      _commentController.clear();
+      if (textOverride == null) {
+        _commentController.clear();
+      }
+      widget.onTaskUpdated();
       await _fetchDetail();
       if (mounted) {
-        SnackbarTop.showSuccess(context, 'Comentario agregado.');
+        SnackbarTop.showSuccess(context, 'Nota registrada en la bitácora.');
       }
     } catch (e) {
       if (mounted) {
-        SnackbarTop.showError(context, 'Error al comentar: $e');
+        SnackbarTop.showError(context, 'Error al registrar nota: $e');
       }
     } finally {
       if (mounted) setState(() => _isSending = false);
@@ -1688,7 +1709,12 @@ class _TaskDetailModalState extends State<_TaskDetailModal> {
             Expanded(
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  14,
+                  16,
+                  math.max(mediaQuery.padding.bottom, 24) + bottomInset,
+                ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -1742,140 +1768,11 @@ class _TaskDetailModalState extends State<_TaskDetailModal> {
                       const SizedBox(height: 16),
                     ],
 
-                    // 4. BITÁCORA Y SEGUIMIENTO (CHAT / ACTIVIDADES)
-                    Row(
-                      children: [
-                        const Text(
-                          'BITÁCORA Y SEGUIMIENTO',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: Color(0xFF64748B),
-                            letterSpacing: 0.8,
-                          ),
-                        ),
-                        if (_comentarios.isNotEmpty) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 1.5),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFE2E8F0),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              '${_comentarios.length}',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF475569),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    _buildCommentsListSection(),
+                    // 4. BITÁCORA Y SEGUIMIENTO (DISEÑO APPLE CHAT)
+                    _buildAppleBitacoraCard(),
                     const SizedBox(height: 14),
                   ],
                 ),
-              ),
-            ),
-
-            // Input de Comentario Fijo al fondo con SafeArea y diseño Apple elevado
-            Container(
-              padding: EdgeInsets.fromLTRB(
-                16,
-                10,
-                16,
-                math.max(mediaQuery.padding.bottom, 12) + bottomInset,
-              ),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                border: const Border(
-                    top: BorderSide(color: Color(0xFFE2E8F0), width: 1.0)),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0F172A).withOpacity(0.04),
-                    blurRadius: 10,
-                    offset: const Offset(0, -3),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _commentController,
-                      cursorColor: const Color(0xFF0284C7),
-                      style: const TextStyle(
-                          fontSize: 13, color: Color(0xFF0F172A)),
-                      decoration: InputDecoration(
-                        hintText: 'Agregar nota o comentario a la bitácora...',
-                        hintStyle: const TextStyle(
-                            fontSize: 12, color: Color(0xFF94A3B8)),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 11),
-                        filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFE2E8F0)),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFE2E8F0)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(
-                              color: Color(0xFF0284C7), width: 1.5),
-                        ),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: _isSending ? null : _addComment,
-                    child: Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: _isSending ? const Color(0xFFE2E8F0) : null,
-                        gradient: _isSending
-                            ? null
-                            : const LinearGradient(
-                                colors: [Color(0xFF0284C7), Color(0xFF0369A1)],
-                                begin: Alignment.topLeft,
-                                end: Alignment.bottomRight,
-                              ),
-                        borderRadius: BorderRadius.circular(13),
-                        boxShadow: _isSending
-                            ? null
-                            : [
-                                BoxShadow(
-                                  color: const Color(0xFF0284C7).withOpacity(0.28),
-                                  blurRadius: 8,
-                                  offset: const Offset(0, 2),
-                                ),
-                              ],
-                      ),
-                      child: Center(
-                        child: _isSending
-                            ? LoadingAnimationWidget.threeRotatingDots(
-                                color: const Color(0xFF94A3B8),
-                                size: 18,
-                              )
-                            : const Icon(Icons.send_rounded,
-                                color: Colors.white, size: 19),
-                      ),
-                    ),
-                  ),
-                ],
               ),
             ),
           ],
@@ -2340,172 +2237,276 @@ class _TaskDetailModalState extends State<_TaskDetailModal> {
     );
   }
 
-  // --- BITÁCORA Y COMENTARIOS APPLE ---
-  Widget _buildCommentsListSection() {
-    if (_isLoading) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Column(
-          children: List.generate(
-            2,
-            (index) => Container(
-              margin: const EdgeInsets.only(bottom: 8),
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: const Color(0xFFE2E8F0)),
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: const [
-                  AppShimmerBox(width: 34, height: 34, borderRadius: 10),
-                  SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        AppShimmerBox.text(width: 120, height: 12),
-                        SizedBox(height: 6),
-                        AppShimmerBox.text(width: double.infinity, height: 11),
-                        SizedBox(height: 4),
-                        AppShimmerBox.text(width: 160, height: 11),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+  // --- BITÁCORA Y NOTAS DE LA TAREA ESTILO APPLE CHAT ---
+  Widget _buildAppleBitacoraCard() {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withOpacity(0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
-        ),
-      );
-    }
-
-    if (_comentarios.isEmpty) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: const Color(0xFFE2E8F0)),
-        ),
-        child: const Column(
-          children: [
-            Icon(Icons.chat_bubble_outline_rounded,
-                size: 28, color: Color(0xFF94A3B8)),
-            SizedBox(height: 8),
-            Text(
-              'Bitácora sin notas aún',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: Color(0xFF475569),
-              ),
-            ),
-            SizedBox(height: 4),
-            Text(
-              'Escribe abajo para registrar comentarios o evidencias del avance.',
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11.5, color: Color(0xFF94A3B8)),
-            ),
-          ],
-        ),
-      );
-    }
-
-    return Column(
-      children: _comentarios.map((c) {
-        final autor = (c['autor'] ?? c['nombre'] ?? 'Colaborador').toString();
-        final texto = (c['texto'] ?? c['comentario'] ?? '').toString();
-        final fecha = (c['fecHor'] ?? c['fecha'] ?? '').toString();
-
-        return Container(
-          margin: const EdgeInsets.only(bottom: 8),
-          padding: const EdgeInsets.all(13),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0F172A).withOpacity(0.02),
-                blurRadius: 6,
-                offset: const Offset(0, 2),
-              ),
-            ],
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFFE0F2FE), Color(0xFFBAE6FD)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: Center(
-                  child: Text(
-                    autor.isNotEmpty ? autor[0].toUpperCase() : 'U',
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header
+          Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Row(
+                  children: const [
+                    Icon(
+                      Icons.chat_bubble_outline_rounded,
                       color: Color(0xFF0284C7),
+                      size: 18,
                     ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            autor,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF0F172A),
-                            ),
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        if (fecha.isNotEmpty)
-                          Text(
-                            fecha.length > 16 ? fecha.substring(0, 16) : fecha,
-                            style: const TextStyle(
-                              fontSize: 10,
-                              color: Color(0xFF94A3B8),
-                            ),
-                          ),
-                      ],
-                    ),
-                    const SizedBox(height: 5),
+                    SizedBox(width: 8),
                     Text(
-                      texto,
-                      style: const TextStyle(
-                        fontSize: 12.5,
-                        color: Color(0xFF334155),
-                        height: 1.4,
+                      'Bitácora y Notas',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
                       ),
                     ),
                   ],
                 ),
-              ),
-            ],
+                if (_comentarios.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF1F5F9),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      '${_comentarios.length}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFF475569),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
-        );
-      }).toList(),
+          const Divider(color: Color(0xFFF1F5F9), height: 1),
+
+          // Cuerpo de la Bitácora (Burbujas estilo iMessage)
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              children: [
+                if (_isLoading)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 20),
+                    child: Center(
+                      child: LoadingAnimationWidget.threeRotatingDots(
+                        color: const Color(0xFF0284C7),
+                        size: 24,
+                      ),
+                    ),
+                  )
+                else if (_comentarios.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Center(
+                      child: Column(
+                        children: [
+                          Icon(Icons.notes_rounded, size: 28, color: Color(0xFF94A3B8)),
+                          SizedBox(height: 6),
+                          Text(
+                            'Sin notas en la bitácora aún',
+                            style: TextStyle(
+                              fontSize: 12.5,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                          SizedBox(height: 2),
+                          Text(
+                            'Usa las notas rápidas o escribe una nota abajo.',
+                            style: TextStyle(fontSize: 11, color: Color(0xFF94A3B8)),
+                          ),
+                        ],
+                      ),
+                    ),
+                  )
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 220),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      reverse: true,
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: _comentarios.length,
+                      itemBuilder: (ctx, idx) {
+                        final c = _comentarios[_comentarios.length - 1 - idx];
+                        final autor = (c['autor'] ?? c['nombre'] ?? c['quien'] ?? c['usuario'] ?? '').toString();
+                        final texto = (c['texto'] ?? c['comentario'] ?? '').toString();
+                        final fecha = (c['fecHor'] ?? c['fecha'] ?? '').toString();
+                        final myName = _currentUserName.trim().toLowerCase();
+                        final isMe = c['mio'] == true ||
+                            c['deApp'] == true ||
+                            (myName.isNotEmpty && autor.trim().toLowerCase() == myName);
+
+                        return Align(
+                          alignment: isMe ? Alignment.centerRight : Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(vertical: 3.5),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+                            constraints: BoxConstraints(
+                              maxWidth: MediaQuery.of(context).size.width * 0.72,
+                            ),
+                            decoration: BoxDecoration(
+                              color: isMe ? const Color(0xFF0284C7) : const Color(0xFFF1F5F9),
+                              borderRadius: BorderRadius.circular(16).copyWith(
+                                bottomRight: isMe ? const Radius.circular(3) : const Radius.circular(16),
+                                bottomLeft: !isMe ? const Radius.circular(3) : const Radius.circular(16),
+                              ),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: isMe ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+                              children: [
+                                if (!isMe && autor.isNotEmpty) ...[
+                                  Text(
+                                    autor,
+                                    style: const TextStyle(
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF0284C7),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                ],
+                                Text(
+                                  texto,
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: isMe ? Colors.white : const Color(0xFF0F172A),
+                                    fontWeight: FontWeight.w500,
+                                    height: 1.35,
+                                  ),
+                                ),
+                                if (fecha.isNotEmpty) ...[
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    fecha.length > 16 ? fecha.substring(0, 16) : fecha,
+                                    style: TextStyle(
+                                      fontSize: 9.5,
+                                      color: isMe ? Colors.white70 : const Color(0xFF94A3B8),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                const SizedBox(height: 10),
+
+                // Respuestas rápidas para Tareas (Píldoras horizontales)
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  physics: const BouncingScrollPhysics(),
+                  child: Row(
+                    children: _quickNotes.map((note) {
+                      return Padding(
+                        padding: const EdgeInsets.only(right: 6),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(20),
+                          onTap: _isSending ? null : () => _addComment(textOverride: note),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(color: const Color(0xFFCBD5E1)),
+                            ),
+                            child: Text(
+                              note,
+                              style: const TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF334155),
+                              ),
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                // Input de mensaje estilo Apple
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _commentController,
+                        style: const TextStyle(fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: 'Agregar nota a la bitácora...',
+                          hintStyle: const TextStyle(fontSize: 12.5, color: Color(0xFF94A3B8)),
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(color: Color(0xFF0284C7), width: 1.5),
+                          ),
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                        ),
+                        onSubmitted: (_) => _addComment(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF0284C7),
+                        borderRadius: BorderRadius.circular(13),
+                      ),
+                      child: IconButton(
+                        icon: _isSending
+                            ? Center(
+                                child: LoadingAnimationWidget.threeRotatingDots(
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                              )
+                            : const Icon(Icons.arrow_upward_rounded, color: Colors.white, size: 20),
+                        onPressed: _isSending ? null : () => _addComment(),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

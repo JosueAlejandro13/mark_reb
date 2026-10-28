@@ -17,6 +17,7 @@ import 'package:uuid/uuid.dart';
 import 'package:flutter/widgets.dart';
 import 'package:mark_v3/services/local_notification_service.dart';
 import 'package:mark_v3/providers/Custodia_/custodia_provider.dart';
+import 'package:mark_v3/providers/Notification_/notifications_provider.dart';
 
 class ActionExecutionResult {
   final bool queuedOrApplied;
@@ -367,11 +368,21 @@ class RoutesNotifier extends Notifier<RoutesState> {
       } else if (tipo == 'aviso') {
         // Ronda 54: Push de avisos de la plataforma { "tipo": "aviso", "id": "...", "nivel": "...", "categoria": "..." }
         // Ronda 151: Push de custodia { "tipo": "aviso", "categoria": "6" }
-        // La app vuelve a pedir a=custodia. Avisa de mensajes, solicitudes de estatus y check-in vencido.
+        // Ronda 146: Push del vigilante de la ruta { "tipo": "aviso", "id": "...", "nivel": "...", "categoria": "4" }
         final categoria = message.data['categoria']?.toString();
         if (categoria == '6') {
           debugPrint('Push FCM Custodia recibido (categoria: 6). Recargando a=custodia...');
           ref.read(custodiaProvider.notifier).cargarCustodia(silent: true);
+        } else if (categoria == '4') {
+          debugPrint('Push FCM Vigilante de ruta recibido (categoria: 4, origen: 103).');
+          try {
+            final uid = state.session?.usuario.id.toString() ??
+                state.session?.chofer.id.toString() ??
+                '';
+            if (uid.isNotEmpty) {
+              ref.read(notificationsProvider.notifier).fetchNotifications(uid);
+            }
+          } catch (_) {}
         }
         debugPrint(
             'Push FCM aviso de plataforma recibido (id: ${message.data['id']}, nivel: ${message.data['nivel']})');

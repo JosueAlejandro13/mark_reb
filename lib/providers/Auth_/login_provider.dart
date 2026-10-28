@@ -587,10 +587,16 @@ class LoginNotifier extends Notifier<LoginState> {
                         }
 
                         setSheetState(() => isVerifying = true);
+                        String? fcmToken;
+                        try {
+                          fcmToken = await FirebaseMessaging.instance.getToken();
+                        } catch (_) {}
+
                         final res = await apiClient.login2pasos(
                           desafio: challenge.desafio,
                           codigo: code,
                           recordar: rememberDevice,
+                          fcm: fcmToken,
                         );
                         setSheetState(() => isVerifying = false);
 

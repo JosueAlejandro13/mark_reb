@@ -220,8 +220,8 @@ class MenuPage extends ConsumerWidget {
           ],
           title: 'Reabastecimiento',
           subtitle: isUsuarioOnly
-              ? 'Control de carga de combustible, tickets y costos'
-              : 'Tickets de combustible, volumen y costos',
+              ? 'Control de carga de combustible'
+              : 'Costos de combustible',
           badgeText: 'Combustible',
           badgeColor: const Color(0xFFECFEFF),
           badgeTextColor: const Color(0xFF0E7490),

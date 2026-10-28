@@ -223,7 +223,8 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
   /// NOTA DE SEGURIDAD (Ronda 151): Si se ingresa clave de coacción, el servidor contesta
   /// exactamente igual que con la clave buena. La app NO muestra nada distinto ni guarda qué clave se usó.
   Future<bool> enviarCheckin({
-    required int idServicio,
+    int? idServicio,
+    int? idRondinDia,
     required String clave,
   }) async {
     state = state.copyWith(isSubmitting: true, clearError: true);
@@ -232,7 +233,8 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
       final action = {
         'uuid': _uuid.v4(),
         'tipo': 'cusCheckin',
-        'idServicio': idServicio,
+        if (idServicio != null && idServicio > 0) 'idServicio': idServicio,
+        if (idRondinDia != null && idRondinDia > 0) 'idRondinDia': idRondinDia,
         'clave': clave.trim(),
         'fecHor': _nowTimestamp(),
         'lat': pos?.latitude ?? 0.0,
@@ -267,15 +269,19 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
   }
 
   /// Alerta crítica de Pánico silencioso (cusPanico)
-  /// No pide clave y funciona en cualquier estado del servicio.
-  Future<bool> enviarPanico({required int idServicio}) async {
+  /// No pide clave y funciona en cualquier estado del servicio o rondín.
+  Future<bool> enviarPanico({
+    int? idServicio,
+    int? idRondinDia,
+  }) async {
     state = state.copyWith(isSubmitting: true, clearError: true);
     try {
       final pos = await _obtenerPosicionActual();
       final action = {
         'uuid': _uuid.v4(),
         'tipo': 'cusPanico',
-        'idServicio': idServicio,
+        if (idServicio != null && idServicio > 0) 'idServicio': idServicio,
+        if (idRondinDia != null && idRondinDia > 0) 'idRondinDia': idRondinDia,
         'fecHor': _nowTimestamp(),
         'lat': pos?.latitude ?? 0.0,
         'lng': pos?.longitude ?? 0.0,
@@ -296,7 +302,8 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
 
   /// Enviar mensaje o respuesta rápida al monitorista (cusMensaje)
   Future<bool> enviarMensaje({
-    required int idServicio,
+    int? idServicio,
+    int? idRondinDia,
     String? texto,
     String? rapida,
   }) async {
@@ -309,7 +316,8 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
       final action = {
         'uuid': _uuid.v4(),
         'tipo': 'cusMensaje',
-        'idServicio': idServicio,
+        if (idServicio != null && idServicio > 0) 'idServicio': idServicio,
+        if (idRondinDia != null && idRondinDia > 0) 'idRondinDia': idRondinDia,
         if (texto != null && texto.trim().isNotEmpty) 'texto': texto.trim(),
         if (rapida != null && rapida.isNotEmpty) 'rapida': rapida,
         'fecHor': _nowTimestamp(),
@@ -335,14 +343,16 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
 
   /// Marcar mensajes leídos del monitorista hasta ese id (cusLeido)
   Future<void> marcarMensajesLeidos({
-    required int idServicio,
+    int? idServicio,
+    int? idRondinDia,
     required int hastaId,
   }) async {
     try {
       final action = {
         'uuid': _uuid.v4(),
         'tipo': 'cusLeido',
-        'idServicio': idServicio,
+        if (idServicio != null && idServicio > 0) 'idServicio': idServicio,
+        if (idRondinDia != null && idRondinDia > 0) 'idRondinDia': idRondinDia,
         'hasta': hastaId,
       };
       await _api.sendActions([action]);
@@ -429,10 +439,33 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
         return true;
       } else {
         final avisos = firstRes?['avisos'] as List<dynamic>?;
-        final errorText = avisos != null && avisos.isNotEmpty
-            ? (avisos.first is Map ? avisos.first['texto'] : avisos.first.toString())
-            : 'Punto no aceptado';
-        state = state.copyWith(errorMessage: errorText.toString());
+        final firstAviso =
+            avisos != null && avisos.isNotEmpty ? avisos.first : null;
+        String errorText = 'Punto no aceptado';
+        if (firstAviso is Map) {
+          final codigo = firstAviso['codigo']?.toString().toUpperCase();
+          final msg = firstAviso['texto']?.toString() ??
+              firstAviso['mensaje']?.toString();
+          if (msg != null && msg.isNotEmpty) {
+            errorText = msg;
+          } else if (codigo == 'LEJOS') {
+            errorText =
+                'Estás fuera de la geocerca del punto y no se validó código QR';
+          } else if (codigo == 'QR') {
+            errorText =
+                'El código QR escaneado no corresponde a este punto de control';
+          } else if (codigo == 'PUNTO') {
+            errorText =
+                'El punto no pertenece al rondín o no respeta el orden estricto';
+          } else if (codigo == 'POSICION') {
+            errorText = 'No se pudo obtener la posición GPS exacta del teléfono';
+          } else if (codigo == 'CUSTODIA') {
+            errorText = 'Este rondín no está asignado a tu usuario o ya concluyó';
+          }
+        } else if (firstAviso != null) {
+          errorText = firstAviso.toString();
+        }
+        state = state.copyWith(errorMessage: errorText);
         return false;
       }
     } catch (e) {

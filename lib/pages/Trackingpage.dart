@@ -28,7 +28,11 @@ class TrackingPage extends ConsumerStatefulWidget {
 class _TrackingPageState extends ConsumerState<TrackingPage>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   GoogleMapController? _mapController;
+  late final TrackingNotifier _trackingNotifier;
   final Map<String, BitmapDescriptor> _truckIconCache = {};
+  final List<BitmapDescriptor> _activeGlowIcons = [];
+  final Set<String> _activeVehicleIds = {};
+  int _currentGlowFrame = 0;
   final Map<String, LatLng> _vehiclePositions = {};
   final Map<String, double> _vehicleDirections = {};
   final Map<String, Marker> _markerMap = {};
@@ -41,13 +45,17 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _trackingNotifier = ref.read(trackingProvider.notifier);
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(seconds: 2),
+      duration: const Duration(milliseconds: 1600),
     )..repeat(reverse: true);
+    _pulseController.addListener(_onGlowPulseTick);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(trackingProvider.notifier).loadDevices(widget.userId);
+      if (!mounted) return;
+      _initGlowIcons();
+      _trackingNotifier.loadDevices(widget.userId);
       if (MarkApiClient.instance.currentSession == null) {
         MarkApiClient.instance.pingYo().then((_) {
           if (mounted) setState(() {});
@@ -59,27 +67,101 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
   @override
   void didChangeAppLifecycleState(AppLifecycleState appState) {
     super.didChangeAppLifecycleState(appState);
-    final notifier = ref.read(trackingProvider.notifier);
+    if (!mounted) return;
     if (appState == AppLifecycleState.resumed) {
-      notifier.resumePolling(widget.userId);
+      _trackingNotifier.resumePolling(widget.userId);
+      if (!_pulseController.isAnimating) {
+        _pulseController.repeat(reverse: true);
+      }
     } else if (appState == AppLifecycleState.paused ||
         appState == AppLifecycleState.inactive ||
         appState == AppLifecycleState.hidden) {
-      notifier.pausePolling();
+      _trackingNotifier.pausePolling();
+      _pulseController.stop();
     }
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    ref.read(trackingProvider.notifier).stopPolling();
+    _pulseController.removeListener(_onGlowPulseTick);
+    _pulseController.dispose();
+    _trackingNotifier.stopPolling();
     for (final controller in _movementAnimators.values) {
       controller.dispose();
     }
     _movementAnimators.clear();
-    _pulseController.dispose();
     _mapController?.dispose();
     super.dispose();
+  }
+
+  Future<void> _initGlowIcons() async {
+    if (_activeGlowIcons.isNotEmpty) return;
+    try {
+      final List<BitmapDescriptor> icons = [];
+      for (int i = 0; i < 4; i++) {
+        final ByteData data =
+            await rootBundle.load('assets/truck_top_active_glow_$i.png');
+        final ui.Codec codec = await ui.instantiateImageCodec(
+          data.buffer.asUint8List(),
+          targetWidth: 96,
+        );
+        final ui.FrameInfo fi = await codec.getNextFrame();
+        final ByteData? byteData =
+            await fi.image.toByteData(format: ui.ImageByteFormat.png);
+        if (byteData != null) {
+          icons.add(BitmapDescriptor.fromBytes(byteData.buffer.asUint8List()));
+        }
+      }
+      if (icons.isNotEmpty && mounted) {
+        _activeGlowIcons.clear();
+        _activeGlowIcons.addAll(icons);
+        _truckIconCache['top_active'] = icons[0];
+        _updateActiveVehiclesGlow();
+      }
+    } catch (e) {
+      debugPrint('Error cargando iconos con aura glow: $e');
+    }
+  }
+
+  void _onGlowPulseTick() {
+    if (!mounted || _activeGlowIcons.length < 2) return;
+
+    final int newFrame =
+        (_pulseController.value * (_activeGlowIcons.length - 1))
+            .round()
+            .clamp(0, _activeGlowIcons.length - 1);
+
+    if (newFrame != _currentGlowFrame) {
+      _currentGlowFrame = newFrame;
+      _updateActiveVehiclesGlow();
+    }
+  }
+
+  void _updateActiveVehiclesGlow() {
+    if (!mounted ||
+        _markerMap.isEmpty ||
+        _activeGlowIcons.isEmpty ||
+        _activeVehicleIds.isEmpty) {
+      return;
+    }
+
+    bool hasChanged = false;
+    final activeIcon = _activeGlowIcons[_currentGlowFrame];
+
+    for (final id in _activeVehicleIds) {
+      final marker = _markerMap[id];
+      if (marker != null && marker.icon != activeIcon) {
+        _markerMap[id] = marker.copyWith(iconParam: activeIcon);
+        hasChanged = true;
+      }
+    }
+
+    if (hasChanged && mounted) {
+      setState(() {
+        _markers = _markerMap.values.toSet();
+      });
+    }
   }
 
   double _parseCoordinate(dynamic val, [double fallback = 0.0]) {
@@ -97,6 +179,10 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
   Future<BitmapDescriptor> _getTruckMarkerIcon({
     required bool isActive,
   }) async {
+    if (isActive && _activeGlowIcons.isNotEmpty) {
+      return _activeGlowIcons[_currentGlowFrame % _activeGlowIcons.length];
+    }
+
     final String cacheKey = isActive ? "top_active" : "top_off";
     if (_truckIconCache.containsKey(cacheKey)) {
       return _truckIconCache[cacheKey]!;
@@ -138,6 +224,7 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
   }
 
   Future<void> _buildMarkers(List<Map<String, dynamic>> devices) async {
+    _activeVehicleIds.clear();
     for (final device in devices) {
       final lat = _parseCoordinate(device['lat']);
       final lng = _parseCoordinate(device['lng']);
@@ -145,8 +232,11 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
       if (lat == 0.0 && lng == 0.0) continue;
 
       final id = device['id'].toString();
-      final markerId = MarkerId(id);
       final bool isGreen = (device['ignStatus'] ?? 0) == 1;
+      if (isGreen) {
+        _activeVehicleIds.add(id);
+      }
+      final markerId = MarkerId(id);
       final double direction =
           double.tryParse(device['dir']?.toString() ?? '0.0') ?? 0.0;
       final speed = device['speed']?.toString() ?? '0';
@@ -241,6 +331,11 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
     final id = device['id'].toString();
     final markerId = MarkerId(id);
     final bool isGreen = (device['ignStatus'] ?? 0) == 1;
+    if (isGreen) {
+      _activeVehicleIds.add(id);
+    } else {
+      _activeVehicleIds.remove(id);
+    }
     final double direction =
         double.tryParse(device['dir']?.toString() ?? '0.0') ?? 0.0;
     final speed = device['speed']?.toString() ?? '0';
@@ -353,9 +448,11 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
       _vehiclePositions[id] = currentPos;
       _vehicleDirections[id] = currentDir;
       if (_markerMap.containsKey(id)) {
+        final currentIcon = _markerMap[id]?.icon ?? baseMarker.icon;
         _markerMap[id] = baseMarker.copyWith(
           positionParam: currentPos,
           rotationParam: currentDir,
+          iconParam: currentIcon,
         );
         if (mounted) {
           setState(() {
@@ -370,9 +467,11 @@ class _TrackingPageState extends ConsumerState<TrackingPage>
         _vehiclePositions[id] = to;
         _vehicleDirections[id] = toDirection;
         if (_markerMap.containsKey(id)) {
+          final currentIcon = _markerMap[id]?.icon ?? baseMarker.icon;
           _markerMap[id] = baseMarker.copyWith(
             positionParam: to,
             rotationParam: toDirection,
+            iconParam: currentIcon,
           );
           if (mounted) {
             setState(() {

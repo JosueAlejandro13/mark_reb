@@ -6,22 +6,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 void main() {
   testWidgets('App renders main screen with larger screen size', (WidgetTester tester) async {
-    // Simula una pantalla más grande (ej. 1080x1920)
-    tester.binding.window.physicalSizeTestValue = const Size(1080, 1920);
-    tester.binding.window.devicePixelRatioTestValue = 1.0;
+    tester.view.physicalSize = const Size(1080, 1920);
+    tester.view.devicePixelRatio = 1.0;
 
     await tester.pumpWidget(const ProviderScope(child: MyApp()));
-
-    // Espera a que la pantalla se estabilice
+    // Adelantar el tiempo para agotar el Timer de 5s del SplashScreen
+    await tester.pump(const Duration(seconds: 6));
     await tester.pumpAndSettle();
 
-    // Verifica que el widget principal esté presente
     expect(find.byType(MaterialApp), findsOneWidget);
 
-    // Limpia los valores de prueba para que no afecten otros tests
     addTearDown(() {
-      tester.binding.window.clearPhysicalSizeTestValue();
-      tester.binding.window.clearDevicePixelRatioTestValue();
+      tester.view.resetPhysicalSize();
+      tester.view.resetDevicePixelRatio();
     });
   });
 }

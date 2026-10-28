@@ -4,10 +4,15 @@ class CustodiaClavesConfig {
 
   const CustodiaClavesConfig({this.tiene = false});
 
-  factory CustodiaClavesConfig.fromJson(Map<String, dynamic> json) {
-    return CustodiaClavesConfig(
-      tiene: json['tiene'] == true,
-    );
+  factory CustodiaClavesConfig.fromJson(dynamic json) {
+    if (json is bool) return CustodiaClavesConfig(tiene: json);
+    if (json is num) return CustodiaClavesConfig(tiene: json != 0);
+    if (json is Map<String, dynamic>) {
+      final t = json['tiene'];
+      final bool has = t == true || t == 1 || t == '1' || t.toString().toLowerCase() == 'true';
+      return CustodiaClavesConfig(tiene: has);
+    }
+    return const CustodiaClavesConfig();
   }
 
   Map<String, dynamic> toJson() => {'tiene': tiene};
@@ -510,9 +515,11 @@ class RondinPaso {
   });
 
   factory RondinPaso.fromJson(Map<String, dynamic> json) {
+    final rawMomento =
+        (json['momento'] ?? json['tipo'] ?? '').toString().toLowerCase();
     return RondinPaso(
-      momento: (json['momento'] ?? '').toString(),
-      fecha: (json['fecha'] ?? '').toString(),
+      momento: rawMomento,
+      fecha: (json['fecha'] ?? json['fecHor'] ?? '').toString(),
       lat: double.tryParse(json['lat']?.toString() ?? ''),
       lng: double.tryParse(json['lng']?.toString() ?? ''),
       conQr: json['conQr'] == true,
@@ -541,6 +548,7 @@ class RondinPunto {
   final bool conQr;
   final bool dentro;
   final List<RondinPaso> pasos;
+  final bool? cumplidoDirecto;
 
   const RondinPunto({
     required this.id,
@@ -555,31 +563,66 @@ class RondinPunto {
     this.conQr = true,
     this.dentro = false,
     this.pasos = const [],
+    this.cumplidoDirecto,
   });
 
-  bool get llego => pasos.any((p) => p.momento == 'llegue');
-  bool get salio => pasos.any((p) => p.momento == 'sali');
-  bool get completado => llego && salio;
+  bool get llego =>
+      cumplidoDirecto == true ||
+      pasos.any((p) =>
+          p.momento == 'llegue' ||
+          p.momento == 'llegada' ||
+          p.momento == 'llego');
+
+  bool get salio =>
+      cumplidoDirecto == true ||
+      pasos.any((p) =>
+          p.momento == 'sali' ||
+          p.momento == 'salida' ||
+          p.momento == 'salio');
+
+  bool get completado => cumplidoDirecto == true || (llego && salio);
 
   factory RondinPunto.fromJson(Map<String, dynamic> json) {
     final rawPasos = json['pasos'];
     final pasosList = rawPasos is List
-        ? rawPasos.whereType<Map<String, dynamic>>().map(RondinPaso.fromJson).toList()
+        ? rawPasos
+            .whereType<Map<String, dynamic>>()
+            .map(RondinPaso.fromJson)
+            .toList()
         : <RondinPaso>[];
+
+    final bool isCumplido = json['cumplido'] == true ||
+        json['completado'] == true ||
+        json['cunplido'] == true ||
+        json['hecho'] == true ||
+        json['finalizado'] == true ||
+        json['estado'] == 2 ||
+        json['estado'] == 3 ||
+        json['estado']?.toString().toLowerCase() == 'cumplido' ||
+        json['estado']?.toString().toLowerCase() == 'completado' ||
+        json['estatus']?.toString().toLowerCase() == 'cumplido' ||
+        json['estatus']?.toString().toLowerCase() == 'completado';
 
     return RondinPunto(
       id: int.tryParse(json['id']?.toString() ?? '0') ?? 0,
       nombre: (json['nombre'] ?? json['noncre'] ?? '').toString(),
       lat: double.tryParse(json['lat']?.toString() ?? '0') ?? 0.0,
       lng: double.tryParse(json['lng']?.toString() ?? '0') ?? 0.0,
-      radioM: int.tryParse(json['radioM']?.toString() ?? json['radiot']?.toString() ?? '50') ?? 50,
+      radioM: int.tryParse(
+              json['radioM']?.toString() ?? json['radiot']?.toString() ?? '50') ??
+          50,
       hora: (json['hora'] ?? '').toString(),
       horaTs: int.tryParse(json['horaTs']?.toString() ?? ''),
-      tolMin: int.tryParse(json['tolMin']?.toString() ?? json['toltin']?.toString() ?? '15') ?? 15,
-      permMin: int.tryParse(json['permMin']?.toString() ?? json['perntin']?.toString() ?? '5') ?? 5,
+      tolMin: int.tryParse(
+              json['tolMin']?.toString() ?? json['toltin']?.toString() ?? '15') ??
+          15,
+      permMin: int.tryParse(
+              json['permMin']?.toString() ?? json['perntin']?.toString() ?? '5') ??
+          5,
       conQr: json['conQr'] == true,
       dentro: json['dentro'] == true,
       pasos: pasosList,
+      cumplidoDirecto: isCumplido,
     );
   }
 }
@@ -671,9 +714,7 @@ class CustodiaDataResponse {
 
   factory CustodiaDataResponse.fromJson(Map<String, dynamic> json) {
     final rawClaves = json['claves'];
-    final clavesConfig = rawClaves is Map<String, dynamic>
-        ? CustodiaClavesConfig.fromJson(rawClaves)
-        : const CustodiaClavesConfig();
+    final clavesConfig = CustodiaClavesConfig.fromJson(rawClaves);
 
     final rawRapidas = json['respuestasRapidas'];
     final rapidasList = rawRapidas is List

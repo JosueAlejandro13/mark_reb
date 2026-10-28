@@ -146,50 +146,54 @@ class _MyAppState extends State<MyApp> {
   }
 
   void _initializeFirebaseMessaging() {
-    // Ronda 146: Escuchar renovación de token FCM
-    FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-      try {
-        final token = await const FlutterSecureStorage().read(key: 'auth_token_64');
-        if (token != null && token.isNotEmpty) {
-          await MarkApiClient.instance.updateFcm(newToken, tokenOverride: token);
+    try {
+      // Ronda 146: Escuchar renovación de token FCM
+      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+        try {
+          final token = await const FlutterSecureStorage().read(key: 'auth_token_64');
+          if (token != null && token.isNotEmpty) {
+            await MarkApiClient.instance.updateFcm(newToken, tokenOverride: token);
+          }
+        } catch (e) {
+          debugPrint("Error en onTokenRefresh: $e");
         }
-      } catch (e) {
-        debugPrint("Error en onTokenRefresh: $e");
-      }
-    });
+      });
 
-    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
-      debugPrint("Mensaje en primer plano: ${message.notification?.title}");
+      FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+        debugPrint("Mensaje en primer plano: ${message.notification?.title}");
 
-      if (message.notification?.title != null &&
-          message.notification?.body != null) {
-        String notificationId = message.data.containsKey('id')
-            ? message.data['id'].toString()
-            : const Uuid().v4();
+        if (message.notification?.title != null &&
+            message.notification?.body != null) {
+          String notificationId = message.data.containsKey('id')
+              ? message.data['id'].toString()
+              : const Uuid().v4();
 
-        NotificationItem notification = NotificationItem(
-          id: notificationId,
-          icon: Icons.notifications,
-          title: message.notification!.title!,
-          description: message.notification!.body!,
-          date: DateTime.now(),
-        );
+          NotificationItem notification = NotificationItem(
+            id: notificationId,
+            icon: Icons.notifications,
+            title: message.notification!.title!,
+            description: message.notification!.body!,
+            date: DateTime.now(),
+          );
 
-        NotificationsPage.addNotification(notification, _updateUI);
-      }
-    });
+          NotificationsPage.addNotification(notification, _updateUI);
+        }
+      });
 
-    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
-      debugPrint("Notificación abierta: ${message.notification?.title}");
-      // Ronda 146: Al tocar la notificación abre la bandeja de notificaciones
-      try {
-        final prefs = await SharedPreferences.getInstance();
-        final uid = prefs.getString('userId') ?? '';
-        Get.to(() => NotificationsPage(userId: uid, showBackButton: true));
-      } catch (e) {
-        debugPrint("Error navegando a notificaciones: $e");
-      }
-    });
+      FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) async {
+        debugPrint("Notificación abierta: ${message.notification?.title}");
+        // Ronda 146: Al tocar la notificación abre la bandeja de notificaciones
+        try {
+          final prefs = await SharedPreferences.getInstance();
+          final uid = prefs.getString('userId') ?? '';
+          Get.to(() => NotificationsPage(userId: uid, showBackButton: true));
+        } catch (e) {
+          debugPrint("Error navegando a notificaciones: $e");
+        }
+      });
+    } catch (e) {
+      debugPrint("FirebaseMessaging no inicializado o no soportado en esta plataforma/test: $e");
+    }
   }
 
   void _updateUI() {

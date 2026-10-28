@@ -1,3 +1,6 @@
+# Java heap dumps / profiler dumps
+*.hprof
+
 # Miscellaneous
 *.class
 *.log

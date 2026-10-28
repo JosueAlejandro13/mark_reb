@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -336,10 +337,16 @@ class _TwoFactorAuthPageState extends ConsumerState<TwoFactorAuthPage> {
         return;
       }
 
+      String? fcmToken;
+      try {
+        fcmToken = await FirebaseMessaging.instance.getToken();
+      } catch (_) {}
+
       final res = await MarkApiClient.instance.login2pasos(
         desafio: _currentDesafio,
         codigo: code,
         recordar: _rememberDevice,
+        fcm: fcmToken,
       );
 
       if (!mounted) return;
