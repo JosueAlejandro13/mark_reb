@@ -14,6 +14,8 @@ import 'package:mark_v3/widgets/app_skeleton.dart';
 import 'package:mark_v3/widgets/loading_action_button.dart';
 import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:font_awesome_flutter/font_awesome_flutter.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:uuid/uuid.dart';
 
@@ -25,6 +27,9 @@ class CustodiaPage extends ConsumerStatefulWidget {
 }
 
 class _CustodiaPageState extends ConsumerState<CustodiaPage> {
+  static const String _kNavDefaultAppKey = 'nav_default_app';
+  static const String _kNavLastSelectedKey = 'nav_last_selected';
+  static const String _kNavCountKey = 'nav_selection_count';
   final TextEditingController _mensajeController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
   bool _hasRedirectedToClaves = false;
@@ -1120,29 +1125,40 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
 
     // Si estamos visualizando Rondines, presentamos el mapa con cabecera y título flotante estilo Rutas
     if (isRondinActive && activeRondin != null) {
+      final double mapCardHeight =
+          (mediaQuery.size.height * 0.40).clamp(270.0, 350.0);
+      final double peekMapHeight = mapCardHeight - 44.0;
+
       return Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
         bottomNavigationBar: (data.hasActiveModule)
             ? _buildBottomFloatingBar(context, state, data)
             : null,
-        body: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        body: Stack(
           children: [
-            // 1. MAPA INTERACTIVO CON BARRA Y TÍTULO FLOTANTE (Estilo Rutas)
-            CustodiaRondinMapCard(
-              rondin: activeRondin,
-              isFloatingHeader: true,
-              tieneClaves: data.claves.tiene,
-              onBack: () => Navigator.maybePop(context),
-              onOpenClaves: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const CustodiaClavesPage(),
+            // 1. MAPA EN EL FONDO (Detrás del contenido deslizable)
+            Positioned(
+              top: 0,
+              left: 0,
+              right: 0,
+              height: mapCardHeight,
+              child: CustodiaRondinMapCard(
+                rondin: activeRondin,
+                isFloatingHeader: true,
+                showTopBar: false,
+                height: mapCardHeight,
+                tieneClaves: data.claves.tiene,
+                onBack: () => Navigator.maybePop(context),
+                onOpenClaves: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const CustodiaClavesPage(),
+                  ),
                 ),
               ),
             ),
 
-            // 2. CONTENIDO SCROLLABLE (Alertas de Check sin romperse + Tabs + Línea de Tiempo)
-            Expanded(
+            // 2. HOJA DE CONTENIDO DESLIZABLE (Sube cubriendo el mapa hasta ocupar toda la pantalla)
+            Positioned.fill(
               child: RefreshIndicator(
                 color: const Color(0xFF0284C7),
                 backgroundColor: Colors.white,
@@ -1152,48 +1168,117 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                   physics: const AlwaysScrollableScrollPhysics(
                     parent: BouncingScrollPhysics(),
                   ),
-                  padding: EdgeInsets.symmetric(
-                    horizontal: isSmallScreen ? 12.0 : 16.0,
-                    vertical: 8.0,
-                  ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      // A. ALERTA DE CHECK: Solicitudes del monitorista ("¿Cómo vas? Contesta con tu check-in")
-                      // Diseñada para nunca romperse ni desbordarse
-                      if (activeRondin.solicitudes.isNotEmpty)
-                        _buildAppleSolicitudesCard(
-                          idRondinDia: activeRondin.idRondinDia,
-                          solicitudes: activeRondin.solicitudes,
+                      // Espacio transparente sobre el mapa: permite ver e interactuar con el mapa
+                      IgnorePointer(
+                        child: SizedBox(height: peekMapHeight),
+                      ),
+
+                      // Hoja de contenido con fondo sólido: se expande sobre el mapa al scrollear
+                      Container(
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFF8FAFC),
+                          borderRadius:
+                              BorderRadius.vertical(top: Radius.circular(24)),
+                          boxShadow: [
+                            BoxShadow(
+                              color: Color(0x180F172A),
+                              blurRadius: 16,
+                              offset: Offset(0, -4),
+                            ),
+                          ],
                         ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            // Manija de arrastre estilo Apple Sheet
+                            Center(
+                              child: Container(
+                                width: 42,
+                                height: 5,
+                                margin:
+                                    const EdgeInsets.only(top: 10, bottom: 8),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFCBD5E1),
+                                  borderRadius: BorderRadius.circular(3),
+                                ),
+                              ),
+                            ),
 
-                      // B. ALERTA DE CHECK VENCIDO / URGENTE
-                      if (state.isVencido)
-                        _buildCheckinVencidoAlert(
-                          context,
-                          idRondinDia: activeRondin.idRondinDia,
+                            Padding(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isSmallScreen ? 12.0 : 16.0,
+                                vertical: 4.0,
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                  // A. ALERTA DE CHECK: Solicitudes del monitorista
+                                  if (activeRondin.solicitudes.isNotEmpty)
+                                    _buildAppleSolicitudesCard(
+                                      idRondinDia: activeRondin.idRondinDia,
+                                      solicitudes: activeRondin.solicitudes,
+                                    ),
+
+                                  // B. ALERTA DE CHECK VENCIDO / URGENTE
+                                  if (state.isVencido)
+                                    _buildCheckinVencidoAlert(
+                                      context,
+                                      idRondinDia: activeRondin.idRondinDia,
+                                    ),
+
+                                  // C. Píldoras de pestañas si hay tanto servicios como rondines
+                                  if (data.servicios.isNotEmpty &&
+                                      data.rondines.isNotEmpty)
+                                    _buildAppleSegmentedTabs(state, data),
+
+                                  // D. Claves de seguridad si faltan
+                                  if (!data.claves.tiene)
+                                    _buildAppleClavesCard(),
+
+                                  // E. Línea de tiempo de puntos de control (con botón IR de navegación)
+                                  _buildRondinTimelineSection(activeRondin),
+
+                                  const SizedBox(height: 100),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-
-                      // C. Píldoras de pestañas si hay tanto servicios como rondines
-                      if (data.servicios.isNotEmpty && data.rondines.isNotEmpty)
-                        _buildAppleSegmentedTabs(state, data),
-
-                      // D. Claves de seguridad si faltan
-                      if (!data.claves.tiene)
-                        _buildAppleClavesCard(),
-
-                      // E. Línea de tiempo de puntos de control (estilo Rutas)
-                      _buildRondinTimelineSection(activeRondin),
-
-                      const SizedBox(height: 80),
+                      ),
                     ],
                   ),
                 ),
               ),
             ),
 
-            // Barra de estado de sincronización inferior estilo Apple
-            const CustodiaSyncStatusBar(),
+            // 3. BARRA SUPERIOR FLOTANTE ESTILO APPLE (Siempre accesible en la cabecera)
+            Positioned(
+              top: mediaQuery.padding.top + 8,
+              left: isSmallScreen ? 10 : 14,
+              right: isSmallScreen ? 10 : 14,
+              child: CustodiaRondinFloatingTopBar(
+                rondin: activeRondin,
+                tieneClaves: data.claves.tiene,
+                isSmallScreen: isSmallScreen,
+                onBack: () => Navigator.maybePop(context),
+                onOpenClaves: () => Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const CustodiaClavesPage(),
+                  ),
+                ),
+              ),
+            ),
+
+            // 4. BARRA DE ESTADO DE COLA Y SINCRONIZACIÓN
+            const Positioned(
+              bottom: 0,
+              left: 0,
+              right: 0,
+              child: CustodiaSyncStatusBar(),
+            ),
           ],
         ),
       );
@@ -3502,7 +3587,7 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                     ),
                   ),
                 )
-              else if (!punto.llego)
+              else if (!punto.llego) ...[
                 Expanded(
                   child: LoadingActionButton(
                     text: 'Marcar Llegada',
@@ -3517,8 +3602,13 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                     fontSize: 12.5,
                     loadingSize: 20,
                   ),
-                )
-              else if (punto.llego && !punto.salio)
+                ),
+                if (punto.lat != 0.0 && punto.lng != 0.0) ...[
+                  const SizedBox(width: 8),
+                  _buildBotonIr(punto),
+                ],
+              ]
+              else if (punto.llego && !punto.salio) ...[
                 Expanded(
                   child: LoadingActionButton(
                     text: 'Marcar Salida',
@@ -3540,6 +3630,11 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                     ),
                   ),
                 ),
+                if (punto.lat != 0.0 && punto.lng != 0.0) ...[
+                  const SizedBox(width: 8),
+                  _buildBotonIr(punto),
+                ],
+              ],
             ],
           ),
         ],
@@ -4032,6 +4127,534 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
       ),
     );
   }
+
+  Widget _buildBotonIr(RondinPunto punto) {
+    return Tooltip(
+      message: 'Ir con Google Maps o Waze (Mantén presionado para cambiar app)',
+      child: Material(
+        color: const Color(0xFF0284C7),
+        borderRadius: BorderRadius.circular(12),
+        elevation: 0,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _abrirNavegacionPunto(punto),
+          onLongPress: () => _abrirNavegacionPunto(punto, forceChooser: true),
+          child: Container(
+            width: 46,
+            height: 40,
+            alignment: Alignment.center,
+            child: const Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.navigation_rounded, color: Colors.white, size: 16),
+                SizedBox(height: 1),
+                Text(
+                  'IR',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.5,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _abrirNavegacionPunto(
+    RondinPunto punto, {
+    bool forceChooser = false,
+  }) async {
+    final lat = punto.lat;
+    final lng = punto.lng;
+    if (lat == 0.0 && lng == 0.0) return;
+
+    if (!forceChooser) {
+      final prefs = await SharedPreferences.getInstance();
+      final defaultApp = prefs.getString(_kNavDefaultAppKey);
+      if (defaultApp != null && defaultApp.isNotEmpty) {
+        await _executeNavigationApp(
+          app: defaultApp,
+          lat: lat,
+          lng: lng,
+          label: punto.nombre,
+        );
+        return;
+      }
+    }
+
+    if (!mounted) return;
+    await _showNavigationChooser(
+      context: context,
+      lat: lat,
+      lng: lng,
+      label: punto.nombre,
+    );
+  }
+
+  Future<void> _onNavigationAppChosen({
+    required BuildContext context,
+    required String app,
+    required double lat,
+    required double lng,
+    required String label,
+    String address = '',
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+
+    if (app == 'system') {
+      await prefs.setString(_kNavDefaultAppKey, 'system');
+      if (context.mounted) {
+        SnackbarTop.showInfo(
+          context,
+          'Selector del dispositivo fijado como predeterminado.',
+          title: 'Navegación',
+        );
+      }
+    } else {
+      final lastSelected = prefs.getString(_kNavLastSelectedKey);
+      final count = prefs.getInt(_kNavCountKey) ?? 0;
+
+      if (lastSelected == app) {
+        final newCount = count + 1;
+        await prefs.setInt(_kNavCountKey, newCount);
+        if (newCount >= 2) {
+          await prefs.setString(_kNavDefaultAppKey, app);
+          final appName = app == 'waze' ? 'Waze' : 'Google Maps';
+          if (context.mounted) {
+            SnackbarTop.showSuccess(
+              context,
+              '¡$appName fijado como tu app predeterminada!',
+              title: 'Navegación predeterminada',
+            );
+          }
+        }
+      } else {
+        await prefs.setString(_kNavLastSelectedKey, app);
+        await prefs.setInt(_kNavCountKey, 1);
+      }
+    }
+
+    await _executeNavigationApp(
+      app: app,
+      lat: lat,
+      lng: lng,
+      label: label,
+      address: address,
+    );
+  }
+
+  Future<void> _executeNavigationApp({
+    required String app,
+    required double lat,
+    required double lng,
+    required String label,
+    String address = '',
+  }) async {
+    if (app == 'maps') {
+      Uri uri;
+      if (lat != 0 || lng != 0) {
+        uri = Uri.parse(
+          'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
+        );
+      } else {
+        uri = Uri.parse(
+          'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address.isNotEmpty ? address : label)}',
+        );
+      }
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else if (app == 'waze') {
+      Uri wazeUri;
+      if (lat != 0 || lng != 0) {
+        wazeUri = Uri.parse('waze://?ll=$lat,$lng&navigate=yes');
+      } else {
+        wazeUri = Uri.parse(
+          'waze://?q=${Uri.encodeComponent(address.isNotEmpty ? address : label)}&navigate=yes',
+        );
+      }
+      if (await canLaunchUrl(wazeUri)) {
+        await launchUrl(wazeUri, mode: LaunchMode.externalApplication);
+      } else {
+        final wazeWeb = lat != 0 || lng != 0
+            ? Uri.parse('https://waze.com/ul?ll=$lat,$lng&navigate=yes')
+            : Uri.parse(
+                'https://waze.com/ul?q=${Uri.encodeComponent(address.isNotEmpty ? address : label)}&navigate=yes');
+        await launchUrl(wazeWeb, mode: LaunchMode.externalApplication);
+      }
+    } else {
+      Uri geoUri;
+      if (lat != 0 || lng != 0) {
+        geoUri = Uri.parse(
+          'geo:$lat,$lng?q=$lat,$lng(${Uri.encodeComponent(label)})',
+        );
+      } else {
+        geoUri = Uri.parse(
+          'geo:0,0?q=${Uri.encodeComponent(address.isNotEmpty ? address : label)}',
+        );
+      }
+      if (await canLaunchUrl(geoUri)) {
+        await launchUrl(geoUri, mode: LaunchMode.externalApplication);
+      } else {
+        final fallback = lat != 0 || lng != 0
+            ? Uri.parse(
+                'https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving',
+              )
+            : Uri.parse(
+                'https://www.google.com/maps/search/?api=1&query=${Uri.encodeComponent(address.isNotEmpty ? address : label)}',
+              );
+        await launchUrl(fallback, mode: LaunchMode.externalApplication);
+      }
+    }
+  }
+
+  Future<void> _showNavigationChooser({
+    required BuildContext context,
+    required double lat,
+    required double lng,
+    required String label,
+    String address = '',
+  }) async {
+    final prefs = await SharedPreferences.getInstance();
+    final currentDefault = prefs.getString(_kNavDefaultAppKey);
+
+    if (!context.mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final mediaQuery = MediaQuery.of(ctx);
+        final isLandscape = mediaQuery.orientation == Orientation.landscape;
+        final screenHeight = mediaQuery.size.height;
+
+        return Align(
+          alignment: Alignment.bottomCenter,
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: 520,
+              maxHeight:
+                  isLandscape ? screenHeight * 0.90 : screenHeight * 0.85,
+            ),
+            child: Container(
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: SingleChildScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  padding: EdgeInsets.fromLTRB(
+                    18,
+                    isLandscape ? 10 : 16,
+                    18,
+                    isLandscape ? 16 : 24,
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Center(
+                        child: Container(
+                          width: 36,
+                          height: 4,
+                          margin:
+                              EdgeInsets.only(bottom: isLandscape ? 10 : 14),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFCBD5E1),
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                      Row(
+                        children: [
+                          const Icon(Icons.navigation_rounded,
+                              size: 20, color: Color(0xFF0284C7)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Navegar a $label',
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w800,
+                                color: Color(0xFF0F172A),
+                              ),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (address.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          address,
+                          style: const TextStyle(
+                              fontSize: 11.5, color: Color(0xFF64748B)),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ],
+
+                      // Indicador de app predeterminada actual si existe
+                      if (currentDefault != null &&
+                          currentDefault.isNotEmpty) ...[
+                        Container(
+                          margin: const EdgeInsets.only(top: 10, bottom: 4),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF0FDF4),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: const Color(0xFFBBF7D0)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.check_circle_rounded,
+                                  size: 15, color: Color(0xFF16A34A)),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'Predeterminada: ${currentDefault == "waze" ? "Waze" : "Google Maps"}',
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFF15803D),
+                                  ),
+                                ),
+                              ),
+                              TextButton(
+                                style: TextButton.styleFrom(
+                                  padding: EdgeInsets.zero,
+                                  minimumSize: Size.zero,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
+                                ),
+                                onPressed: () async {
+                                  await prefs.remove(_kNavDefaultAppKey);
+                                  await prefs.remove(_kNavLastSelectedKey);
+                                  await prefs.remove(_kNavCountKey);
+                                  if (context.mounted) {
+                                    Navigator.of(ctx).pop();
+                                    SnackbarTop.showInfo(
+                                      context,
+                                      'Se restableció la app de navegación.',
+                                      title: 'Navegación',
+                                    );
+                                  }
+                                },
+                                child: const Text(
+                                  'Restablecer',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                    color: Color(0xFFDC2626),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+
+                      const SizedBox(height: 12),
+                      const Text(
+                        'Selecciona tu aplicación de navegación:',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color: Color(0xFF475569),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Si eliges la misma app 2 veces seguidas, se fijará como tu favorita automática.',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: Color(0xFF94A3B8),
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          // Opción Google Maps
+                          Expanded(
+                            child: Material(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+                                  Navigator.of(ctx).pop();
+                                  _onNavigationAppChosen(
+                                    context: context,
+                                    app: 'maps',
+                                    lat: lat,
+                                    lng: lng,
+                                    label: label,
+                                    address: address,
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: currentDefault == 'maps'
+                                          ? const Color(0xFF0284C7)
+                                          : const Color(0xFFE2E8F0),
+                                      width: currentDefault == 'maps' ? 1.8 : 1,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 44,
+                                        height: 44,
+                                        decoration: BoxDecoration(
+                                          color: Colors.white,
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: Colors.black
+                                                  .withOpacity(0.08),
+                                              blurRadius: 6,
+                                              offset: const Offset(0, 2),
+                                            ),
+                                          ],
+                                          border: Border.all(
+                                              color: const Color(0xFFF1F5F9),
+                                              width: 1.5),
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: ShaderMask(
+                                          shaderCallback: (bounds) =>
+                                              const SweepGradient(
+                                            center: Alignment.center,
+                                            colors: [
+                                              Color(0xFF4285F4),
+                                              Color(0xFFEA4335),
+                                              Color(0xFFFBBC05),
+                                              Color(0xFF34A853),
+                                              Color(0xFF4285F4),
+                                            ],
+                                            stops: [0.0, 0.3, 0.6, 0.85, 1.0],
+                                          ).createShader(bounds),
+                                          child: const FaIcon(
+                                            FontAwesomeIcons.google,
+                                            size: 24,
+                                            color: Colors.white,
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                        'Google Maps',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+
+                          // Opción Waze
+                          Expanded(
+                            child: Material(
+                              color: const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(12),
+                                onTap: () {
+                                  Navigator.of(ctx).pop();
+                                  _onNavigationAppChosen(
+                                    context: context,
+                                    app: 'waze',
+                                    lat: lat,
+                                    lng: lng,
+                                    label: label,
+                                    address: address,
+                                  );
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    borderRadius: BorderRadius.circular(12),
+                                    border: Border.all(
+                                      color: currentDefault == 'waze'
+                                          ? const Color(0xFF0284C7)
+                                          : const Color(0xFFE2E8F0),
+                                      width: currentDefault == 'waze' ? 1.8 : 1,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        width: 44,
+                                        height: 44,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFF33CCFF),
+                                          shape: BoxShape.circle,
+                                          boxShadow: [
+                                            BoxShadow(
+                                              color: const Color(0xFF33CCFF)
+                                                  .withOpacity(0.4),
+                                              blurRadius: 6,
+                                              offset: const Offset(0, 2),
+                                            ),
+                                          ],
+                                        ),
+                                        alignment: Alignment.center,
+                                        child: const FaIcon(
+                                          FontAwesomeIcons.waze,
+                                          color: Colors.white,
+                                          size: 24,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 8),
+                                      const Text(
+                                        'Waze',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: Color(0xFF0F172A),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+
 }
 
 class _BitacoraItem {
@@ -4096,4 +4719,3 @@ class _BetweenRondinCardsConnectorPainter extends CustomPainter {
         oldDelegate.nodeColor != nodeColor;
   }
 }
-

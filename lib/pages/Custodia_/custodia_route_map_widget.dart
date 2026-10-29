@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
@@ -7,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:mark_v3/models/Custodia_/custodia_models.dart';
+import 'package:mark_v3/services/mark_api_client.dart';
 import 'package:mark_v3/pages/Custodia_/custodia_claves_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -506,7 +508,7 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
                     markers: _markers,
                     polylines: _polylines,
                     circles: _circles,
-                    myLocationEnabled: true,
+                    myLocationEnabled: false,
                     myLocationButtonEnabled: false,
                     zoomControlsEnabled: false,
                     compassEnabled: false,
@@ -905,6 +907,8 @@ class CustodiaRondinMapCard extends StatefulWidget {
   final VoidCallback? onBack;
   final VoidCallback? onOpenClaves;
   final bool tieneClaves;
+  final bool showTopBar;
+  final double? height;
 
   const CustodiaRondinMapCard({
     super.key,
@@ -913,6 +917,8 @@ class CustodiaRondinMapCard extends StatefulWidget {
     this.onBack,
     this.onOpenClaves,
     this.tieneClaves = true,
+    this.showTopBar = true,
+    this.height,
   });
 
   @override
@@ -931,9 +937,18 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
   bool _mapExpanded = false;
   bool _showInfoChip = true;
 
+  // Icono del vehículo en modo Off y telemetría de rondín
+  BitmapDescriptor? _truckOffIcon;
+  LatLng? _vehicleLocation;
+  double _vehicleDirection = 0.0;
+  Timer? _vehicleTelemetryTimer;
+
   @override
   void initState() {
     super.initState();
+    _loadTruckOffIcon();
+    _fetchVehiclePosition();
+    _startVehicleTelemetryTimer();
     _buildRondinMap();
     _preloadMarkers();
   }
@@ -941,8 +956,103 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
   @override
   void didUpdateWidget(covariant CustodiaRondinMapCard oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.rondin.unidad != widget.rondin.unidad) {
+      _fetchVehiclePosition();
+    }
     _buildRondinMap();
     _preloadMarkers();
+  }
+
+  @override
+  void dispose() {
+    _vehicleTelemetryTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Carga el icono top-down del vehículo en color off (apagado / patrullaje rondín)
+  Future<void> _loadTruckOffIcon() async {
+    try {
+      final ByteData data = await rootBundle.load('assets/truck_top_off.png');
+      final ui.Codec codec = await ui.instantiateImageCodec(
+        data.buffer.asUint8List(),
+        targetWidth: 80,
+      );
+      final ui.FrameInfo fi = await codec.getNextFrame();
+      final ByteData? byteData =
+          await fi.image.toByteData(format: ui.ImageByteFormat.png);
+      if (byteData != null && mounted) {
+        setState(() {
+          _truckOffIcon =
+              BitmapDescriptor.fromBytes(byteData.buffer.asUint8List());
+        });
+        _buildRondinMap();
+      }
+    } catch (e) {
+      debugPrint('[CustodiaRondinMapCard] Error cargando assets/truck_top_off.png: $e');
+    }
+  }
+
+  void _startVehicleTelemetryTimer() {
+    _vehicleTelemetryTimer?.cancel();
+    _vehicleTelemetryTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+      if (mounted) _fetchVehiclePosition();
+    });
+  }
+
+  Future<void> _fetchVehiclePosition() async {
+    try {
+      final vehiculos = await MarkApiClient.instance.getVehiculos(silent: true);
+      if (vehiculos.isEmpty) return;
+
+      final unidadStr = widget.rondin.unidad.trim().toLowerCase();
+      Map<String, dynamic>? match;
+
+      if (unidadStr.isNotEmpty) {
+        for (final v in vehiculos) {
+          final eco = (v['economico'] ?? v['device_name'] ?? v['nombre'] ?? '')
+              .toString()
+              .toLowerCase();
+          final placas = (v['placas'] ?? '').toString().toLowerCase();
+          final idStr = (v['idVehic'] ?? v['id'] ?? '').toString().toLowerCase();
+
+          if ((eco.isNotEmpty && unidadStr.contains(eco)) ||
+              (placas.isNotEmpty && unidadStr.contains(placas)) ||
+              (idStr.isNotEmpty && unidadStr.contains(idStr))) {
+            match = v;
+            break;
+          }
+        }
+      }
+
+      // Si no hay match explícito y solo hay un vehículo en la cuenta, asociarlo
+      match ??= vehiculos.first;
+
+      final lat = double.tryParse(match['lat']?.toString() ?? '0') ?? 0.0;
+      final lng = double.tryParse(match['lng']?.toString() ?? '0') ?? 0.0;
+      final dir = double.tryParse(
+              match['dir']?.toString() ?? match['course']?.toString() ?? '0') ??
+          0.0;
+
+      if (lat != 0.0 && lng != 0.0 && mounted) {
+        final newPos = LatLng(lat, lng);
+        if (_vehicleLocation != newPos || _vehicleDirection != dir) {
+          setState(() {
+            _vehicleLocation = newPos;
+            _vehicleDirection = dir;
+          });
+          _buildRondinMap();
+        }
+      } else if (_vehicleLocation == null && _pointCoords.isNotEmpty && mounted) {
+        // Fallback inicial si no ha reportado GPS
+        setState(() {
+          _vehicleLocation = _pointCoords.first;
+          _vehicleDirection = 0.0;
+        });
+        _buildRondinMap();
+      }
+    } catch (e) {
+      debugPrint('[CustodiaRondinMapCard] Error obteniendo posición del vehículo: $e');
+    }
   }
 
   /// Genera marcador estilo Apple Maps con pin numerado o con icono check
@@ -1132,6 +1242,28 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
         ),
       );
 
+      // Marcador del Vehículo de Rondín (Top-down 360°, Gris/Off)
+    if (_vehicleLocation != null) {
+      markers.add(
+        Marker(
+          markerId: MarkerId('rondin_vehiculo_${widget.rondin.idRondinDia}'),
+          position: _vehicleLocation!,
+          icon: _truckOffIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure),
+          anchor: const Offset(0.5, 0.5),
+          flat: true,
+          rotation: _vehicleDirection,
+          zIndex: 30,
+          infoWindow: InfoWindow(
+            title: widget.rondin.unidad.isNotEmpty
+                ? widget.rondin.unidad
+                : 'Vehículo del rondín',
+            snippet: 'Patrullaje en curso',
+          ),
+        ),
+      );
+    }
+
       // Geocerca del punto: Polígono si viene polyline5 o Círculo por radioM
       if (p.poligono != null && p.poligono!.isNotEmpty) {
         final polyPoints = Polyline5Decoder.decode(p.poligono!);
@@ -1267,14 +1399,19 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
   }
 
   void _fitRondinBounds() {
-    if (_mapController == null || _pointCoords.isEmpty) return;
+    if (_mapController == null) return;
+    final allPoints = <LatLng>[..._pointCoords];
+    if (_vehicleLocation != null) {
+      allPoints.add(_vehicleLocation!);
+    }
+    if (allPoints.isEmpty) return;
 
-    double minLat = _pointCoords.first.latitude;
-    double maxLat = _pointCoords.first.latitude;
-    double minLng = _pointCoords.first.longitude;
-    double maxLng = _pointCoords.first.longitude;
+    double minLat = allPoints.first.latitude;
+    double maxLat = allPoints.first.latitude;
+    double minLng = allPoints.first.longitude;
+    double maxLng = allPoints.first.longitude;
 
-    for (final p in _pointCoords) {
+    for (final p in allPoints) {
       minLat = math.min(minLat, p.latitude);
       maxLat = math.max(maxLat, p.latitude);
       minLng = math.min(minLng, p.longitude);
@@ -1434,9 +1571,10 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
         ? CameraPosition(target: _pointCoords.first, zoom: 14.5)
         : const CameraPosition(target: LatLng(19.4326, -99.1332), zoom: 12.0);
 
-    final double mapHeight = _mapExpanded
+    final double mapHeight = widget.height ??
+        (_mapExpanded
         ? mediaQuery.size.height * 0.72
-        : (mediaQuery.size.height * 0.38).clamp(260.0, 340.0);
+        : (mediaQuery.size.height * 0.38).clamp(260.0, 340.0));
 
     return AnimatedContainer(
       duration: const Duration(milliseconds: 250),
@@ -1452,7 +1590,7 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
               polylines: _polylines,
               circles: _circles,
               polygons: _polygons,
-              myLocationEnabled: true,
+              myLocationEnabled: false,
               myLocationButtonEnabled: false,
               zoomControlsEnabled: false,
               compassEnabled: false,
@@ -1479,6 +1617,7 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
           ),
 
           // Barra Superior Flotante estilo Apple / Rutas
+          if (widget.showTopBar)
           Positioned(
             top: mediaQuery.padding.top + 8,
             left: isSmallScreen ? 10 : 14,
@@ -1785,6 +1924,240 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
           ),
         ),
       ),
+    );
+  }
+}
+/// Barra de título y estado flotante de Rondín para modo desacoplado / Sheet (Estilo Apple / Rutas)
+class CustodiaRondinFloatingTopBar extends StatelessWidget {
+  final RondinDia rondin;
+  final VoidCallback? onBack;
+  final VoidCallback? onOpenClaves;
+  final bool tieneClaves;
+  final bool isSmallScreen;
+
+  const CustodiaRondinFloatingTopBar({
+    super.key,
+    required this.rondin,
+    this.onBack,
+    this.onOpenClaves,
+    this.tieneClaves = true,
+    this.isSmallScreen = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isCompleted = rondin.cumplidos >= rondin.total && rondin.total > 0;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.96),
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(color: const Color(0xFFE2E8F0)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.06),
+                blurRadius: 12,
+                offset: const Offset(0, 3),
+              ),
+            ],
+          ),
+          child: Row(
+            children: [
+              // Botón Atrás
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(11),
+                  onTap: onBack ?? () => Navigator.maybePop(context),
+                  child: Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(11),
+                      border: Border.all(color: const Color(0xFFE2E8F0)),
+                    ),
+                    child: const Icon(
+                      Icons.arrow_back_ios_new_rounded,
+                      size: 15,
+                      color: Color(0xFF0F172A),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+
+              // Título y Subtítulo
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      rondin.nombre.isNotEmpty
+                          ? rondin.nombre
+                          : 'Rondín de Custodia',
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                        letterSpacing: -0.3,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Container(
+                          width: 7,
+                          height: 7,
+                          decoration: BoxDecoration(
+                            color: isCompleted
+                                ? const Color(0xFF16A34A)
+                                : const Color(0xFF0284C7),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                        Expanded(
+                          child: Text(
+                            '${rondin.turno.isNotEmpty ? "Turno: ${rondin.turno} · " : ""}${rondin.cumplidos}/${rondin.total} cumplidos',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF64748B),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+
+              // Botón de Contraseña / Claves de Seguridad
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(11),
+                  onTap: onOpenClaves ??
+                      () => Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const CustodiaClavesPage(),
+                            ),
+                          ),
+                  child: Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(11),
+                          border: Border.all(
+                            color: tieneClaves
+                                ? const Color(0xFFE2E8F0)
+                                : const Color(0xFFFDE68A),
+                          ),
+                        ),
+                        child: Center(
+                          child: Icon(
+                            tieneClaves
+                                ? Icons.shield_outlined
+                                : Icons.shield_rounded,
+                            size: 19,
+                            color: tieneClaves
+                                ? const Color(0xFF0284C7)
+                                : const Color(0xFFD97706),
+                          ),
+                        ),
+                      ),
+                      if (!tieneClaves)
+                        Positioned(
+                          top: -2,
+                          right: -2,
+                          child: Container(
+                            width: 9,
+                            height: 9,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFEF4444),
+                              shape: BoxShape.circle,
+                              border: Border.all(color: Colors.white, width: 1.5),
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (rondin.unidad.isNotEmpty) ...[
+          const SizedBox(height: 6),
+          Material(
+            color: Colors.transparent,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: const Color(0xFF0F172A).withOpacity(0.85),
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.08),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.local_shipping_rounded,
+                      size: 13, color: Color(0xFF38BDF8)),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Unidad: ${rondin.unidad}',
+                    style: const TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    width: 3,
+                    height: 3,
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF94A3B8),
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${rondin.puntos.length} puntos en ruta',
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFFCBD5E1),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 }
