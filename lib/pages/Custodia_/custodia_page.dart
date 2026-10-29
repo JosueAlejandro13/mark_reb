@@ -198,83 +198,86 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                   ),
                 ],
               ),
-              content: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 6),
-                    const Text(
-                      'Ingresa tu clave de seguridad para reportar estatus normal al centro de monitoreo.',
-                      style: TextStyle(
-                        fontSize: 12.5,
-                        color: Color(0xFF475569),
-                        height: 1.35,
+              content: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const SizedBox(height: 6),
+                      const Text(
+                        'Ingresa tu clave de seguridad para reportar estatus normal al centro de monitoreo.',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          color: Color(0xFF475569),
+                          height: 1.35,
+                        ),
                       ),
-                    ),
-                    const SizedBox(height: 16),
-                    TextFormField(
-                      controller: pinController,
-                      autofocus: true,
-                      obscureText: obscure,
-                      keyboardType: TextInputType.number,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(
-                        fontSize: 22,
-                        letterSpacing: 8,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
-                      ),
-                      inputFormatters: [
-                        FilteringTextInputFormatter.digitsOnly,
-                        LengthLimitingTextInputFormatter(8),
-                      ],
-                      decoration: InputDecoration(
-                        hintText: '••••',
-                        hintStyle: const TextStyle(
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: pinController,
+                        autofocus: true,
+                        obscureText: obscure,
+                        keyboardType: TextInputType.number,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
                           fontSize: 22,
                           letterSpacing: 8,
-                          color: Color(0xFFCBD5E1),
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
                         ),
-                        filled: true,
-                        fillColor: const Color(0xFFF8FAFC),
-                        suffixIcon: IconButton(
-                          icon: Icon(
-                            obscure
-                                ? Icons.visibility_off_outlined
-                                : Icons.visibility_outlined,
-                            size: 19,
-                            color: const Color(0xFF94A3B8),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(8),
+                        ],
+                        decoration: InputDecoration(
+                          hintText: '••••',
+                          hintStyle: const TextStyle(
+                            fontSize: 22,
+                            letterSpacing: 8,
+                            color: Color(0xFFCBD5E1),
                           ),
-                          onPressed: () =>
-                              setModalState(() => obscure = !obscure),
+                          filled: true,
+                          fillColor: const Color(0xFFF8FAFC),
+                          suffixIcon: IconButton(
+                            icon: Icon(
+                              obscure
+                                  ? Icons.visibility_off_outlined
+                                  : Icons.visibility_outlined,
+                              size: 19,
+                              color: const Color(0xFF94A3B8),
+                            ),
+                            onPressed: () =>
+                                setModalState(() => obscure = !obscure),
+                          ),
+                          contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 13),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide:
+                                const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide:
+                                const BorderSide(color: Color(0xFFE2E8F0)),
+                          ),
+                          focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(14),
+                            borderSide: const BorderSide(
+                                color: Color(0xFF0284C7), width: 1.5),
+                          ),
                         ),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 13),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFE2E8F0)),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFE2E8F0)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                          borderSide: const BorderSide(
-                              color: Color(0xFF0284C7), width: 1.5),
-                        ),
+                        validator: (v) {
+                          if (v == null || v.trim().length < 4) {
+                            return 'Ingresa al menos 4 dígitos';
+                          }
+                          return null;
+                        },
                       ),
-                      validator: (v) {
-                        if (v == null || v.trim().length < 4) {
-                          return 'Ingresa al menos 4 dígitos';
-                        }
-                        return null;
-                      },
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
               actions: [
@@ -1108,6 +1111,87 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
     final data = state.data;
     final mediaQuery = MediaQuery.of(context);
     final isSmallScreen = mediaQuery.size.width < 360;
+
+    final isRondinActive = data != null &&
+        data.rondines.isNotEmpty &&
+        (state.selectedTab == 1 || data.servicios.isEmpty);
+    final activeRondin = state.activeRondin ??
+        (data?.rondines.isNotEmpty == true ? data!.rondines.first : null);
+
+    // Si estamos visualizando Rondines, presentamos el mapa con cabecera y título flotante estilo Rutas
+    if (isRondinActive && activeRondin != null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        bottomNavigationBar: (data.hasActiveModule)
+            ? _buildBottomFloatingBar(context, state, data)
+            : null,
+        body: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // 1. MAPA INTERACTIVO CON BARRA Y TÍTULO FLOTANTE (Estilo Rutas)
+            CustodiaRondinMapCard(
+              rondin: activeRondin,
+              isFloatingHeader: true,
+              onBack: () => Navigator.maybePop(context),
+            ),
+
+            // 2. CONTENIDO SCROLLABLE (Alertas de Check sin romperse + Tabs + Línea de Tiempo)
+            Expanded(
+              child: RefreshIndicator(
+                color: const Color(0xFF0284C7),
+                backgroundColor: Colors.white,
+                onRefresh: () =>
+                    ref.read(custodiaProvider.notifier).cargarCustodia(),
+                child: SingleChildScrollView(
+                  physics: const AlwaysScrollableScrollPhysics(
+                    parent: BouncingScrollPhysics(),
+                  ),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isSmallScreen ? 12.0 : 16.0,
+                    vertical: 8.0,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // A. ALERTA DE CHECK: Solicitudes del monitorista ("¿Cómo vas? Contesta con tu check-in")
+                      // Diseñada para nunca romperse ni desbordarse
+                      if (activeRondin.solicitudes.isNotEmpty)
+                        _buildAppleSolicitudesCard(
+                          idRondinDia: activeRondin.idRondinDia,
+                          solicitudes: activeRondin.solicitudes,
+                        ),
+
+                      // B. ALERTA DE CHECK VENCIDO / URGENTE
+                      if (state.isVencido)
+                        _buildCheckinVencidoAlert(
+                          context,
+                          idRondinDia: activeRondin.idRondinDia,
+                        ),
+
+                      // C. Píldoras de pestañas si hay tanto servicios como rondines
+                      if (data.servicios.isNotEmpty && data.rondines.isNotEmpty)
+                        _buildAppleSegmentedTabs(state, data),
+
+                      // D. Claves de seguridad si faltan
+                      if (!data.claves.tiene)
+                        _buildAppleClavesCard(),
+
+                      // E. Línea de tiempo de puntos de control (estilo Rutas)
+                      _buildRondinTimelineSection(activeRondin),
+
+                      const SizedBox(height: 80),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+
+            // Barra de estado de sincronización inferior estilo Apple
+            const CustodiaSyncStatusBar(),
+          ],
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -2412,7 +2496,9 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                       const Icon(Icons.check_circle_outline_rounded, size: 17),
                   label: const Text(
                     'Contestar con Check-in («Todo bien»)',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                    style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFD97706),
@@ -2428,6 +2514,109 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
           ),
         );
       }).toList(),
+    );
+  }
+
+  /// Alerta destacada estilo Apple cuando el Check-in ha vencido (Protegida contra desbordamientos)
+  Widget _buildCheckinVencidoAlert(
+    BuildContext context, {
+    int? idServicio,
+    int? idRondinDia,
+  }) {
+    final isSmallScreen = MediaQuery.of(context).size.width < 360;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFEF2F2),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFFECACA), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFFDC2626).withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEE2E2),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Center(
+                  child: Icon(
+                    Icons.warning_amber_rounded,
+                    color: Color(0xFFDC2626),
+                    size: 22,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '¡CHECK-IN VENCIDO!',
+                      style: TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF991B1B),
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                    Text(
+                      'Debes reportar tu clave de rutina de inmediato.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: Color(0xFFB91C1C),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            height: 38,
+            child: ElevatedButton.icon(
+              onPressed: () => _showCheckinModal(
+                context,
+                idServicio: idServicio,
+                idRondinDia: idRondinDia,
+              ),
+              icon: const Icon(Icons.check_circle_rounded, size: 16),
+              label: Text(
+                'Reportar Check-in ahora',
+                style: TextStyle(
+                  fontSize: isSmallScreen ? 11.5 : 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -2973,7 +3162,6 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
 
   // --- CONTENIDO DE RONDINES ---
   Widget _buildRondinContent(RondinDia rondin) {
-    final state = ref.watch(custodiaProvider);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2984,252 +3172,93 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
             solicitudes: rondin.solicitudes,
           ),
 
-        // Resumen Rondín estilo Apple Card
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0F172A).withOpacity(0.02),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+        _buildRondinTimelineSection(rondin),
+      ],
+    );
+  }
+
+  /// Sección de Línea de Tiempo de Rondín con conectores continuos estilo Rutas
+  Widget _buildRondinTimelineSection(RondinDia rondin) {
+    final state = ref.watch(custodiaProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Cabecera de Puntos de Control
+        Padding(
+          padding: const EdgeInsets.only(left: 4, bottom: 10, top: 4),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEF3C7),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      'TURNO: ${rondin.turno}',
-                      style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF92400E),
-                      ),
-                    ),
-                  ),
-                  Text(
-                    '${rondin.cumplidos}/${rondin.total} cumplidos',
-                    style: const TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
-                      color: Color(0xFF0284C7),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              Text(
-                rondin.nombre,
-                style: const TextStyle(
-                  fontSize: 17,
+              const Text(
+                'LÍNEA DE TIEMPO DEL RONDÍN',
+                style: TextStyle(
+                  fontSize: 11.5,
                   fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                  letterSpacing: -0.4,
+                  color: Color(0xFF64748B),
+                  letterSpacing: 0.6,
                 ),
               ),
-              const SizedBox(height: 2),
-              Text(
-                'Unidad asignada: ${rondin.unidad}',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(6),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: Text(
+                  '${rondin.puntos.length} puntos totales',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF475569),
+                  ),
+                ),
               ),
             ],
           ),
         ),
-        const SizedBox(height: 16),
 
-        // Mapa de puntos de control del Rondín
-        CustodiaRondinMapCard(rondin: rondin),
-
-        const Padding(
-          padding: EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(
-            'PUNTOS DE CONTROL',
-            style: TextStyle(
-              fontSize: 11.5,
-              fontWeight: FontWeight.w800,
-              color: Color(0xFF64748B),
-              letterSpacing: 0.6,
-            ),
-          ),
-        ),
-
-        ListView.separated(
+        // Lista de Paradas del Rondín estilo Línea de Tiempo (Igual a Rutas)
+        ListView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
+          padding: EdgeInsets.zero,
           itemCount: rondin.puntos.length,
-          separatorBuilder: (_, __) => const SizedBox(height: 10),
           itemBuilder: (ctx, idx) {
             final p = rondin.puntos[idx];
             final bool isCompletado = p.completado ||
                 (rondin.cumplidos > 0 && idx < rondin.cumplidos);
+            final bool isLast = idx == rondin.puntos.length - 1;
 
-            return Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(
-                  color: isCompletado
-                      ? const Color(0xFFBBF7D0)
-                      : const Color(0xFFE2E8F0),
+            // Determinar si es el siguiente punto activo en la secuencia
+            final bool isNext = !isCompletado &&
+                (idx == 0 ||
+                    rondin.puntos[idx - 1].completado ||
+                    (rondin.cumplidos > 0 && (idx - 1) < rondin.cumplidos));
+
+            // Siguiente punto también completado para pintar la línea en verde
+            final bool nextIsCompleted = isCompletado &&
+                (idx + 1 < rondin.puntos.length &&
+                    (rondin.puntos[idx + 1].completado ||
+                        (rondin.cumplidos > 0 && (idx + 1) < rondin.cumplidos)));
+
+            return Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildRondinTimelineCard(
+                  context: context,
+                  rondin: rondin,
+                  punto: p,
+                  index: idx,
+                  isCompletado: isCompletado,
+                  isNext: isNext,
+                  state: state,
                 ),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF0F172A).withOpacity(0.02),
-                    blurRadius: 8,
-                    offset: const Offset(0, 2),
+                if (!isLast)
+                  _buildRondinTimelineConnectorBetweenCards(
+                    isCompleted: nextIsCompleted,
                   ),
-                ],
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                        width: 34,
-                        height: 34,
-                        decoration: BoxDecoration(
-                          color: isCompletado
-                              ? const Color(0xFFDCFCE7)
-                              : (p.llego
-                                  ? const Color(0xFFFEF3C7)
-                                  : const Color(0xFFF1F5F9)),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Center(
-                          child: Icon(
-                            isCompletado
-                                ? Icons.check_rounded
-                                : (p.llego
-                                    ? Icons.hourglass_top_rounded
-                                    : Icons.place_outlined),
-                            size: 18,
-                            color: isCompletado
-                                ? const Color(0xFF16A34A)
-                                : (p.llego
-                                    ? const Color(0xFFD97706)
-                                    : const Color(0xFF64748B)),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              p.nombre,
-                              style: const TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F172A),
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              'Hora: ${p.hora} · Tol: ±${p.tolMin}m · Mín: ${p.permMin}m',
-                              style: const TextStyle(
-                                  fontSize: 11.5, color: Color(0xFF64748B)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      if (isCompletado)
-                        Expanded(
-                          child: Container(
-                            height: 40,
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFF0FDF4),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: const Color(0xFFBBF7D0),
-                              ),
-                            ),
-                            child: const Center(
-                              child: Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.check_circle_rounded,
-                                    color: Color(0xFF16A34A),
-                                    size: 17,
-                                  ),
-                                  SizedBox(width: 7),
-                                  Text(
-                                    'Punto Cumplido',
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFF15803D),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        )
-                      else if (!p.llego)
-                        Expanded(
-                          child: LoadingActionButton(
-                            text: 'Marcar Llegada',
-                            isLoading: state.isSubmitting,
-                            onPressed: () =>
-                                _escanearQrRondin(context, rondin, p, 'llegue'),
-                            icon: p.conQr
-                                ? Icons.qr_code_scanner_rounded
-                                : Icons.login_rounded,
-                            height: 40,
-                            borderRadius: 10,
-                            fontSize: 12.5,
-                            loadingSize: 20,
-                          ),
-                        )
-                      else if (p.llego && !p.salio)
-                        Expanded(
-                          child: LoadingActionButton(
-                            text: 'Marcar Salida',
-                            isLoading: state.isSubmitting,
-                            onPressed: () =>
-                                _escanearQrRondin(context, rondin, p, 'sali'),
-                            icon: p.conQr
-                                ? Icons.qr_code_scanner_rounded
-                                : Icons.logout_rounded,
-                            height: 40,
-                            borderRadius: 10,
-                            fontSize: 12.5,
-                            loadingSize: 20,
-                            backgroundColor: const Color(0xFF10B981),
-                            gradient: const LinearGradient(
-                              colors: [Color(0xFF10B981), Color(0xFF059669)],
-                              begin: Alignment.topLeft,
-                              end: Alignment.bottomRight,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
+              ],
             );
           },
         ),
@@ -3245,6 +3274,371 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
         // Bitácora de Eventos del Rondín
         _buildAppleRondinBitacoraCard(rondin),
       ],
+    );
+  }
+
+  Widget _buildRondinTimelineConnectorBetweenCards({required bool isCompleted}) {
+    return SizedBox(
+      height: 14,
+      child: CustomPaint(
+        painter: _BetweenRondinCardsConnectorPainter(
+          circleCenterX: 31.0,
+          lineColor: isCompleted
+              ? const Color(0xFF16A34A)
+              : const Color(0xFFCBD5E1),
+          nodeColor: isCompleted
+              ? const Color(0xFF22C55E)
+              : const Color(0xFF94A3B8),
+        ),
+        child: const SizedBox.expand(),
+      ),
+    );
+  }
+
+  Widget _buildRondinTimelineCard({
+    required BuildContext context,
+    required RondinDia rondin,
+    required RondinPunto punto,
+    required int index,
+    required bool isCompletado,
+    required bool isNext,
+    required dynamic state,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: isCompletado
+              ? const Color(0xFFBBF7D0)
+              : (isNext ? const Color(0xFF0284C7) : const Color(0xFFE2E8F0)),
+          width: isNext ? 1.6 : 1.0,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: isNext
+                ? const Color(0xFF0284C7).withOpacity(0.08)
+                : const Color(0xFF0F172A).withOpacity(0.02),
+            blurRadius: isNext ? 10 : 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // 1. Nodo indicador de la línea de tiempo (centrado en X=31)
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: isCompletado
+                      ? const Color(0xFF16A34A)
+                      : (isNext
+                          ? (punto.llego
+                              ? const Color(0xFFD97706)
+                              : const Color(0xFF0284C7))
+                          : const Color(0xFFF1F5F9)),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isCompletado
+                        ? const Color(0xFF15803D)
+                        : (isNext
+                            ? (punto.llego
+                                ? const Color(0xFFB45309)
+                                : const Color(0xFF0369A1))
+                            : const Color(0xFFCBD5E1)),
+                    width: 1.2,
+                  ),
+                  boxShadow: isNext
+                      ? [
+                          BoxShadow(
+                            color: (punto.llego
+                                    ? const Color(0xFFD97706)
+                                    : const Color(0xFF0284C7))
+                                .withOpacity(0.35),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Center(
+                  child: isCompletado
+                      ? const Icon(
+                          Icons.check_rounded,
+                          size: 20,
+                          color: Colors.white,
+                        )
+                      : Text(
+                          '${index + 1}',
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w900,
+                            color: isNext ? Colors.white : const Color(0xFF64748B),
+                          ),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 12),
+
+              // 2. Información del punto de control
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            punto.nombre,
+                            style: const TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF0F172A),
+                              letterSpacing: -0.2,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        _buildRondinStatusChip(isCompletado, isNext, punto),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Row(
+                      children: [
+                        const Icon(Icons.schedule_rounded,
+                            size: 13, color: Color(0xFF64748B)),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Hora: ${punto.hora} · Tol: ±${punto.tolMin}m · Mín: ${punto.permMin}m',
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            color: Color(0xFF64748B),
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (punto.conQr) ...[
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.qr_code_2_rounded,
+                                size: 12, color: Color(0xFF475569)),
+                            SizedBox(width: 4),
+                            Text(
+                              'QR Requerido',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF475569),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // 3. Botones y banners de acción de la parada
+          Row(
+            children: [
+              if (isCompletado)
+                Expanded(
+                  child: Container(
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0FDF4),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: const Color(0xFFBBF7D0),
+                      ),
+                    ),
+                    child: const Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.check_circle_rounded,
+                            color: Color(0xFF16A34A),
+                            size: 18,
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Punto Cumplido',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w800,
+                              color: Color(0xFF15803D),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                )
+              else if (!punto.llego)
+                Expanded(
+                  child: LoadingActionButton(
+                    text: 'Marcar Llegada',
+                    isLoading: state.isSubmitting,
+                    onPressed: () =>
+                        _escanearQrRondin(context, rondin, punto, 'llegue'),
+                    icon: punto.conQr
+                        ? Icons.qr_code_scanner_rounded
+                        : Icons.login_rounded,
+                    height: 40,
+                    borderRadius: 12,
+                    fontSize: 12.5,
+                    loadingSize: 20,
+                  ),
+                )
+              else if (punto.llego && !punto.salio)
+                Expanded(
+                  child: LoadingActionButton(
+                    text: 'Marcar Salida',
+                    isLoading: state.isSubmitting,
+                    onPressed: () =>
+                        _escanearQrRondin(context, rondin, punto, 'sali'),
+                    icon: punto.conQr
+                        ? Icons.qr_code_scanner_rounded
+                        : Icons.logout_rounded,
+                    height: 40,
+                    borderRadius: 12,
+                    fontSize: 12.5,
+                    loadingSize: 20,
+                    backgroundColor: const Color(0xFF10B981),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF10B981), Color(0xFF059669)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildRondinStatusChip(
+    bool isCompletado,
+    bool isNext,
+    RondinPunto punto,
+  ) {
+    if (isCompletado) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFDCFCE7),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFFBBF7D0)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF16A34A)),
+            SizedBox(width: 4),
+            Text(
+              'Cumplido',
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF15803D),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (punto.llego && !punto.salio) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFEF3C7),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFFFDE68A)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.hourglass_top_rounded, size: 12, color: Color(0xFFD97706)),
+            SizedBox(width: 4),
+            Text(
+              'En sitio',
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFB45309),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (isNext) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: const Color(0xFFE0F2FE),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: const Color(0xFFBAE6FD)),
+        ),
+        child: const Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.play_arrow_rounded, size: 12, color: Color(0xFF0284C7)),
+            SizedBox(width: 3),
+            Text(
+              'Siguiente',
+              style: TextStyle(
+                fontSize: 10.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0369A1),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: const Text(
+        'Pendiente',
+        style: TextStyle(
+          fontSize: 10.5,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF64748B),
+        ),
+      ),
     );
   }
 
@@ -3651,3 +4045,49 @@ class _BitacoraItem {
     required this.color,
   });
 }
+
+/// Conector vertical de línea de tiempo entre paradas del Rondín (Igual a Rutas)
+class _BetweenRondinCardsConnectorPainter extends CustomPainter {
+  final double circleCenterX;
+  final Color lineColor;
+  final Color nodeColor;
+
+  const _BetweenRondinCardsConnectorPainter({
+    this.circleCenterX = 31.0,
+    this.lineColor = const Color(0xFFCBD5E1),
+    this.nodeColor = const Color(0xFF94A3B8),
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = lineColor
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round;
+
+    // Línea vertical que une las cartas de parada
+    canvas.drawLine(
+      Offset(circleCenterX, 0),
+      Offset(circleCenterX, size.height),
+      paint,
+    );
+
+    // Nodo circular en el punto medio del conector
+    final nodePaint = Paint()
+      ..color = nodeColor
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(
+      Offset(circleCenterX, size.height / 2),
+      2.5,
+      nodePaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _BetweenRondinCardsConnectorPainter oldDelegate) {
+    return oldDelegate.circleCenterX != circleCenterX ||
+        oldDelegate.lineColor != lineColor ||
+        oldDelegate.nodeColor != nodeColor;
+  }
+}
+

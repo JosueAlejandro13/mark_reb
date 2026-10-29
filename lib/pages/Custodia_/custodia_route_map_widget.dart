@@ -1,7 +1,9 @@
 import 'dart:math' as math;
+import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:mark_v3/models/Custodia_/custodia_models.dart';
@@ -898,10 +900,14 @@ class _CustodiaFullScreenMapPageState extends State<CustodiaFullScreenMapPage> {
 /// Tarjeta de Mapa para Rondines (Muestra puntos de control, radios y estado de cumplimiento)
 class CustodiaRondinMapCard extends StatefulWidget {
   final RondinDia rondin;
+  final bool isFloatingHeader;
+  final VoidCallback? onBack;
 
   const CustodiaRondinMapCard({
     super.key,
     required this.rondin,
+    this.isFloatingHeader = false,
+    this.onBack,
   });
 
   @override
@@ -915,17 +921,146 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
   Set<Circle> _circles = {};
   Set<Polygon> _polygons = {};
   List<LatLng> _pointCoords = [];
+  final Map<String, BitmapDescriptor> _numberedMarkerCache = {};
+  bool _isPreloadingMarkers = false;
+  bool _mapExpanded = false;
+  bool _isTopBarCollapsed = false;
+  bool _showInfoChip = true;
 
   @override
   void initState() {
     super.initState();
     _buildRondinMap();
+    _preloadMarkers();
   }
 
   @override
   void didUpdateWidget(covariant CustodiaRondinMapCard oldWidget) {
     super.didUpdateWidget(oldWidget);
     _buildRondinMap();
+    _preloadMarkers();
+  }
+
+  /// Genera marcador estilo Apple Maps con pin numerado o con icono check
+  static Future<BitmapDescriptor> _drawNumberedMarker({
+    required String text,
+    required Color color,
+  }) async {
+    const double width = 76.0;
+    const double height = 96.0;
+    final ui.PictureRecorder pictureRecorder = ui.PictureRecorder();
+    final Canvas canvas = Canvas(pictureRecorder);
+
+    final double cx = width / 2;
+    const double cy = 34.0;
+    const double r = 30.0;
+    const double tipY = 90.0;
+    const double dy = tipY - cy;
+    final double angle = math.asin((r / dy).clamp(-1.0, 1.0));
+
+    final Path pinPath = Path();
+    pinPath.addArc(
+      Rect.fromCircle(center: Offset(cx, cy), radius: r),
+      math.pi / 2 + angle,
+      2 * math.pi - 2 * angle,
+    );
+    pinPath.lineTo(cx, tipY);
+    pinPath.close();
+
+    // Sombra exterior suave del pin
+    canvas.drawShadow(pinPath, Colors.black.withOpacity(0.35), 5.0, true);
+
+    // Fondo del pin con el color correspondiente (Verde cumplido / Azul ruta / Ámbar)
+    final Paint pinPaint = Paint()
+      ..color = color
+      ..style = PaintingStyle.fill;
+    canvas.drawPath(pinPath, pinPaint);
+
+    // Borde blanco exterior de alta definición
+    final Paint borderPaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 3.5;
+    canvas.drawPath(pinPath, borderPaint);
+
+    // Círculo interior blanco
+    final Paint innerCirclePaint = Paint()
+      ..color = Colors.white
+      ..style = PaintingStyle.fill;
+    canvas.drawCircle(Offset(cx, cy), 18.0, innerCirclePaint);
+
+    // Texto interior (Número o ✓)
+    final textPainter = TextPainter(
+      text: TextSpan(
+        text: text,
+        style: TextStyle(
+          color: color,
+          fontSize: text == '✓' ? 20.0 : (text.length > 2 ? 13.0 : 16.5),
+          fontWeight: FontWeight.w900,
+        ),
+      ),
+      textDirection: TextDirection.ltr,
+      textAlign: TextAlign.center,
+    );
+    textPainter.layout();
+    textPainter.paint(
+      canvas,
+      Offset(cx - textPainter.width / 2, cy - textPainter.height / 2),
+    );
+
+    final ui.Image image =
+        await pictureRecorder.endRecording().toImage(width.toInt(), height.toInt());
+    final ByteData? byteData =
+        await image.toByteData(format: ui.ImageByteFormat.png);
+    if (byteData == null) {
+      return BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+    }
+    return BitmapDescriptor.fromBytes(byteData.buffer.asUint8List());
+  }
+
+  Future<void> _preloadMarkers() async {
+    if (_isPreloadingMarkers) return;
+    _isPreloadingMarkers = true;
+    try {
+      final futures = <Future<void>>[];
+      for (int i = 0; i < widget.rondin.puntos.length; i++) {
+        final p = widget.rondin.puntos[i];
+        if (p.lat == 0.0 && p.lng == 0.0) continue;
+        final bool isDone = p.completado ||
+            (widget.rondin.cumplidos > 0 && i < widget.rondin.cumplidos);
+        final bool isActive = !isDone &&
+            (i == 0 ||
+                widget.rondin.puntos[i - 1].completado ||
+                (widget.rondin.cumplidos > 0 && (i - 1) < widget.rondin.cumplidos));
+
+        final Color pinColor = isDone
+            ? const Color(0xFF16A34A)
+            : (isActive
+                ? (p.llego ? const Color(0xFFD97706) : const Color(0xFF0284C7))
+                : const Color(0xFF64748B));
+
+        final String markerText = isDone ? '✓' : '${i + 1}';
+        final String cacheKey = '${markerText}_${pinColor.value}';
+
+        if (!_numberedMarkerCache.containsKey(cacheKey)) {
+          futures.add(() async {
+            final icon = await _drawNumberedMarker(text: markerText, color: pinColor);
+            _numberedMarkerCache[cacheKey] = icon;
+          }());
+        }
+      }
+
+      if (futures.isNotEmpty) {
+        await Future.wait(futures);
+        if (mounted) {
+          _buildRondinMap();
+        }
+      }
+    } catch (e) {
+      debugPrint('[CustodiaRondinMapCard] Error generando marcadores: $e');
+    } finally {
+      _isPreloadingMarkers = false;
+    }
   }
 
   void _buildRondinMap() {
@@ -934,27 +1069,61 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
     final polygons = <Polygon>{};
     final coords = <LatLng>[];
 
+    // Identificar último punto completado para la división de la ruta
+    int lastCompletedIndex = -1;
+    for (int i = 0; i < widget.rondin.puntos.length; i++) {
+      final p = widget.rondin.puntos[i];
+      final isDone = p.completado ||
+          (widget.rondin.cumplidos > 0 && i < widget.rondin.cumplidos);
+      if (isDone) {
+        lastCompletedIndex = i;
+      }
+    }
+
     for (int i = 0; i < widget.rondin.puntos.length; i++) {
       final p = widget.rondin.puntos[i];
       if (p.lat == 0.0 && p.lng == 0.0) continue;
       final pos = LatLng(p.lat, p.lng);
       coords.add(pos);
 
-      // Color de marcador según avance del punto
-      final double hue = p.completado
-          ? BitmapDescriptor.hueGreen
-          : (p.llego ? BitmapDescriptor.hueOrange : BitmapDescriptor.hueAzure);
+      final bool isDone = p.completado ||
+          (widget.rondin.cumplidos > 0 && i < widget.rondin.cumplidos);
+      final bool isActive = !isDone &&
+          (i == 0 ||
+              widget.rondin.puntos[i - 1].completado ||
+              (widget.rondin.cumplidos > 0 && (i - 1) < widget.rondin.cumplidos));
+
+      final Color pinColor = isDone
+          ? const Color(0xFF16A34A)
+          : (isActive
+              ? (p.llego ? const Color(0xFFD97706) : const Color(0xFF0284C7))
+              : const Color(0xFF64748B));
+
+      final String markerText = isDone ? '✓' : '${i + 1}';
+      final String cacheKey = '${markerText}_${pinColor.value}';
+      final customIcon = _numberedMarkerCache[cacheKey];
 
       markers.add(
         Marker(
           markerId: MarkerId('rondin_pt_${p.id}'),
           position: pos,
-          icon: BitmapDescriptor.defaultMarkerWithHue(hue),
+          icon: customIcon ??
+              BitmapDescriptor.defaultMarkerWithHue(
+                isDone
+                    ? BitmapDescriptor.hueGreen
+                    : (isActive
+                        ? (p.llego
+                            ? BitmapDescriptor.hueOrange
+                            : BitmapDescriptor.hueAzure)
+                        : BitmapDescriptor.hueCyan),
+              ),
+          anchor: const Offset(0.5, 0.94),
+          zIndex: isDone ? 10 : (isActive ? 15 : 5),
           infoWindow: InfoWindow(
-            title: '${i + 1}. ${p.nombre}',
-            snippet: p.completado
-                ? 'Completado ✓'
-                : (p.llego ? 'Presente en punto' : 'Hora plan: ${p.hora}'),
+            title: '${i + 1}. ${p.nombre}${isDone ? ' ✓' : ''}',
+            snippet: isDone
+                ? 'Punto Cumplido ✓'
+                : (p.llego ? 'Presente en punto' : 'Hora programada: ${p.hora}'),
           ),
         ),
       );
@@ -969,13 +1138,13 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
               points: polyPoints
                   .map((pt) => LatLng(pt.latitude, pt.longitude))
                   .toList(),
-              fillColor: (p.completado
+              fillColor: (isDone
                       ? const Color(0xFF16A34A)
-                      : const Color(0xFF0284C7))
-                  .withOpacity(0.12),
-              strokeColor: p.completado
+                      : (isActive ? const Color(0xFF0284C7) : const Color(0xFF64748B)))
+                  .withOpacity(0.14),
+              strokeColor: isDone
                   ? const Color(0xFF16A34A)
-                  : const Color(0xFF0284C7),
+                  : (isActive ? const Color(0xFF0284C7) : const Color(0xFF94A3B8)),
               strokeWidth: 2,
             ),
           );
@@ -986,14 +1155,14 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
             circleId: CircleId('rondin_circ_${p.id}'),
             center: pos,
             radius: p.radioM.toDouble(),
-            fillColor: (p.completado
+            fillColor: (isDone
                     ? const Color(0xFF16A34A)
-                    : const Color(0xFF0284C7))
-                .withOpacity(0.12),
-            strokeColor: p.completado
+                    : (isActive ? const Color(0xFF0284C7) : const Color(0xFF64748B)))
+                .withOpacity(0.14),
+            strokeColor: isDone
                 ? const Color(0xFF16A34A)
-                : const Color(0xFF0284C7),
-            strokeWidth: 1,
+                : (isActive ? const Color(0xFF0284C7) : const Color(0xFF94A3B8)),
+            strokeWidth: 2,
           ),
         );
       }
@@ -1001,15 +1170,85 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
 
     final polylines = <Polyline>{};
     if (coords.length > 1) {
-      polylines.add(
-        Polyline(
-          polylineId: const PolylineId('rondin_sequence'),
-          points: coords,
-          color: const Color(0xFF0284C7).withOpacity(0.7),
-          width: 3,
-          patterns: [PatternItem.dash(12), PatternItem.gap(6)],
-        ),
-      );
+      // 1. TRAMO COMPLETADO: Trazado sólido en VERDE INTENSO (Dual Casing estilo Rutas)
+      if (lastCompletedIndex > 0) {
+        final completedCoords =
+            coords.sublist(0, math.min(lastCompletedIndex + 1, coords.length));
+        if (completedCoords.length >= 2) {
+          // Borde exterior verde bosque
+          polylines.add(
+            Polyline(
+              polylineId: const PolylineId('rondin_completed_casing'),
+              points: completedCoords,
+              color: const Color(0xFF14532D),
+              width: 6,
+              startCap: Cap.roundCap,
+              endCap: Cap.roundCap,
+              jointType: JointType.round,
+              zIndex: 10,
+            ),
+          );
+          // Núcleo verde esmeralda brillante de punto cumplido
+          polylines.add(
+            Polyline(
+              polylineId: const PolylineId('rondin_completed_core'),
+              points: completedCoords,
+              color: const Color(0xFF16A34A),
+              width: 4,
+              startCap: Cap.roundCap,
+              endCap: Cap.roundCap,
+              jointType: JointType.round,
+              zIndex: 11,
+            ),
+          );
+        }
+      }
+
+      // 2. TRAMO PENDIENTE / RESTANTE: Trazado en AZUL MARCA (Dual Casing)
+      final int remainingStart =
+          (lastCompletedIndex >= 0) ? lastCompletedIndex : 0;
+      if (remainingStart < coords.length - 1) {
+        final remainingCoords = coords.sublist(remainingStart);
+        if (remainingCoords.length >= 2) {
+          // Delineado exterior azul marino profundo
+          polylines.add(
+            Polyline(
+              polylineId: const PolylineId('rondin_remaining_casing'),
+              points: remainingCoords,
+              color: const Color(0xFF082F49),
+              width: 6,
+              startCap: Cap.roundCap,
+              endCap: Cap.roundCap,
+              jointType: JointType.round,
+              zIndex: 5,
+            ),
+          );
+          // Núcleo azul cyan original de ruta
+          polylines.add(
+            Polyline(
+              polylineId: const PolylineId('rondin_remaining_core'),
+              points: remainingCoords,
+              color: const Color(0xFF0284C7),
+              width: 4,
+              startCap: Cap.roundCap,
+              endCap: Cap.roundCap,
+              jointType: JointType.round,
+              zIndex: 6,
+            ),
+          );
+          // Línea guía activa blanca punteada
+          polylines.add(
+            Polyline(
+              polylineId: const PolylineId('rondin_remaining_dash'),
+              points: remainingCoords,
+              color: Colors.white.withOpacity(0.85),
+              width: 2,
+              patterns: [PatternItem.dash(10), PatternItem.gap(8)],
+              zIndex: 7,
+            ),
+          );
+        }
+      }
     }
 
     setState(() {
@@ -1058,6 +1297,10 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.isFloatingHeader) {
+      return _buildFloatingMap(context);
+    }
+
     if (_pointCoords.isEmpty) return const SizedBox.shrink();
 
     final initialPos = CameraPosition(
@@ -1173,6 +1416,348 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
           ),
           const SizedBox(height: 6),
         ],
+      ),
+    );
+  }
+
+  /// Mapa interactivo de cabecera a toda anchura con barra flotante (Estilo Rutas)
+  Widget _buildFloatingMap(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final isSmallScreen = mediaQuery.size.width < 360;
+    final rondin = widget.rondin;
+
+    final initialPos = _pointCoords.isNotEmpty
+        ? CameraPosition(target: _pointCoords.first, zoom: 14.5)
+        : const CameraPosition(target: LatLng(19.4326, -99.1332), zoom: 12.0);
+
+    final double mapHeight = _mapExpanded
+        ? mediaQuery.size.height * 0.72
+        : (mediaQuery.size.height * 0.38).clamp(260.0, 340.0);
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOutCubic,
+      height: mapHeight,
+      width: double.infinity,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GoogleMap(
+              initialCameraPosition: initialPos,
+              markers: _markers,
+              polylines: _polylines,
+              circles: _circles,
+              polygons: _polygons,
+              myLocationEnabled: true,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              compassEnabled: false,
+              mapToolbarEnabled: false,
+              buildingsEnabled: false,
+              indoorViewEnabled: false,
+              tiltGesturesEnabled: false,
+              rotateGesturesEnabled: false,
+              gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                Factory<OneSequenceGestureRecognizer>(
+                    () => EagerGestureRecognizer()),
+              },
+              padding: EdgeInsets.only(
+                top: mediaQuery.padding.top + 60,
+                right: 56,
+                bottom: 14,
+                left: 14,
+              ),
+              onMapCreated: (ctrl) {
+                _mapController = ctrl;
+                _fitRondinBounds();
+              },
+            ),
+          ),
+
+          // Barra Superior Flotante estilo Apple / Rutas
+          Positioned(
+            top: mediaQuery.padding.top + 8,
+            left: isSmallScreen ? 10 : 14,
+            right: _isTopBarCollapsed ? null : (isSmallScreen ? 10 : 14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildFloatingTopBar(context, isSmallScreen),
+                if (!_isTopBarCollapsed && _showInfoChip && rondin.unidad.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  _buildFloatingInfoChip(context, isSmallScreen),
+                ],
+              ],
+            ),
+          ),
+
+          // Controles Laterales Flotantes
+          Positioned(
+            right: isSmallScreen ? 8 : 12,
+            top: mediaQuery.padding.top + 68,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _buildFloatingMapButton(
+                  icon: Icons.my_location_rounded,
+                  tooltip: 'Centrar rondín',
+                  onTap: _fitRondinBounds,
+                ),
+                const SizedBox(height: 8),
+                _buildFloatingMapButton(
+                  icon: _mapExpanded
+                      ? Icons.fullscreen_exit_rounded
+                      : Icons.fullscreen_rounded,
+                  tooltip: _mapExpanded ? 'Reducir mapa' : 'Expandir mapa',
+                  onTap: () {
+                    setState(() {
+                      _mapExpanded = !_mapExpanded;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Barra de título flotante estilo Apple con fondo translúcido y bordes redondeados
+  Widget _buildFloatingTopBar(BuildContext context, bool isSmallScreen) {
+    final rondin = widget.rondin;
+    final isCompleted = rondin.cumplidos >= rondin.total && rondin.total > 0;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeInOutCubic,
+      padding: EdgeInsets.symmetric(
+        horizontal: _isTopBarCollapsed ? 6 : 10,
+        vertical: _isTopBarCollapsed ? 6 : 8,
+      ),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.05),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          // Botón Atrás
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(11),
+              onTap: widget.onBack ?? () => Navigator.maybePop(context),
+              child: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                ),
+                child: const Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  size: 15,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ),
+          ),
+          if (!_isTopBarCollapsed) const SizedBox(width: 10),
+          if (_isTopBarCollapsed) const SizedBox(width: 6),
+
+          // Título y Subtítulo
+          if (!_isTopBarCollapsed) ...[
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    rondin.nombre.isNotEmpty
+                        ? rondin.nombre
+                        : 'Rondín de Custodia',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
+                      letterSpacing: -0.3,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: BoxDecoration(
+                          color: isCompleted
+                              ? const Color(0xFF16A34A)
+                              : const Color(0xFF0284C7),
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Expanded(
+                        child: Text(
+                          '${rondin.turno.isNotEmpty ? "Turno: ${rondin.turno} · " : ""}${rondin.cumplidos}/${rondin.total} cumplidos',
+                          style: const TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w500,
+                            color: Color(0xFF64748B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+
+          // Botón para retraer / expandir la barra
+          Material(
+            color: Colors.transparent,
+            child: Tooltip(
+              message: _isTopBarCollapsed
+                  ? 'Mostrar detalles del rondín'
+                  : 'Ocultar detalles del rondín',
+              child: InkWell(
+                borderRadius: BorderRadius.circular(8),
+                onTap: () {
+                  setState(() {
+                    _isTopBarCollapsed = !_isTopBarCollapsed;
+                  });
+                },
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                  child: Icon(
+                    Icons.drag_indicator_rounded,
+                    size: 17,
+                    color: Color(0xFF94A3B8),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Chip flotante de unidad asignada y número de puntos
+  Widget _buildFloatingInfoChip(BuildContext context, bool isSmallScreen) {
+    final rondin = widget.rondin;
+    return Material(
+      color: Colors.transparent,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(8, 4, 6, 4),
+        decoration: BoxDecoration(
+          color: Colors.white.withOpacity(0.96),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: const Color(0xFFE2E8F0)),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.06),
+              blurRadius: 10,
+              offset: const Offset(0, 3),
+            ),
+          ],
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(
+              Icons.directions_car_rounded,
+              size: 13,
+              color: Color(0xFF0284C7),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              'Unidad: ${rondin.unidad}',
+              style: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF0F172A),
+              ),
+            ),
+            const SizedBox(width: 5),
+            Text(
+              '· ${rondin.total} puntos',
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(width: 4),
+            InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () {
+                setState(() {
+                  _showInfoChip = false;
+                });
+              },
+              child: const Padding(
+                padding: EdgeInsets.all(2),
+                child: Icon(
+                  Icons.close_rounded,
+                  size: 13,
+                  color: Color(0xFF94A3B8),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Botón individual para controles flotantes laterales sobre el mapa
+  Widget _buildFloatingMapButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+  }) {
+    return Material(
+      color: Colors.white.withOpacity(0.96),
+      borderRadius: BorderRadius.circular(11),
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(0.12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(11),
+        onTap: onTap,
+        child: Tooltip(
+          message: tooltip,
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(color: const Color(0xFFE2E8F0)),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: const Color(0xFF0F172A),
+            ),
+          ),
+        ),
       ),
     );
   }
