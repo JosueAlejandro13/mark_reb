@@ -101,10 +101,11 @@ void main() {
         ),
       );
 
-      // Debe mostrar el título del rondín flotante
+      // Debe mostrar el título del rondín flotante y el botón de contraseña/claves
       expect(find.text('Rondín CEDI y bodegas'), findsOneWidget);
       expect(find.text('Turno: 08:00–18:00 · 2/3 cumplidos'), findsOneWidget);
       expect(find.text('Unidad: VIG-01 · DMO-404-D'), findsOneWidget);
+      expect(find.byIcon(Icons.shield_outlined), findsOneWidget);
     });
 
     testWidgets('CustodiaPage renderiza alerta de check-in de monitorista sin romperse',

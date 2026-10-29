@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:mark_v3/models/Custodia_/custodia_models.dart';
+import 'package:mark_v3/pages/Custodia_/custodia_claves_page.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 /// Decodificador estándar de Google Encoded Polyline Algorithm (Polyline5)
@@ -902,12 +903,16 @@ class CustodiaRondinMapCard extends StatefulWidget {
   final RondinDia rondin;
   final bool isFloatingHeader;
   final VoidCallback? onBack;
+  final VoidCallback? onOpenClaves;
+  final bool tieneClaves;
 
   const CustodiaRondinMapCard({
     super.key,
     required this.rondin,
     this.isFloatingHeader = false,
     this.onBack,
+    this.onOpenClaves,
+    this.tieneClaves = true,
   });
 
   @override
@@ -924,7 +929,6 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
   final Map<String, BitmapDescriptor> _numberedMarkerCache = {};
   bool _isPreloadingMarkers = false;
   bool _mapExpanded = false;
-  bool _isTopBarCollapsed = false;
   bool _showInfoChip = true;
 
   @override
@@ -1478,13 +1482,13 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
           Positioned(
             top: mediaQuery.padding.top + 8,
             left: isSmallScreen ? 10 : 14,
-            right: _isTopBarCollapsed ? null : (isSmallScreen ? 10 : 14),
+            right: isSmallScreen ? 10 : 14,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
                 _buildFloatingTopBar(context, isSmallScreen),
-                if (!_isTopBarCollapsed && _showInfoChip && rondin.unidad.isNotEmpty) ...[
+                if (_showInfoChip && rondin.unidad.isNotEmpty) ...[
                   const SizedBox(height: 6),
                   _buildFloatingInfoChip(context, isSmallScreen),
                 ],
@@ -1529,13 +1533,8 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
     final rondin = widget.rondin;
     final isCompleted = rondin.cumplidos >= rondin.total && rondin.total > 0;
 
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeInOutCubic,
-      padding: EdgeInsets.symmetric(
-        horizontal: _isTopBarCollapsed ? 6 : 10,
-        vertical: _isTopBarCollapsed ? 6 : 8,
-      ),
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
         color: Colors.white.withOpacity(0.96),
         borderRadius: BorderRadius.circular(16),
@@ -1549,7 +1548,6 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
         ],
       ),
       child: Row(
-        mainAxisSize: MainAxisSize.min,
         children: [
           // Botón Atrás
           Material(
@@ -1573,85 +1571,113 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
               ),
             ),
           ),
-          if (!_isTopBarCollapsed) const SizedBox(width: 10),
-          if (_isTopBarCollapsed) const SizedBox(width: 6),
+          const SizedBox(width: 10),
 
           // Título y Subtítulo
-          if (!_isTopBarCollapsed) ...[
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    rondin.nombre.isNotEmpty
-                        ? rondin.nombre
-                        : 'Rondín de Custodia',
-                    style: const TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                      letterSpacing: -0.3,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  rondin.nombre.isNotEmpty
+                      ? rondin.nombre
+                      : 'Rondín de Custodia',
+                  style: const TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.3,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Row(
+                  children: [
+                    Container(
+                      width: 7,
+                      height: 7,
+                      decoration: BoxDecoration(
+                        color: isCompleted
+                            ? const Color(0xFF16A34A)
+                            : const Color(0xFF0284C7),
+                        shape: BoxShape.circle,
+                      ),
                     ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 2),
-                  Row(
-                    children: [
-                      Container(
-                        width: 7,
-                        height: 7,
-                        decoration: BoxDecoration(
-                          color: isCompleted
-                              ? const Color(0xFF16A34A)
-                              : const Color(0xFF0284C7),
-                          shape: BoxShape.circle,
+                    const SizedBox(width: 5),
+                    Expanded(
+                      child: Text(
+                        '${rondin.turno.isNotEmpty ? "Turno: ${rondin.turno} · " : ""}${rondin.cumplidos}/${rondin.total} cumplidos',
+                        style: const TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF64748B),
                         ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                       ),
-                      const SizedBox(width: 5),
-                      Expanded(
-                        child: Text(
-                          '${rondin.turno.isNotEmpty ? "Turno: ${rondin.turno} · " : ""}${rondin.cumplidos}/${rondin.total} cumplidos',
-                          style: const TextStyle(
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF64748B),
-                          ),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-            const SizedBox(width: 8),
-          ],
+          ),
+          const SizedBox(width: 8),
 
-          // Botón para retraer / expandir la barra
+          // Botón de Contraseña / Claves de Seguridad de Custodia (CustodiaClavesPage)
           Material(
             color: Colors.transparent,
-            child: Tooltip(
-              message: _isTopBarCollapsed
-                  ? 'Mostrar detalles del rondín'
-                  : 'Ocultar detalles del rondín',
-              child: InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: () {
-                  setState(() {
-                    _isTopBarCollapsed = !_isTopBarCollapsed;
-                  });
-                },
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 4, vertical: 6),
-                  child: Icon(
-                    Icons.drag_indicator_rounded,
-                    size: 17,
-                    color: Color(0xFF94A3B8),
+            child: InkWell(
+              borderRadius: BorderRadius.circular(11),
+              onTap: widget.onOpenClaves ??
+                  () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const CustodiaClavesPage(),
+                        ),
+                      ),
+              child: Stack(
+                clipBehavior: Clip.none,
+                children: [
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF8FAFC),
+                      borderRadius: BorderRadius.circular(11),
+                      border: Border.all(
+                        color: widget.tieneClaves
+                            ? const Color(0xFFE2E8F0)
+                            : const Color(0xFFFDE68A),
+                      ),
+                    ),
+                    child: Center(
+                      child: Icon(
+                        widget.tieneClaves
+                            ? Icons.shield_outlined
+                            : Icons.shield_rounded,
+                        size: 19,
+                        color: widget.tieneClaves
+                            ? const Color(0xFF0284C7)
+                            : const Color(0xFFD97706),
+                      ),
+                    ),
                   ),
-                ),
+                  if (!widget.tieneClaves)
+                    Positioned(
+                      top: -2,
+                      right: -2,
+                      child: Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFEF4444),
+                          shape: BoxShape.circle,
+                          border: Border.all(color: Colors.white, width: 1.5),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
           ),

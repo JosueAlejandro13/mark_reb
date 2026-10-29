@@ -1132,7 +1132,13 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
             CustodiaRondinMapCard(
               rondin: activeRondin,
               isFloatingHeader: true,
+              tieneClaves: data.claves.tiene,
               onBack: () => Navigator.maybePop(context),
+              onOpenClaves: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const CustodiaClavesPage(),
+                ),
+              ),
             ),
 
             // 2. CONTENIDO SCROLLABLE (Alertas de Check sin romperse + Tabs + Línea de Tiempo)
