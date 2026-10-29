@@ -3765,80 +3765,45 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   }) {
     if (!_showMapControls) return const SizedBox.shrink();
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.96),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE2E8F0)),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
-      ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // 1. Botón Seguir / Centrar Vehículo (Verde Esmeralda)
-          _buildMapControlButton(
-            icon: _isTrackingVehicle
-                ? Icons.local_shipping_rounded
-                : Icons.local_shipping_outlined,
-            tooltip: _isTrackingVehicle
-                ? 'Siguiendo vehículo (Activo)'
-                : 'Seguir vehículo',
-            isActive: _isTrackingVehicle,
-            activeColor: const Color(0xFF16A34A),
-            iconColor: _isTrackingVehicle
-                ? const Color(0xFF16A34A)
-                : const Color(0xFF15803D),
-            onTap: () => _toggleVehicleTracking(route),
-          ),
-          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        // 1. Botón Seguir / Centrar Vehículo (Carro en Azul Océano estilo Custodia)
+        _buildMapControlButton(
+          icon: _isTrackingVehicle
+              ? Icons.directions_car_rounded
+              : Icons.directions_car_outlined,
+          tooltip: _isTrackingVehicle
+              ? 'Siguiendo vehículo (Activo)'
+              : 'Seguir vehículo',
+          isActive: _isTrackingVehicle,
+          activeColor: const Color(0xFF0284C7),
+          onTap: () => _toggleVehicleTracking(route),
+        ),
+        const SizedBox(height: 8),
 
-          // 2. Botón Seguir / Centrar GPS del Celular / Chofer (Azul Océano)
-          _buildMapControlButton(
-            icon: _isTrackingLocation
-                ? Icons.person_pin_circle_rounded
-                : Icons.person_pin_circle_outlined,
-            tooltip: _isTrackingLocation
-                ? 'Siguiendo GPS celular (Activo)'
-                : 'Seguir GPS celular',
-            isActive: _isTrackingLocation,
-            activeColor: const Color(0xFF0284C7),
-            iconColor: _isTrackingLocation
-                ? const Color(0xFF0284C7)
-                : const Color(0xFF0284C7),
-            onTap: _toggleLocationTracking,
-          ),
-          const Divider(height: 1, color: Color(0xFFF1F5F9)),
+        // 2. Botón Seguir / Centrar GPS del Celular / Chofer (Azul Océano)
+        _buildMapControlButton(
+          icon: _isTrackingLocation
+              ? Icons.person_pin_circle_rounded
+              : Icons.person_pin_circle_outlined,
+          tooltip: _isTrackingLocation
+              ? 'Siguiendo GPS celular (Activo)'
+              : 'Seguir GPS celular',
+          isActive: _isTrackingLocation,
+          activeColor: const Color(0xFF0284C7),
+          onTap: _toggleLocationTracking,
+        ),
+        const SizedBox(height: 8),
 
-          // 3. Encuadrar recorrido completo
-          _buildMapControlButton(
-            icon: Icons.zoom_out_map_rounded,
-            tooltip: 'Encuadrar recorrido',
-            isActive: false,
-            onTap: () => _fitMapToRoute(route),
-          ),
-          const Divider(height: 1, color: Color(0xFFF1F5F9)),
-
-          // 4. Expandir / Reducir mapa
-          _buildMapControlButton(
-            icon: _mapExpanded
-                ? Icons.fullscreen_exit_rounded
-                : Icons.fullscreen_rounded,
-            tooltip: _mapExpanded ? 'Reducir mapa' : 'Ampliar mapa',
-            isActive: _mapExpanded,
-            onTap: () {
-              setState(() {
-                _mapExpanded = !_mapExpanded;
-              });
-            },
-          ),
-        ],
-      ),
+        // 3. Encuadrar recorrido completo
+        _buildMapControlButton(
+          icon: Icons.zoom_out_map_rounded,
+          tooltip: 'Encuadrar recorrido',
+          isActive: false,
+          onTap: () => _fitMapToRoute(route),
+        ),
+      ],
     );
   }
 
@@ -3852,28 +3817,33 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
   }) {
     final effectiveColor = activeColor ?? const Color(0xFF0284C7);
     return Material(
-      color: Colors.transparent,
-      child: Tooltip(
-        message: tooltip,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(10),
-          onTap: onTap,
+      color: isActive
+          ? effectiveColor.withOpacity(0.12)
+          : Colors.white.withOpacity(0.96),
+      borderRadius: BorderRadius.circular(11),
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(0.12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(11),
+        onTap: onTap,
+        child: Tooltip(
+          message: tooltip,
           child: Container(
-            width: 34,
-            height: 34,
-            alignment: Alignment.center,
+            width: 36,
+            height: 36,
             decoration: BoxDecoration(
-              color: isActive
-                  ? effectiveColor.withOpacity(0.14)
-                  : Colors.transparent,
-              borderRadius: BorderRadius.circular(10),
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(
+                color: isActive ? effectiveColor : const Color(0xFFE2E8F0),
+                width: isActive ? 1.5 : 1.0,
+              ),
             ),
             child: Icon(
               icon,
               size: 18,
               color: isActive
                   ? effectiveColor
-                  : (iconColor ?? const Color(0xFF334155)),
+                  : (iconColor ?? const Color(0xFF0F172A)),
             ),
           ),
         ),
@@ -4280,15 +4250,36 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                       ),
                     ),
 
-                    // Chip flotante de distancia y tiempo (esquina superior izquierda del mapa)
-                    if (_showJourneyEstimates &&
-                        route.geometria != null &&
-                        route.geometria!.distanciaM > 0)
-                      Positioned(
-                        top: mediaQuery.padding.top + 8,
-                        left: 12,
-                        child: _buildJourneyEstimatesChip(route),
+                    // Chip flotante de distancia y tiempo + botón pantalla completa (esquina superior izquierda del mapa)
+                    Positioned(
+                      top: mediaQuery.padding.top + 8,
+                      left: 12,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          if (_showJourneyEstimates &&
+                              route.geometria != null &&
+                              route.geometria!.distanciaM > 0) ...[
+                            _buildJourneyEstimatesChip(route),
+                            const SizedBox(height: 6),
+                          ],
+                          _buildMapControlButton(
+                            icon: _mapExpanded
+                                ? Icons.fullscreen_exit_rounded
+                                : Icons.fullscreen_rounded,
+                            tooltip: _mapExpanded ? 'Reducir mapa' : 'Ampliar mapa',
+                            isActive: _mapExpanded,
+                            activeColor: const Color(0xFF0284C7),
+                            onTap: () {
+                              setState(() {
+                                _mapExpanded = !_mapExpanded;
+                              });
+                            },
+                          ),
+                        ],
                       ),
+                    ),
 
                     // Controles flotantes del mapa (capas, tráfico, centrar)
                     // En modo horizontal los centramos verticalmente en el lateral derecho
@@ -4437,6 +4428,20 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                                   child: _buildJourneyEstimatesChip(route),
                                 ),
                               ],
+                              const SizedBox(height: 6),
+                              _buildMapControlButton(
+                                icon: _mapExpanded
+                                    ? Icons.fullscreen_exit_rounded
+                                    : Icons.fullscreen_rounded,
+                                tooltip: _mapExpanded ? 'Reducir mapa' : 'Ampliar mapa',
+                                isActive: _mapExpanded,
+                                activeColor: const Color(0xFF0284C7),
+                                onTap: () {
+                                  setState(() {
+                                    _mapExpanded = !_mapExpanded;
+                                  });
+                                },
+                              ),
                             ],
                           ),
                         ),
@@ -4445,7 +4450,7 @@ class _RouteDetailAndMapPageState extends ConsumerState<RouteDetailAndMapPage>
                         if (_showMapControls)
                           Positioned(
                             right: isSmallScreen ? 8 : 12,
-                            top: mediaQuery.padding.top + 68,
+                            top: mediaQuery.padding.top + 60,
                             child: _buildFloatingRouteMapControls(
                               context: context,
                               route: route,

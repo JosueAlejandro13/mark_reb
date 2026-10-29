@@ -86,6 +86,11 @@ void main() {
       expect(find.text('Punto Cumplido'), findsNWidgets(2));
       expect(find.text('Siguiente'), findsOneWidget);
       expect(find.text('Marcar Llegada'), findsOneWidget);
+
+      // Verificar que los nodos indicadores muestran el número del punto (1, 2, 3) en vez de un check
+      expect(find.text('1'), findsOneWidget);
+      expect(find.text('2'), findsOneWidget);
+      expect(find.text('3'), findsOneWidget);
     });
 
     testWidgets('CustodiaRondinMapCard con isFloatingHeader renderiza barra superior flotante',
@@ -106,6 +111,21 @@ void main() {
       expect(find.text('Turno: 08:00–18:00 · 2/3 cumplidos'), findsOneWidget);
       expect(find.text('Unidad: VIG-01 · DMO-404-D'), findsOneWidget);
       expect(find.byIcon(Icons.shield_outlined), findsOneWidget);
+
+      // Debe mostrar los 3 botones flotantes laterales: Carro, Hacer todo grande y Abrir mapa
+      expect(find.byTooltip('Fijar carro en el mapa'), findsOneWidget);
+      expect(find.byTooltip('Hacer todo grande (Encuadrar rondín)'), findsOneWidget);
+      expect(find.byTooltip('Abrir todo el mapa'), findsOneWidget);
+
+      // Al tocar el botón de carro, cambia a modo activo / fijado
+      await tester.tap(find.byTooltip('Fijar carro en el mapa'));
+      await tester.pump();
+      expect(find.byTooltip('Fijando carro (Activo)'), findsOneWidget);
+
+      // Al tocar el botón de pantalla completa, expande el mapa
+      await tester.tap(find.byTooltip('Abrir todo el mapa'));
+      await tester.pump();
+      expect(find.byTooltip('Reducir mapa'), findsOneWidget);
     });
 
     testWidgets('CustodiaPage renderiza alerta de check-in de monitorista sin romperse',
@@ -162,6 +182,96 @@ void main() {
 
       expect(find.text('¡CHECK-IN VENCIDO!'), findsOneWidget);
       expect(find.text('Reportar Check-in ahora'), findsOneWidget);
+    });
+
+    testWidgets('CustodiaPage renderiza cabecera de chat con botón Ampliar/Reducir sin desbordamiento',
+        (tester) async {
+      // Simular pantalla móvil pequeña (ancho 360)
+      tester.view.physicalSize = const Size(360, 800);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(() => tester.view.resetPhysicalSize());
+
+      final rondinConMensajes = testRondin.copyWith(
+        mensajes: [
+          const CustodiaMensaje(
+            id: 1,
+            deApp: false,
+            mio: false,
+            quien: 'Monitorista',
+            texto: '¿Cómo vas? Contesta con tu check-in.',
+            fecha: '2026-10-29 13:11',
+          ),
+          const CustodiaMensaje(
+            id: 2,
+            deApp: false,
+            mio: false,
+            quien: 'Monitorista',
+            texto: 'Aviso de control.',
+            fecha: '2026-10-29 13:15',
+          ),
+        ],
+      );
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            custodiaProvider.overrideWith(
+              () => _MockCustodiaNotifier(rondinConMensajes),
+            ),
+          ],
+          child: const MaterialApp(
+            home: CustodiaPage(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Verificar que las pestañas segmentadas de Rondín están presentes
+      expect(find.text('Puntos (3)'), findsOneWidget);
+      expect(find.text('Chat y Bitácora'), findsOneWidget);
+
+      // En la pestaña Puntos inicial vemos la línea de tiempo
+      expect(find.text('LÍNEA DE TIEMPO DEL RONDÍN'), findsOneWidget);
+
+      // Tocar la pestaña "Chat y Bitácora"
+      await tester.tap(find.text('Chat y Bitácora'));
+      await tester.pumpAndSettle();
+
+      // Verificar que el título de chat, el conteo y la bitácora están presentes
+      expect(find.text('Mensajes con Monitorista'), findsOneWidget);
+      expect(find.text('2'), findsWidgets); // contador de mensajes en tab y cabecera
+      expect(find.text('Bitácora de Eventos'), findsOneWidget);
+      expect(find.text('Ampliar'), findsNothing); // Botón Ampliar removido para máxima limpieza
+
+      // Volver a la pestaña "Puntos"
+      await tester.tap(find.text('Puntos (3)'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('LÍNEA DE TIEMPO DEL RONDÍN'), findsOneWidget);
+    });
+
+    testWidgets('CustodiaPage renderiza la píldora flotante con SOS y Check-in',
+        (tester) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            custodiaProvider.overrideWith(
+              () => _MockCustodiaNotifier(testRondin),
+            ),
+          ],
+          child: const MaterialApp(
+            home: CustodiaPage(),
+          ),
+        ),
+      );
+
+      await tester.pumpAndSettle();
+
+      // Verificar que ambos botones están presentes dentro de la píldora flotante
+      expect(find.text('SOS'), findsOneWidget);
+      expect(find.text('Check-in («Todo bien»)'), findsOneWidget);
+      expect(find.byIcon(Icons.emergency_rounded), findsOneWidget);
     });
   });
 }

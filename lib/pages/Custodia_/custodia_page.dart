@@ -34,6 +34,7 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
   final ImagePicker _picker = ImagePicker();
   bool _hasRedirectedToClaves = false;
   int _lastReadChatMsgId = 0;
+  int _selectedRondinTab = 0; // 0: Puntos, 1: Chat y Bitácora
 
   @override
   void initState() {
@@ -1125,160 +1126,99 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
 
     // Si estamos visualizando Rondines, presentamos el mapa con cabecera y título flotante estilo Rutas
     if (isRondinActive && activeRondin != null) {
-      final double mapCardHeight =
-          (mediaQuery.size.height * 0.40).clamp(270.0, 350.0);
-      final double peekMapHeight = mapCardHeight - 44.0;
-
       return Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
-        bottomNavigationBar: (data.hasActiveModule)
-            ? _buildBottomFloatingBar(context, state, data)
-            : null,
         body: Stack(
           children: [
-            // 1. MAPA EN EL FONDO (Detrás del contenido deslizable)
-            Positioned(
-              top: 0,
-              left: 0,
-              right: 0,
-              height: mapCardHeight,
-              child: CustodiaRondinMapCard(
-                rondin: activeRondin,
-                isFloatingHeader: true,
-                showTopBar: false,
-                height: mapCardHeight,
-                tieneClaves: data.claves.tiene,
-                onBack: () => Navigator.maybePop(context),
-                onOpenClaves: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const CustodiaClavesPage(),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 1. MAPA INTERACTIVO CON BARRA Y TÍTULO FLOTANTE (Estilo Rutas)
+                CustodiaRondinMapCard(
+                  rondin: activeRondin,
+                  isFloatingHeader: true,
+                  tieneClaves: data.claves.tiene,
+                  onBack: () => Navigator.maybePop(context),
+                  onOpenClaves: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CustodiaClavesPage(),
+                    ),
                   ),
                 ),
-              ),
-            ),
 
-            // 2. HOJA DE CONTENIDO DESLIZABLE (Sube cubriendo el mapa hasta ocupar toda la pantalla)
-            Positioned.fill(
-              child: RefreshIndicator(
-                color: const Color(0xFF0284C7),
-                backgroundColor: Colors.white,
-                onRefresh: () =>
-                    ref.read(custodiaProvider.notifier).cargarCustodia(),
-                child: SingleChildScrollView(
-                  physics: const AlwaysScrollableScrollPhysics(
-                    parent: BouncingScrollPhysics(),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Espacio transparente sobre el mapa: permite ver e interactuar con el mapa
-                      IgnorePointer(
-                        child: SizedBox(height: peekMapHeight),
+                // 2. CONTENIDO SCROLLABLE (Alertas de Check sin romperse + Tabs + Línea de Tiempo)
+                Expanded(
+                  child: RefreshIndicator(
+                    color: const Color(0xFF0284C7),
+                    backgroundColor: Colors.white,
+                    onRefresh: () =>
+                        ref.read(custodiaProvider.notifier).cargarCustodia(),
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: BouncingScrollPhysics(),
                       ),
-
-                      // Hoja de contenido con fondo sólido: se expande sobre el mapa al scrollear
-                      Container(
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFF8FAFC),
-                          borderRadius:
-                              BorderRadius.vertical(top: Radius.circular(24)),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Color(0x180F172A),
-                              blurRadius: 16,
-                              offset: Offset(0, -4),
-                            ),
-                          ],
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            // Manija de arrastre estilo Apple Sheet
-                            Center(
-                              child: Container(
-                                width: 42,
-                                height: 5,
-                                margin:
-                                    const EdgeInsets.only(top: 10, bottom: 8),
-                                decoration: BoxDecoration(
-                                  color: const Color(0xFFCBD5E1),
-                                  borderRadius: BorderRadius.circular(3),
-                                ),
-                              ),
-                            ),
-
-                            Padding(
-                              padding: EdgeInsets.symmetric(
-                                horizontal: isSmallScreen ? 12.0 : 16.0,
-                                vertical: 4.0,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  // A. ALERTA DE CHECK: Solicitudes del monitorista
-                                  if (activeRondin.solicitudes.isNotEmpty)
-                                    _buildAppleSolicitudesCard(
-                                      idRondinDia: activeRondin.idRondinDia,
-                                      solicitudes: activeRondin.solicitudes,
-                                    ),
-
-                                  // B. ALERTA DE CHECK VENCIDO / URGENTE
-                                  if (state.isVencido)
-                                    _buildCheckinVencidoAlert(
-                                      context,
-                                      idRondinDia: activeRondin.idRondinDia,
-                                    ),
-
-                                  // C. Píldoras de pestañas si hay tanto servicios como rondines
-                                  if (data.servicios.isNotEmpty &&
-                                      data.rondines.isNotEmpty)
-                                    _buildAppleSegmentedTabs(state, data),
-
-                                  // D. Claves de seguridad si faltan
-                                  if (!data.claves.tiene)
-                                    _buildAppleClavesCard(),
-
-                                  // E. Línea de tiempo de puntos de control (con botón IR de navegación)
-                                  _buildRondinTimelineSection(activeRondin),
-
-                                  const SizedBox(height: 100),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isSmallScreen ? 12.0 : 16.0,
+                        vertical: 8.0,
                       ),
-                    ],
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // A. ALERTA DE CHECK: Solicitudes del monitorista ("¿Cómo vas? Contesta con tu check-in")
+                          // Diseñada para nunca romperse ni desbordarse
+                          if (activeRondin.solicitudes.isNotEmpty)
+                            _buildAppleSolicitudesCard(
+                              idRondinDia: activeRondin.idRondinDia,
+                              solicitudes: activeRondin.solicitudes,
+                            ),
+
+                          // B. ALERTA DE CHECK VENCIDO / URGENTE
+                          if (state.isVencido)
+                            _buildCheckinVencidoAlert(
+                              context,
+                              idRondinDia: activeRondin.idRondinDia,
+                            ),
+
+                          // C. Píldoras de pestañas si hay tanto servicios como rondines
+                          if (data.servicios.isNotEmpty &&
+                              data.rondines.isNotEmpty)
+                            _buildAppleSegmentedTabs(state, data),
+
+                          // D. Claves de seguridad si faltan
+                          if (!data.claves.tiene)
+                            _buildAppleClavesCard(),
+
+                          // E. Pestañas segmentadas de Rondín: [ Puntos ] vs [ Chat y Bitácora ]
+                          _buildRondinSegmentedTabs(activeRondin),
+
+                          // F. Contenido según pestaña seleccionada
+                          if (_selectedRondinTab == 0)
+                            _buildRondinTimelineSection(activeRondin)
+                          else
+                            _buildRondinChatAndBitacoraSection(activeRondin),
+
+                          const SizedBox(height: 100),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-              ),
+
+                // 3. BARRA DE ESTADO DE COLA Y SINCRONIZACIÓN
+                const CustodiaSyncStatusBar(),
+              ],
             ),
 
-            // 3. BARRA SUPERIOR FLOTANTE ESTILO APPLE (Siempre accesible en la cabecera)
-            Positioned(
-              top: mediaQuery.padding.top + 8,
-              left: isSmallScreen ? 10 : 14,
-              right: isSmallScreen ? 10 : 14,
-              child: CustodiaRondinFloatingTopBar(
-                rondin: activeRondin,
-                tieneClaves: data.claves.tiene,
-                isSmallScreen: isSmallScreen,
-                onBack: () => Navigator.maybePop(context),
-                onOpenClaves: () => Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => const CustodiaClavesPage(),
-                  ),
-                ),
+            // Píldora Flotante Auténtica (SOS y Check-in) flotando en mid-air sobre el contenido
+            if (data.hasActiveModule)
+              Positioned(
+                left: isSmallScreen ? 12 : 16,
+                right: isSmallScreen ? 12 : 16,
+                bottom: mediaQuery.padding.bottom > 0
+                    ? mediaQuery.padding.bottom + 4
+                    : 12,
+                child: _buildBottomFloatingBar(context, state, data),
               ),
-            ),
-
-            // 4. BARRA DE ESTADO DE COLA Y SINCRONIZACIÓN
-            const Positioned(
-              bottom: 0,
-              left: 0,
-              right: 0,
-              child: CustodiaSyncStatusBar(),
-            ),
           ],
         ),
       );
@@ -1286,76 +1226,86 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
-      bottomNavigationBar: (data != null && data.hasActiveModule)
-          ? _buildBottomFloatingBar(context, state, data)
-          : null,
       body: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
+        child: Stack(
           children: [
-            // Header estilo Apple
-            Padding(
-              padding: EdgeInsets.symmetric(
-                horizontal: isSmallScreen ? 12.0 : 16.0,
-                vertical: 8.0,
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Header estilo Apple
+                Padding(
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isSmallScreen ? 12.0 : 16.0,
+                    vertical: 8.0,
+                  ),
+                  child: _buildHeader(context, state),
+                ),
+
+                // Contenido
+                Expanded(
+                  child: state.isLoading && data == null
+                      ? _buildSkeleton(context, isSmallScreen)
+                      : RefreshIndicator(
+                          color: const Color(0xFF0284C7),
+                          backgroundColor: Colors.white,
+                          onRefresh: () =>
+                              ref.read(custodiaProvider.notifier).cargarCustodia(),
+                          child: (data == null ||
+                                  (!data.hasActiveModule && data.claves.tiene))
+                              ? _buildEmptyState()
+                              : SingleChildScrollView(
+                                  physics: const AlwaysScrollableScrollPhysics(
+                                    parent: BouncingScrollPhysics(),
+                                  ),
+                                  padding: EdgeInsets.symmetric(
+                                    horizontal: isSmallScreen ? 12.0 : 16.0,
+                                    vertical: 6.0,
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      // Tarjeta de configuración de claves (estilo Apple Card)
+                                      if (!data.claves.tiene)
+                                        _buildAppleClavesCard(),
+
+                                      // Píldoras de pestañas estilo iOS 17
+                                      if (data.servicios.isNotEmpty &&
+                                          data.rondines.isNotEmpty)
+                                        _buildAppleSegmentedTabs(state, data),
+
+                                      if (state.selectedTab == 0 &&
+                                          data.servicios.isNotEmpty)
+                                        _buildServicioContent(
+                                            state.activeServicio ??
+                                                data.servicios.first)
+                                      else if (data.rondines.isNotEmpty)
+                                        _buildRondinContent(state.activeRondin ??
+                                            data.rondines.first)
+                                      else if (data.servicios.isNotEmpty)
+                                        _buildServicioContent(
+                                            state.activeServicio ??
+                                                data.servicios.first),
+
+                                      const SizedBox(height: 100),
+                                    ],
+                                  ),
+                                ),
+                        ),
+                ),
+
+                // Barra de estado de sincronización inferior estilo Apple (igual a Rutas)
+                const CustodiaSyncStatusBar(),
+              ],
+            ),
+
+            // Píldora Flotante Auténtica (SOS y Check-in)
+            if (data != null && data.hasActiveModule)
+              Positioned(
+                left: isSmallScreen ? 12 : 16,
+                right: isSmallScreen ? 12 : 16,
+                bottom: 12,
+                child: _buildBottomFloatingBar(context, state, data),
               ),
-              child: _buildHeader(context, state),
-            ),
-
-            // Contenido
-            Expanded(
-              child: state.isLoading && data == null
-                  ? _buildSkeleton(context, isSmallScreen)
-                  : RefreshIndicator(
-                      color: const Color(0xFF0284C7),
-                      backgroundColor: Colors.white,
-                      onRefresh: () =>
-                          ref.read(custodiaProvider.notifier).cargarCustodia(),
-                      child: (data == null ||
-                              (!data.hasActiveModule && data.claves.tiene))
-                          ? _buildEmptyState()
-                          : SingleChildScrollView(
-                              physics: const AlwaysScrollableScrollPhysics(
-                                parent: BouncingScrollPhysics(),
-                              ),
-                              padding: EdgeInsets.symmetric(
-                                horizontal: isSmallScreen ? 12.0 : 16.0,
-                                vertical: 6.0,
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  // Tarjeta de configuración de claves (estilo Apple Card)
-                                  if (!data.claves.tiene)
-                                    _buildAppleClavesCard(),
-
-                                  // Píldoras de pestañas estilo iOS 17
-                                  if (data.servicios.isNotEmpty &&
-                                      data.rondines.isNotEmpty)
-                                    _buildAppleSegmentedTabs(state, data),
-
-                                  if (state.selectedTab == 0 &&
-                                      data.servicios.isNotEmpty)
-                                    _buildServicioContent(
-                                        state.activeServicio ??
-                                            data.servicios.first)
-                                  else if (data.rondines.isNotEmpty)
-                                    _buildRondinContent(state.activeRondin ??
-                                        data.rondines.first)
-                                  else if (data.servicios.isNotEmpty)
-                                    _buildServicioContent(
-                                        state.activeServicio ??
-                                            data.servicios.first),
-
-                                  const SizedBox(height: 24),
-                                ],
-                              ),
-                            ),
-                    ),
-            ),
-
-            // Barra de estado de sincronización inferior estilo Apple (igual a Rutas)
-            const CustodiaSyncStatusBar(),
           ],
         ),
       ),
@@ -1382,95 +1332,86 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
             (data.rondines.isNotEmpty ? data.rondines.first.idRondinDia : null))
         : null;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white.withOpacity(0.97),
-        border: const Border(
-          top: BorderSide(color: Color(0xFFE2E8F0), width: 1.0),
-        ),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF0F172A).withOpacity(0.08),
-            blurRadius: 16,
-            offset: const Offset(0, -4),
-          ),
-        ],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-          child: Row(
-            children: [
-              // Botón SOS / Pánico Táctico
-              Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(14),
-                  onTap: state.isSubmitting
-                      ? null
-                      : () => _confirmarPanico(
-                            context,
-                            idServicio: idServicio,
-                            idRondinDia: idRondinDia,
-                          ),
-                  child: Container(
-                    height: 48,
-                    padding: const EdgeInsets.symmetric(horizontal: 14),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFFEF2F2),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(
-                        color: const Color(0xFFFECDD3),
-                        width: 1.2,
-                      ),
-                    ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.emergency_rounded,
-                          color: Color(0xFFDC2626),
-                          size: 20,
-                        ),
-                        SizedBox(width: 6),
-                        Text(
-                          'SOS',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w900,
-                            color: Color(0xFFDC2626),
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 10),
+    final mediaQuery = MediaQuery.of(context);
+    final isSmallScreen = mediaQuery.size.width < 360;
 
-              // Botón Principal de Check-in (Azul Corporativo Original)
-              Expanded(
-                child: LoadingActionButton(
-                  text: 'Check-in («Todo bien»)',
-                  isLoading: state.isSubmitting,
-                  onPressed: () => _showCheckinModal(
-                    context,
-                    idServicio: idServicio,
-                    idRondinDia: idRondinDia,
-                  ),
-                  icon: Icons.check_circle_rounded,
-                  borderRadius: 14,
-                  height: 48,
-                  fontSize: 14,
-                  backgroundColor: const Color(0xFF0284C7),
-                ),
+    return Row(
+      children: [
+        // Botón SOS / Pánico Táctico (Estilo original sin borde tan pronunciado)
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(14),
+            onTap: state.isSubmitting
+                ? null
+                : () => _confirmarPanico(
+                      context,
+                      idServicio: idServicio,
+                      idRondinDia: idRondinDia,
+                    ),
+            child: Container(
+              height: 48,
+              padding: EdgeInsets.symmetric(
+                horizontal: isSmallScreen ? 12 : 16,
               ),
-            ],
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEF2F2),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: const Color(0xFFFECDD3),
+                  width: 1.2,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFDC2626).withOpacity(0.08),
+                    blurRadius: 10,
+                    offset: const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.emergency_rounded,
+                    color: Color(0xFFDC2626),
+                    size: 20,
+                  ),
+                  SizedBox(width: 6),
+                  Text(
+                    'SOS',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: Color(0xFFDC2626),
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
-      ),
+        const SizedBox(width: 10),
+
+        // Botón Principal de Check-in (Estilo original con borderRadius 14)
+        Expanded(
+          child: LoadingActionButton(
+            text: 'Check-in («Todo bien»)',
+            isLoading: state.isSubmitting,
+            onPressed: () => _showCheckinModal(
+              context,
+              idServicio: idServicio,
+              idRondinDia: idRondinDia,
+            ),
+            icon: Icons.check_circle_rounded,
+            borderRadius: 14,
+            height: 48,
+            fontSize: 14,
+            backgroundColor: const Color(0xFF0284C7),
+          ),
+        ),
+      ],
     );
   }
 
@@ -2826,29 +2767,31 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(18, 16, 18, 10),
+            padding: const EdgeInsets.fromLTRB(14, 12, 14, 10),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    const Icon(Icons.chat_bubble_outline_rounded,
-                        color: Color(0xFF0284C7), size: 18),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Mensajes con Monitorista',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
-                      ),
+                const Icon(
+                  Icons.chat_bubble_outline_rounded,
+                  color: Color(0xFF0284C7),
+                  size: 18,
+                ),
+                const SizedBox(width: 8),
+                const Expanded(
+                  child: Text(
+                    'Mensajes con Monitorista',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFF0F172A),
                     ),
-                  ],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ),
                 if (mensajes.isNotEmpty)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: const Color(0xFFF1F5F9),
                       borderRadius: BorderRadius.circular(8),
@@ -2869,97 +2812,99 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
 
           // Lista de mensajes estilo iMessage
           Padding(
-            padding: const EdgeInsets.all(14),
+            padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 180),
-                  child: mensajes.isEmpty
-                      ? const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 18),
-                          child: Center(
-                            child: Text(
-                              'Sin mensajes recientes con el monitorista',
-                              style: TextStyle(
-                                  fontSize: 12, color: Color(0xFF94A3B8)),
+                if (mensajes.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 10),
+                    child: Center(
+                      child: Text(
+                        'Sin mensajes recientes con el monitorista',
+                        style: TextStyle(
+                            fontSize: 12, color: Color(0xFF94A3B8)),
+                      ),
+                    ),
+                  )
+                else
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 280),
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      padding: EdgeInsets.zero,
+                      physics: const BouncingScrollPhysics(),
+                      itemCount: mensajes.length,
+                      itemBuilder: (ctx, idx) {
+                        final m = mensajes[idx];
+                        final isMe = m.mio || m.deApp;
+                        return Align(
+                          alignment: isMe
+                              ? Alignment.centerRight
+                              : Alignment.centerLeft,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(vertical: 3),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: isMe
+                                  ? const Color(0xFF0284C7)
+                                  : const Color(0xFFF1F5F9),
+                              borderRadius:
+                                  BorderRadius.circular(16).copyWith(
+                                bottomRight: isMe
+                                    ? const Radius.circular(3)
+                                    : const Radius.circular(16),
+                                bottomLeft: !isMe
+                                    ? const Radius.circular(3)
+                                    : const Radius.circular(16),
+                              ),
                             ),
-                          ),
-                        )
-                      : ListView.builder(
-                          shrinkWrap: true,
-                          reverse: true,
-                          physics: const BouncingScrollPhysics(),
-                          itemCount: mensajes.length,
-                          itemBuilder: (ctx, idx) {
-                            final m = mensajes[mensajes.length - 1 - idx];
-                            final isMe = m.mio || m.deApp;
-                            return Align(
-                              alignment: isMe
-                                  ? Alignment.centerRight
-                                  : Alignment.centerLeft,
-                              child: Container(
-                                margin: const EdgeInsets.symmetric(vertical: 3),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 9),
-                                decoration: BoxDecoration(
-                                  color: isMe
-                                      ? const Color(0xFF0284C7)
-                                      : const Color(0xFFF1F5F9),
-                                  borderRadius:
-                                      BorderRadius.circular(16).copyWith(
-                                    bottomRight: isMe
-                                        ? const Radius.circular(3)
-                                        : const Radius.circular(16),
-                                    bottomLeft: !isMe
-                                        ? const Radius.circular(3)
-                                        : const Radius.circular(16),
+                            child: Column(
+                              crossAxisAlignment: isMe
+                                  ? CrossAxisAlignment.end
+                                  : CrossAxisAlignment.start,
+                              children: [
+                                if (!isMe && m.quien.isNotEmpty) ...[
+                                  Text(
+                                    m.quien,
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w700,
+                                      color: Color(0xFF0284C7),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                ],
+                                Text(
+                                  m.texto,
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    color: isMe
+                                        ? Colors.white
+                                        : const Color(0xFF0F172A),
+                                    fontWeight: FontWeight.w500,
                                   ),
                                 ),
-                                child: Column(
-                                  crossAxisAlignment: isMe
-                                      ? CrossAxisAlignment.end
-                                      : CrossAxisAlignment.start,
-                                  children: [
-                                    if (!isMe && m.quien.isNotEmpty) ...[
-                                      Text(
-                                        m.quien,
-                                        style: const TextStyle(
-                                          fontSize: 10,
-                                          fontWeight: FontWeight.w700,
-                                          color: Color(0xFF0284C7),
-                                        ),
-                                      ),
-                                      const SizedBox(height: 2),
-                                    ],
-                                    Text(
-                                      m.texto,
-                                      style: TextStyle(
-                                        fontSize: 12.5,
-                                        color: isMe
-                                            ? Colors.white
-                                            : const Color(0xFF0F172A),
-                                        fontWeight: FontWeight.w500,
-                                      ),
+                                if (m.fecha.isNotEmpty) ...[
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    m.fecha,
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      color: isMe
+                                          ? Colors.white70
+                                          : const Color(0xFF94A3B8),
                                     ),
-                                    if (m.fecha.isNotEmpty) ...[
-                                      const SizedBox(height: 2),
-                                      Text(
-                                        m.fecha,
-                                        style: TextStyle(
-                                          fontSize: 10,
-                                          color: isMe
-                                              ? Colors.white70
-                                              : const Color(0xFF94A3B8),
-                                        ),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
                 const SizedBox(height: 10),
 
                 // Respuestas rápidas en píldoras horizontales
@@ -3263,7 +3208,190 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
             solicitudes: rondin.solicitudes,
           ),
 
-        _buildRondinTimelineSection(rondin),
+        _buildRondinSegmentedTabs(rondin),
+        if (_selectedRondinTab == 0)
+          _buildRondinTimelineSection(rondin)
+        else
+          _buildRondinChatAndBitacoraSection(rondin),
+      ],
+    );
+  }
+
+  /// Pestañas segmentadas para Rondín: [ Puntos ] vs [ Chat y Bitácora ]
+  Widget _buildRondinSegmentedTabs(RondinDia rondin) {
+    final unreadCount =
+        rondin.mensajes.where((m) => !m.mio && !m.deApp).length;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 2, bottom: 14),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          // Pestaña 1: Puntos
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                if (_selectedRondinTab != 0) {
+                  setState(() => _selectedRondinTab = 0);
+                }
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: _selectedRondinTab == 0
+                      ? Colors.white
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(11),
+                  boxShadow: _selectedRondinTab == 0
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.06),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.pin_drop_rounded,
+                        size: 15,
+                        color: _selectedRondinTab == 0
+                            ? const Color(0xFF0284C7)
+                            : const Color(0xFF64748B),
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          'Puntos (${rondin.puntos.length})',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: _selectedRondinTab == 0
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: _selectedRondinTab == 0
+                                ? const Color(0xFF0F172A)
+                                : const Color(0xFF64748B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+
+          // Pestaña 2: Chat y Bitácora
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                if (_selectedRondinTab != 1) {
+                  setState(() => _selectedRondinTab = 1);
+                }
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: _selectedRondinTab == 1
+                      ? Colors.white
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(11),
+                  boxShadow: _selectedRondinTab == 1
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.06),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.forum_outlined,
+                        size: 15,
+                        color: _selectedRondinTab == 1
+                            ? const Color(0xFF0284C7)
+                            : const Color(0xFF64748B),
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          'Chat y Bitácora',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: _selectedRondinTab == 1
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: _selectedRondinTab == 1
+                                ? const Color(0xFF0F172A)
+                                : const Color(0xFF64748B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (unreadCount > 0) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0284C7),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '$unreadCount',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Sección de Chat y Bitácora de Rondín en pestaña dedicada
+  Widget _buildRondinChatAndBitacoraSection(RondinDia rondin) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Chat con Monitorista para Rondín
+        _buildAppleChatSection(
+          idRondinDia: rondin.idRondinDia,
+          mensajes: rondin.mensajes,
+        ),
+
+        const SizedBox(height: 12),
+
+        // Bitácora de Eventos del Rondín
+        _buildAppleRondinBitacoraCard(rondin),
       ],
     );
   }
@@ -3280,15 +3408,20 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text(
-                'LÍNEA DE TIEMPO DEL RONDÍN',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF64748B),
-                  letterSpacing: 0.6,
+              const Expanded(
+                child: Text(
+                  'LÍNEA DE TIEMPO DEL RONDÍN',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF64748B),
+                    letterSpacing: 0.6,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
@@ -3353,17 +3486,6 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
             );
           },
         ),
-
-        const SizedBox(height: 16),
-
-        // Chat con Monitorista para Rondín
-        _buildAppleChatSection(
-          idRondinDia: rondin.idRondinDia,
-          mensajes: rondin.mensajes,
-        ),
-
-        // Bitácora de Eventos del Rondín
-        _buildAppleRondinBitacoraCard(rondin),
       ],
     );
   }
@@ -3401,17 +3523,13 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
         color: Colors.white,
         borderRadius: BorderRadius.circular(18),
         border: Border.all(
-          color: isCompletado
-              ? const Color(0xFFBBF7D0)
-              : (isNext ? const Color(0xFF0284C7) : const Color(0xFFE2E8F0)),
-          width: isNext ? 1.6 : 1.0,
+          color: const Color(0xFFE2E8F0),
+          width: 1.0,
         ),
         boxShadow: [
           BoxShadow(
-            color: isNext
-                ? const Color(0xFF0284C7).withOpacity(0.08)
-                : const Color(0xFF0F172A).withOpacity(0.02),
-            blurRadius: isNext ? 10 : 8,
+            color: const Color(0xFF0F172A).withOpacity(0.03),
+            blurRadius: 8,
             offset: const Offset(0, 2),
           ),
         ],
@@ -3459,20 +3577,16 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                       : null,
                 ),
                 child: Center(
-                  child: isCompletado
-                      ? const Icon(
-                          Icons.check_rounded,
-                          size: 20,
-                          color: Colors.white,
-                        )
-                      : Text(
-                          '${index + 1}',
-                          style: TextStyle(
-                            fontSize: 13,
-                            fontWeight: FontWeight.w900,
-                            color: isNext ? Colors.white : const Color(0xFF64748B),
-                          ),
-                        ),
+                  child: Text(
+                    '${index + 1}',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w900,
+                      color: (isCompletado || isNext)
+                          ? Colors.white
+                          : const Color(0xFF64748B),
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 12),
@@ -3506,12 +3620,16 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                         const Icon(Icons.schedule_rounded,
                             size: 13, color: Color(0xFF64748B)),
                         const SizedBox(width: 4),
-                        Text(
-                          'Hora: ${punto.hora} · Tol: ±${punto.tolMin}m · Mín: ${punto.permMin}m',
-                          style: const TextStyle(
-                            fontSize: 11.5,
-                            color: Color(0xFF64748B),
-                            fontWeight: FontWeight.w500,
+                        Expanded(
+                          child: Text(
+                            'Hora: ${punto.hora} · Tol: ±${punto.tolMin}m · Mín: ${punto.permMin}m',
+                            style: const TextStyle(
+                              fontSize: 11.5,
+                              color: Color(0xFF64748B),
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
                           ),
                         ),
                       ],
@@ -4005,8 +4123,7 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
     eventos.sort((a, b) => b.fechaCompleta.compareTo(a.fechaCompleta));
 
     return Container(
-      margin: const EdgeInsets.only(top: 16),
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(20),
@@ -4025,20 +4142,27 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Row(
-                children: [
-                  Icon(Icons.history_rounded, size: 16, color: Color(0xFF0F172A)),
-                  SizedBox(width: 8),
-                  Text(
-                    'Bitácora de Eventos',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
+              const Expanded(
+                child: Row(
+                  children: [
+                    Icon(Icons.history_rounded, size: 16, color: Color(0xFF0F172A)),
+                    SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        'Bitácora de Eventos',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
@@ -4056,13 +4180,14 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
               ),
             ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 8),
           ListView.separated(
             shrinkWrap: true,
+            padding: EdgeInsets.zero,
             physics: const NeverScrollableScrollPhysics(),
             itemCount: eventos.length,
             separatorBuilder: (_, __) => const Padding(
-              padding: EdgeInsets.symmetric(vertical: 4),
+              padding: EdgeInsets.symmetric(vertical: 3),
               child: Divider(height: 1, color: Color(0xFFF1F5F9)),
             ),
             itemBuilder: (ctx, idx) {
