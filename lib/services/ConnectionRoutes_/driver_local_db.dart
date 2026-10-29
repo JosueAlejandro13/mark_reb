@@ -107,6 +107,14 @@ class DriverLocalDb {
             updated_at TEXT NOT NULL
           )
         ''');
+
+        // Limpieza de acciones de custodia que pudieran haberse guardado en la base de datos de chofer
+        try {
+          await db.delete(
+            'action_queue',
+            where: "tipo LIKE 'cus%' OR tipo = 'rondinPunto'",
+          );
+        } catch (_) {}
       },
       onCreate: (db, version) async {
         await db.execute('''
@@ -367,7 +375,7 @@ class DriverLocalDb {
     final db = await database;
     final rows = await db.query(
       'action_queue',
-      where: "status IN ('pending', 'retrying')",
+      where: "status IN ('pending', 'retrying') AND tipo NOT LIKE 'cus%' AND tipo != 'rondinPunto'",
       orderBy: 'id ASC',
       limit: limit,
     );
@@ -379,7 +387,7 @@ class DriverLocalDb {
     final db = await database;
     final rows = await db.query(
       'action_queue',
-      where: "status = 'rejected'",
+      where: "status = 'rejected' AND tipo NOT LIKE 'cus%' AND tipo != 'rondinPunto'",
       orderBy: 'id DESC',
     );
     return rows.map(QueuedAction.fromDbMap).toList();

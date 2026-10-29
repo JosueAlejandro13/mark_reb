@@ -1,4 +1,5 @@
 import 'package:mark_v3/pages/Custodia_/custodia_route_map_widget.dart';
+import 'package:mark_v3/pages/Custodia_/custodia_sync_widgets.dart';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -8,11 +9,13 @@ import 'package:loading_animation_widget/loading_animation_widget.dart';
 import 'package:mark_v3/models/Custodia_/custodia_models.dart';
 import 'package:mark_v3/pages/Custodia_/custodia_claves_page.dart';
 import 'package:mark_v3/providers/Custodia_/custodia_provider.dart';
+import 'package:mark_v3/services/ConnectionCustodia_/custodia_local_db.dart';
 import 'package:mark_v3/widgets/app_skeleton.dart';
 import 'package:mark_v3/widgets/loading_action_button.dart';
 import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:uuid/uuid.dart';
 
 class CustodiaPage extends ConsumerStatefulWidget {
   const CustodiaPage({super.key});
@@ -24,6 +27,8 @@ class CustodiaPage extends ConsumerStatefulWidget {
 class _CustodiaPageState extends ConsumerState<CustodiaPage> {
   final TextEditingController _mensajeController = TextEditingController();
   final ImagePicker _picker = ImagePicker();
+  bool _hasRedirectedToClaves = false;
+  int _lastReadChatMsgId = 0;
 
   @override
   void initState() {
@@ -330,10 +335,13 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
           );
       if (!mounted) return;
       if (ok) {
+        final isOnline = ref.read(custodiaProvider).isOnline;
         SnackbarTop.showSuccess(
           context,
-          'Check-in registrado. Estatus: Todo bien.',
-          title: 'Reporte enviado',
+          isOnline
+              ? 'Check-in registrado. Estatus: Todo bien.'
+              : 'Check-in guardado en el equipo (se subirá con señal).',
+          title: 'Reporte registrado',
         );
       } else {
         final err =
@@ -786,23 +794,121 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
     }
 
     if (!punto.conQr) {
+      // Opciones para punto sin QR: Marcar directo por GPS o tomar foto de evidencia opcional
+      final opcion = await showModalBottomSheet<String>(
+        context: context,
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        builder: (ctx) => SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 36,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  '${momento == "llegue" ? "Marcar Llegada" : "Marcar Salida"} · ${punto.nombre}',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  punto.dentro
+                      ? 'Estás dentro del radio del punto de control (${punto.radioM}m).'
+                      : 'Se registrará tu ubicación GPS actual.',
+                  style: const TextStyle(fontSize: 12.5, color: Color(0xFF64748B)),
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.of(ctx).pop('directo'),
+                  icon: const Icon(Icons.my_location_rounded, size: 18),
+                  label: const Text('Confirmar por GPS'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0284C7),
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => Navigator.of(ctx).pop('foto'),
+                  icon: const Icon(Icons.camera_alt_outlined, size: 18),
+                  label: const Text('Tomar foto de evidencia y confirmar'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF0F172A),
+                    side: const BorderSide(color: Color(0xFFE2E8F0)),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+
+      if (opcion == null) return;
+
+      final List<String> fotosList = [];
+      if (opcion == 'foto') {
+        try {
+          final xfile = await _picker.pickImage(
+            source: ImageSource.camera,
+            imageQuality: 85,
+          );
+          if (xfile != null) {
+            final photoUuid = const Uuid().v4();
+            await CustodiaLocalDb.instance.saveAndEnqueuePhoto(
+              uuid: photoUuid,
+              tipo: 1,
+              sourceFile: File(xfile.path),
+            );
+            fotosList.add(photoUuid);
+          }
+        } catch (_) {}
+      }
+
       final ok = await ref.read(custodiaProvider.notifier).marcarRondinPunto(
             idRondinDia: rondin.idRondinDia,
             idPunto: punto.id,
             momento: momento,
+            fotos: fotosList,
           );
       if (!mounted) return;
       if (ok) {
+        final isOnline = ref.read(custodiaProvider).isOnline;
+        final extra = fotosList.isNotEmpty ? ' con fotografía de evidencia' : '';
         SnackbarTop.showSuccess(
           context,
-          'Punto marcado como: ${momento == "llegue" ? "Llegada" : "Salida"}',
+          isOnline
+              ? 'Punto marcado como: ${momento == "llegue" ? "Llegada" : "Salida"}$extra'
+              : 'Punto guardado en el equipo (se subirá con señal)',
           title: 'Punto de rondín',
         );
       }
       return;
     }
 
-    final qrScanned = await showModalBottomSheet<String>(
+    final scanResult = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.black,
@@ -836,7 +942,7 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                     for (final barcode in barcodes) {
                       final val = barcode.rawValue;
                       if (val != null && val.isNotEmpty) {
-                        Navigator.of(ctx).pop(val);
+                        Navigator.of(ctx).pop({'qr': val});
                         break;
                       }
                     }
@@ -852,36 +958,83 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                       style: TextStyle(color: Colors.white70, fontSize: 13),
                     ),
                     const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      height: 44,
-                      child: OutlinedButton.icon(
-                        onPressed: () => Navigator.of(ctx).pop('__GPS__'),
-                        icon: const Icon(Icons.my_location_rounded,
-                            size: 16, color: Colors.white),
-                        label: Text(
-                          punto.dentro
-                              ? 'Validar por GPS (Estás dentro del punto)'
-                              : 'Validar por GPS del teléfono',
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600),
-                        ),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(
-                            color: punto.dentro
-                                ? const Color(0xFF22C55E)
-                                : Colors.white30,
-                            width: punto.dentro ? 1.5 : 1.0,
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SizedBox(
+                            height: 44,
+                            child: OutlinedButton.icon(
+                              onPressed: () =>
+                                  Navigator.of(ctx).pop({'gps': true}),
+                              icon: const Icon(Icons.my_location_rounded,
+                                  size: 16, color: Colors.white),
+                              label: Text(
+                                punto.dentro
+                                    ? 'GPS (Dentro)'
+                                    : 'Validar por GPS',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 12.5,
+                                    fontWeight: FontWeight.w600),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                side: BorderSide(
+                                  color: punto.dentro
+                                      ? const Color(0xFF22C55E)
+                                      : Colors.white30,
+                                  width: punto.dentro ? 1.5 : 1.0,
+                                ),
+                                backgroundColor: punto.dentro
+                                    ? const Color(0xFF14532D).withOpacity(0.5)
+                                    : Colors.white10,
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12)),
+                              ),
+                            ),
                           ),
-                          backgroundColor: punto.dentro
-                              ? const Color(0xFF14532D).withOpacity(0.5)
-                              : Colors.white10,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        SizedBox(
+                          height: 44,
+                          child: OutlinedButton.icon(
+                            onPressed: () async {
+                              try {
+                                final xfile = await _picker.pickImage(
+                                  source: ImageSource.camera,
+                                  imageQuality: 85,
+                                );
+                                if (xfile != null && ctx.mounted) {
+                                  Navigator.of(ctx).pop({
+                                    'gps': true,
+                                    'photoPath': xfile.path,
+                                  });
+                                }
+                              } catch (_) {}
+                            },
+                            icon: const Icon(Icons.camera_alt_rounded,
+                                size: 16, color: Colors.white),
+                            label: const Text(
+                              'Foto',
+                              style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(
+                                color: Color(0xFF38BDF8),
+                                width: 1.0,
+                              ),
+                              backgroundColor:
+                                  const Color(0xFF0369A1).withOpacity(0.3),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12)),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -892,21 +1045,39 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
       },
     );
 
-    if (qrScanned != null && mounted) {
-      final String? qrParam = qrScanned == '__GPS__' ? null : qrScanned;
+    if (scanResult != null && mounted) {
+      final String? qrParam = scanResult['qr'] as String?;
+      final String? photoPath = scanResult['photoPath'] as String?;
+      final List<String> fotosList = [];
+
+      if (photoPath != null && photoPath.isNotEmpty) {
+        final photoUuid = const Uuid().v4();
+        await CustodiaLocalDb.instance.saveAndEnqueuePhoto(
+          uuid: photoUuid,
+          tipo: 1,
+          sourceFile: File(photoPath),
+        );
+        fotosList.add(photoUuid);
+      }
+
       final ok = await ref.read(custodiaProvider.notifier).marcarRondinPunto(
             idRondinDia: rondin.idRondinDia,
             idPunto: punto.id,
             momento: momento,
             qr: qrParam,
+            fotos: fotosList,
           );
       if (!mounted) return;
       if (ok) {
+        final isOnline = ref.read(custodiaProvider).isOnline;
+        final extra = fotosList.isNotEmpty ? ' con fotografía de evidencia' : '';
         SnackbarTop.showSuccess(
           context,
-          qrParam != null
-              ? 'Punto validado por QR correctamente.'
-              : 'Punto validado por GPS correctamente.',
+          !isOnline
+              ? 'Punto guardado en el equipo (se subirá con señal)'
+              : (qrParam != null
+                  ? 'Punto validado por QR correctamente$extra.'
+                  : 'Punto validado por GPS correctamente$extra.'),
           title: 'Rondín actualizado',
         );
       } else {
@@ -919,6 +1090,20 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
 
   @override
   Widget build(BuildContext context) {
+    ref.listen<CustodiaState>(custodiaProvider, (previous, next) {
+      if (next.data != null &&
+          !next.data!.claves.tiene &&
+          !_hasRedirectedToClaves &&
+          mounted) {
+        _hasRedirectedToClaves = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const CustodiaClavesPage()),
+          );
+        });
+      }
+    });
+
     final state = ref.watch(custodiaProvider);
     final data = state.data;
     final mediaQuery = MediaQuery.of(context);
@@ -993,6 +1178,9 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                             ),
                     ),
             ),
+
+            // Barra de estado de sincronización inferior estilo Apple (igual a Rutas)
+            const CustodiaSyncStatusBar(),
           ],
         ),
       ),
@@ -1729,31 +1917,38 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.all(6),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF0FDF4),
-                      borderRadius: BorderRadius.circular(8),
+              Expanded(
+                child: Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0FDF4),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(
+                        Icons.alt_route_rounded,
+                        size: 16,
+                        color: Color(0xFF16A34A),
+                      ),
                     ),
-                    child: const Icon(
-                      Icons.alt_route_rounded,
-                      size: 16,
-                      color: Color(0xFF16A34A),
+                    const SizedBox(width: 8),
+                    const Expanded(
+                      child: Text(
+                        'Puntos de Control y Casetas',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
-                  const Text(
-                    'Puntos de Control y Casetas',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF0F172A),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
@@ -1875,20 +2070,6 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
 
   // --- CONTENIDO DEL SERVICIO ACTIVO ---
   Widget _buildServicioContent(CustodiaServicio servicio) {
-    final state = ref.watch(custodiaProvider);
-    final isVencido = state.isVencido || servicio.checkin?.vencido == true;
-    final int sec = state.secondsRemaining;
-
-    Color timerColor = const Color(0xFF10B981);
-    String timerStatusText = 'A TIEMPO';
-    if (isVencido) {
-      timerColor = const Color(0xFFEF4444);
-      timerStatusText = 'VENCIDO';
-    } else if (sec < 300) {
-      timerColor = const Color(0xFFF59E0B);
-      timerStatusText = 'POR VENCER';
-    }
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -2040,80 +2221,7 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
 
         const SizedBox(height: 14),
 
-        // 3. Tarjeta Check-in periódico con Temporizador Hero
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color:
-                  isVencido ? const Color(0xFFFECACA) : const Color(0xFFE2E8F0),
-              width: 1.0,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0F172A).withOpacity(0.02),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Column(
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'CHECK-IN PERIÓDICO',
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w800,
-                      color: Color(0xFF64748B),
-                      letterSpacing: 0.6,
-                    ),
-                  ),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: timerColor.withOpacity(0.12),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      timerStatusText,
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        fontWeight: FontWeight.w800,
-                        color: timerColor,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              Text(
-                _formatSeconds(sec),
-                style: TextStyle(
-                  fontSize: 42,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: -1,
-                  color: timerColor,
-                  fontFeatures: const [FontFeature.tabularFigures()],
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                isVencido
-                    ? 'Check-in vencido · Reporta para evitar alerta al CEDI'
-                    : 'Frecuencia: cada ${servicio.checkin?.cadaMin ?? 30} minutos',
-                style: const TextStyle(fontSize: 12, color: Color(0xFF64748B)),
-              ),
-            ],
-          ),
-        ),
-
-        // 4. Trazado de Ruta y Corredor en Mapa (Ronda 151)
+        // 3. Trazado de Ruta y Corredor en Mapa (Ronda 151)
         CustodiaRouteMapCard(servicio: servicio),
 
         // Puntos de Control y Casetas de Ruta en Tránsito
@@ -2403,19 +2511,23 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
     final respuestasRapidas = state.data?.respuestasRapidas ?? [];
 
     // Marcar como leídos en background si hay mensajes entrantes no leídos del monitorista
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final unreadFromMonitor =
-          mensajes.where((m) => !m.mio && !m.deApp).toList();
-      if (unreadFromMonitor.isNotEmpty) {
-        final lastId =
-            unreadFromMonitor.map((m) => m.id).reduce((a, b) => a > b ? a : b);
-        ref.read(custodiaProvider.notifier).marcarMensajesLeidos(
-              idServicio: idServicio,
-              idRondinDia: idRondinDia,
-              hastaId: lastId,
-            );
+    final unreadFromMonitor =
+        mensajes.where((m) => !m.mio && !m.deApp).toList();
+    if (unreadFromMonitor.isNotEmpty) {
+      final lastId =
+          unreadFromMonitor.map((m) => m.id).reduce((a, b) => a > b ? a : b);
+      if (lastId > _lastReadChatMsgId) {
+        _lastReadChatMsgId = lastId;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ref.read(custodiaProvider.notifier).marcarMensajesLeidos(
+                idServicio: idServicio,
+                idRondinDia: idRondinDia,
+                hastaId: lastId,
+              );
+        });
       }
-    });
+    }
 
     return Container(
       decoration: BoxDecoration(

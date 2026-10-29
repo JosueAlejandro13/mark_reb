@@ -7,6 +7,7 @@ import 'Profile_/LicenseDetailsPage.dart';
 import 'package:mark_v3/providers/Profile_/profile_provider.dart';
 import 'package:mark_v3/providers/Profile_/edit_profile_provider.dart';
 import 'package:mark_v3/providers/Routes_/routes_provider.dart';
+import 'package:mark_v3/services/ConnectionCustodia_/custodia_local_db.dart';
 import 'package:mark_v3/services/ConnectionRoutes_/driver_local_db.dart';
 import 'package:mark_v3/providers/Custodia_/custodia_provider.dart';
 import 'package:mark_v3/providers/Notification_/notifications_provider.dart';
@@ -983,8 +984,9 @@ class ProfilePage extends ConsumerWidget {
                     final prefs = await SharedPreferences.getInstance();
                     await prefs.clear(); // Limpiar token y variable isDemoUser
 
-                    // Cerrar la base de datos local SQLite del chofer
+                    // Cerrar las bases de datos locales SQLite
                     await DriverLocalDb.instance.close();
+                    await CustodiaLocalDb.instance.close();
 
                     // Limpiar sesión en MarkApiClient para evitar fuga de tokens entre cuentas
                     MarkApiClient.instance.clearSession();

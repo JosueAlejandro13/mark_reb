@@ -17,6 +17,7 @@ import 'package:mark_v3/widgets/snackbar_top.dart';
 import 'package:mark_v3/pages/home_page.dart';
 import 'package:mark_v3/pages/Auth_/two_factor_auth_page.dart';
 import 'package:mark_v3/providers/Routes_/routes_provider.dart';
+import 'package:mark_v3/services/ConnectionCustodia_/custodia_local_db.dart';
 import 'package:mark_v3/services/ConnectionRoutes_/driver_local_db.dart';
 import 'package:mark_v3/providers/Notification_/notifications_provider.dart';
 import 'package:mark_v3/providers/Custodia_/custodia_provider.dart';
@@ -313,8 +314,9 @@ class LoginNotifier extends Notifier<LoginState> {
     await secureStorage.write(key: 'driver_api_token', value: session.token);
     await secureStorage.write(key: 'driver_api_session', value: jsonEncode(session.toJson()));
 
-    // 2. Cambiar base de datos local SQLite al usuario autenticado
+    // 2. Cambiar base de datos local SQLite al usuario autenticado (separado chofer y custodia)
     await DriverLocalDb.instance.switchUser(userId, isDemo: isDemo);
+    await CustodiaLocalDb.instance.switchUser(userId, isDemo: isDemo);
 
     // Precargar y guardar localmente Catálogos Maestros (a=catalogos) según la guía de Nelson (Pág. 15)
     unawaited(apiClient.preloadAndCacheCatalogos().catchError((e) {

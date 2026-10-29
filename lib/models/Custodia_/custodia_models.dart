@@ -182,6 +182,24 @@ class CustodiaCheckinInfo {
         'vencido': vencido,
         'pide': pide,
       };
+
+  CustodiaCheckinInfo copyWith({
+    int? cadaMin,
+    String? ultimo,
+    String? vence,
+    int? venceTs,
+    bool? vencido,
+    bool? pide,
+  }) {
+    return CustodiaCheckinInfo(
+      cadaMin: cadaMin ?? this.cadaMin,
+      ultimo: ultimo ?? this.ultimo,
+      vence: vence ?? this.vence,
+      venceTs: venceTs ?? this.venceTs,
+      vencido: vencido ?? this.vencido,
+      pide: pide ?? this.pide,
+    );
+  }
 }
 
 class CustodiaSolicitud {
@@ -497,6 +515,77 @@ class CustodiaServicio {
           : const CustodiaPermisos(),
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'folio': folio,
+        'nombre': nombre,
+        'estado': estado,
+        'estadoTxt': estadoTxt,
+        'salidaPlan': salidaPlan,
+        'salidaReal': salidaReal,
+        'llegadaPlan': llegadaPlan,
+        'origen': origen?.toJson(),
+        'destino': destino?.toJson(),
+        'misUnidades': misUnidades.map((e) => e.toJson()).toList(),
+        'convoy': convoy.map((e) => e.toJson()).toList(),
+        'monitor': monitor,
+        'checkin': checkin?.toJson(),
+        'solicitudes': solicitudes.map((e) => e.toJson()).toList(),
+        'fotos': {
+          'pide': fotosPide,
+          'total': fotosTotal,
+        },
+        'mensajes': mensajes.map((e) => e.toJson()).toList(),
+        'ruta': ruta?.toJson(),
+        'puede': puede.toJson(),
+      };
+
+  CustodiaServicio copyWith({
+    int? id,
+    String? folio,
+    String? nombre,
+    int? estado,
+    String? estadoTxt,
+    String? salidaPlan,
+    String? salidaReal,
+    String? llegadaPlan,
+    CustodiaPuntoUbicacion? origen,
+    CustodiaPuntoUbicacion? destino,
+    List<CustodiaUnidad>? misUnidades,
+    List<CustodiaConvoy>? convoy,
+    String? monitor,
+    CustodiaCheckinInfo? checkin,
+    List<CustodiaSolicitud>? solicitudes,
+    List<String>? fotosPide,
+    int? fotosTotal,
+    List<CustodiaMensaje>? mensajes,
+    CustodiaRuta? ruta,
+    CustodiaPermisos? puede,
+  }) {
+    return CustodiaServicio(
+      id: id ?? this.id,
+      folio: folio ?? this.folio,
+      nombre: nombre ?? this.nombre,
+      estado: estado ?? this.estado,
+      estadoTxt: estadoTxt ?? this.estadoTxt,
+      salidaPlan: salidaPlan ?? this.salidaPlan,
+      salidaReal: salidaReal ?? this.salidaReal,
+      llegadaPlan: llegadaPlan ?? this.llegadaPlan,
+      origen: origen ?? this.origen,
+      destino: destino ?? this.destino,
+      misUnidades: misUnidades ?? this.misUnidades,
+      convoy: convoy ?? this.convoy,
+      monitor: monitor ?? this.monitor,
+      checkin: checkin ?? this.checkin,
+      solicitudes: solicitudes ?? this.solicitudes,
+      fotosPide: fotosPide ?? this.fotosPide,
+      fotosTotal: fotosTotal ?? this.fotosTotal,
+      mensajes: mensajes ?? this.mensajes,
+      ruta: ruta ?? this.ruta,
+      puede: puede ?? this.puede,
+    );
+  }
 }
 
 class RondinPaso {
@@ -533,6 +622,22 @@ class RondinPaso {
         'lng': lng,
         'conQr': conQr,
       };
+
+  RondinPaso copyWith({
+    String? momento,
+    String? fecha,
+    double? lat,
+    double? lng,
+    bool? conQr,
+  }) {
+    return RondinPaso(
+      momento: momento ?? this.momento,
+      fecha: fecha ?? this.fecha,
+      lat: lat ?? this.lat,
+      lng: lng ?? this.lng,
+      conQr: conQr ?? this.conQr,
+    );
+  }
 }
 
 class RondinPunto {
@@ -547,6 +652,7 @@ class RondinPunto {
   final int permMin;
   final bool conQr;
   final bool dentro;
+  final String? poligono;
   final List<RondinPaso> pasos;
   final bool? cumplidoDirecto;
 
@@ -562,6 +668,7 @@ class RondinPunto {
     this.permMin = 5,
     this.conQr = true,
     this.dentro = false,
+    this.poligono,
     this.pasos = const [],
     this.cumplidoDirecto,
   });
@@ -621,8 +728,60 @@ class RondinPunto {
           5,
       conQr: json['conQr'] == true,
       dentro: json['dentro'] == true,
+      poligono: json['poligono']?.toString(),
       pasos: pasosList,
       cumplidoDirecto: isCumplido,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'nombre': nombre,
+        'lat': lat,
+        'lng': lng,
+        'radioM': radioM,
+        'hora': hora,
+        'horaTs': horaTs,
+        'tolMin': tolMin,
+        'permMin': permMin,
+        'conQr': conQr,
+        'dentro': dentro,
+        if (poligono != null) 'poligono': poligono,
+        'pasos': pasos.map((p) => p.toJson()).toList(),
+        if (cumplidoDirecto != null) 'cumplido': cumplidoDirecto,
+      };
+
+  RondinPunto copyWith({
+    int? id,
+    String? nombre,
+    double? lat,
+    double? lng,
+    int? radioM,
+    String? hora,
+    int? horaTs,
+    int? tolMin,
+    int? permMin,
+    bool? conQr,
+    bool? dentro,
+    String? poligono,
+    List<RondinPaso>? pasos,
+    bool? cumplidoDirecto,
+  }) {
+    return RondinPunto(
+      id: id ?? this.id,
+      nombre: nombre ?? this.nombre,
+      lat: lat ?? this.lat,
+      lng: lng ?? this.lng,
+      radioM: radioM ?? this.radioM,
+      hora: hora ?? this.hora,
+      horaTs: horaTs ?? this.horaTs,
+      tolMin: tolMin ?? this.tolMin,
+      permMin: permMin ?? this.permMin,
+      conQr: conQr ?? this.conQr,
+      dentro: dentro ?? this.dentro,
+      poligono: poligono ?? this.poligono,
+      pasos: pasos ?? this.pasos,
+      cumplidoDirecto: cumplidoDirecto ?? this.cumplidoDirecto,
     );
   }
 }
@@ -687,6 +846,51 @@ class RondinDia {
       puntos: puntosList,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+        'idRondinDia': idRondinDia,
+        'idRondin': idRondin,
+        'nombre': nombre,
+        'fecha': fecha,
+        'turno': turno,
+        'unidad': unidad,
+        'ordenEstricto': ordenEstricto,
+        'cumplidos': cumplidos,
+        'total': total,
+        'solicitudes': solicitudes.map((e) => e.toJson()).toList(),
+        'mensajes': mensajes.map((e) => e.toJson()).toList(),
+        'puntos': puntos.map((e) => e.toJson()).toList(),
+      };
+
+  RondinDia copyWith({
+    int? idRondinDia,
+    int? idRondin,
+    String? nombre,
+    String? fecha,
+    String? turno,
+    String? unidad,
+    bool? ordenEstricto,
+    int? cumplidos,
+    int? total,
+    List<CustodiaSolicitud>? solicitudes,
+    List<CustodiaMensaje>? mensajes,
+    List<RondinPunto>? puntos,
+  }) {
+    return RondinDia(
+      idRondinDia: idRondinDia ?? this.idRondinDia,
+      idRondin: idRondin ?? this.idRondin,
+      nombre: nombre ?? this.nombre,
+      fecha: fecha ?? this.fecha,
+      turno: turno ?? this.turno,
+      unidad: unidad ?? this.unidad,
+      ordenEstricto: ordenEstricto ?? this.ordenEstricto,
+      cumplidos: cumplidos ?? this.cumplidos,
+      total: total ?? this.total,
+      solicitudes: solicitudes ?? this.solicitudes,
+      mensajes: mensajes ?? this.mensajes,
+      puntos: puntos ?? this.puntos,
+    );
+  }
 }
 
 class CustodiaDataResponse {
@@ -745,6 +949,39 @@ class CustodiaDataResponse {
       fotoTipos: fotoTiposList,
       servicios: serviciosList,
       rondines: rondinesList,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'ok': ok,
+        'claves': claves.toJson(),
+        'checkinMin': checkinMin,
+        'checkinRojaMin': checkinRojaMin,
+        'respuestasRapidas': respuestasRapidas.map((e) => e.toJson()).toList(),
+        'fotoTipos': fotoTipos.map((e) => e.toJson()).toList(),
+        'servicios': servicios.map((e) => e.toJson()).toList(),
+        'rondines': rondines.map((e) => e.toJson()).toList(),
+      };
+
+  CustodiaDataResponse copyWith({
+    bool? ok,
+    CustodiaClavesConfig? claves,
+    int? checkinMin,
+    int? checkinRojaMin,
+    List<CustodiaRespuestaRapida>? respuestasRapidas,
+    List<CustodiaFotoTipo>? fotoTipos,
+    List<CustodiaServicio>? servicios,
+    List<RondinDia>? rondines,
+  }) {
+    return CustodiaDataResponse(
+      ok: ok ?? this.ok,
+      claves: claves ?? this.claves,
+      checkinMin: checkinMin ?? this.checkinMin,
+      checkinRojaMin: checkinRojaMin ?? this.checkinRojaMin,
+      respuestasRapidas: respuestasRapidas ?? this.respuestasRapidas,
+      fotoTipos: fotoTipos ?? this.fotoTipos,
+      servicios: servicios ?? this.servicios,
+      rondines: rondines ?? this.rondines,
     );
   }
 }

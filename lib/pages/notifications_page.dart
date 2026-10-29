@@ -7,6 +7,7 @@ import 'package:mark_v3/widgets/app_skeleton.dart';
 import 'package:mark_v3/pages/tasks_page.dart';
 import 'package:mark_v3/pages/MaintenancePage.dart';
 import 'package:mark_v3/pages/MyVehicle_/MyVehiclePage.dart';
+import 'package:mark_v3/pages/Custodia_/custodia_page.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
 
 // Re-export NotificationItem para retrocompatibilidad total en main.dart
@@ -779,6 +780,8 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
     switch (origen) {
       case 103:
         return 'Ver Alerta de Vigilante en Ruta';
+      case 6:
+        return 'Abrir Custodia y Rondines';
       case 15:
         return 'Abrir Tarea Asignada';
       case 2:
@@ -818,6 +821,19 @@ class _NotificationsPageState extends ConsumerState<NotificationsPage> {
             idCollaborator: colabId,
             idMainAccount: accId,
           ),
+        ),
+      );
+      return;
+    }
+
+    if (origen == 6 ||
+        item.title.toLowerCase().contains('custodia') ||
+        item.title.toLowerCase().contains('rondín') ||
+        item.description.toLowerCase().contains('custodia')) {
+      Navigator.push(
+        ctx,
+        MaterialPageRoute(
+          builder: (_) => const CustodiaPage(),
         ),
       );
       return;

@@ -38,6 +38,25 @@ import 'package:mark_v3/pages/Custodia_/custodia_page.dart';
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   debugPrint("Mensaje en segundo plano: ${message.messageId}");
 
+  // Ronda 151: Manejo de Push FCM de Custodia en segundo plano (data: {tipo: "aviso", categoria: "6"})
+  final isCustodia = message.data['categoria']?.toString() == '6' ||
+      message.data['tipo']?.toString() == 'custodia';
+  if (isCustodia) {
+    try {
+      await LocalNotificationService.initialize();
+      final body = message.notification?.body ??
+          message.data['mensaje']?.toString() ??
+          message.data['texto']?.toString() ??
+          'Actualización en tu servicio de custodia o rondín.';
+      await LocalNotificationService.showCustodiaSolicitudNotification(
+        texto: body,
+        plazo: 'Inmediato',
+      );
+    } catch (e) {
+      debugPrint('[FCM Background] Error mostrando notificación de Custodia: $e');
+    }
+  }
+
   if (message.notification?.title != null &&
       message.notification?.body != null) {
     String notificationId = message.data.containsKey('id')

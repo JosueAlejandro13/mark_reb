@@ -222,5 +222,236 @@ void main() {
       // Cadena vacía regresa lista vacía sin excepciones
       expect(Polyline5Decoder.decode('').isEmpty, isTrue);
     });
+
+    test('Serialización y deserialización JSON completa para caché Offline-First', () {
+      final punto = RondinPunto(
+        id: 101,
+        nombre: 'Caseta Principal',
+        lat: 19.432,
+        lng: -99.133,
+        radioM: 60,
+        hora: '10:00',
+        tolMin: 10,
+        permMin: 5,
+        conQr: true,
+        dentro: true,
+        pasos: [
+          const RondinPaso(
+            momento: 'llegue',
+            fecha: '2026-10-28 10:02:00',
+            lat: 19.4321,
+            lng: -99.1331,
+            conQr: true,
+          ),
+        ],
+      );
+
+      final rondin = RondinDia(
+        idRondinDia: 55,
+        idRondin: 12,
+        nombre: 'Rondín Perimetral',
+        fecha: '2026-10-28',
+        turno: 'Matutino',
+        unidad: 'PATRULLA-02',
+        ordenEstricto: true,
+        cumplidos: 0,
+        total: 5,
+        puntos: [punto],
+      );
+
+      final resp = CustodiaDataResponse(
+        ok: true,
+        checkinMin: 30,
+        rondines: [rondin],
+      );
+
+      // Serializar a JSON
+      final jsonMap = resp.toJson();
+      expect(jsonMap['ok'], isTrue);
+      expect(jsonMap['rondines'], isNotEmpty);
+
+      // Deserializar de JSON
+      final deserialized = CustodiaDataResponse.fromJson(jsonMap);
+      expect(deserialized.rondines.length, 1);
+      final dRondin = deserialized.rondines.first;
+      expect(dRondin.idRondinDia, 55);
+      expect(dRondin.puntos.length, 1);
+      final dPunto = dRondin.puntos.first;
+      expect(dPunto.id, 101);
+      expect(dPunto.llego, isTrue);
+      expect(dPunto.salio, isFalse);
+      expect(dPunto.completado, isFalse);
+      expect(dPunto.pasos.first.conQr, isTrue);
+    });
+
+    test('Actualización optimista de pasos de Rondín y conteo de cumplidos en memoria', () {
+      final puntoInicial = RondinPunto(
+        id: 200,
+        nombre: 'Acceso Vehicular',
+        lat: 19.40,
+        lng: -99.10,
+        pasos: const [],
+      );
+
+      final rondinInicial = RondinDia(
+        idRondinDia: 90,
+        idRondin: 30,
+        cumplidos: 0,
+        total: 1,
+        puntos: [puntoInicial],
+      );
+
+      expect(puntoInicial.llego, isFalse);
+      expect(puntoInicial.salio, isFalse);
+      expect(puntoInicial.completado, isFalse);
+
+      // 1. Marcar llegada optimista
+      final pasoLlegada = const RondinPaso(
+        momento: 'llegue',
+        fecha: '2026-10-28 12:00:00',
+        conQr: true,
+      );
+      final puntoConLlegada = puntoInicial.copyWith(
+        pasos: [pasoLlegada],
+      );
+      expect(puntoConLlegada.llego, isTrue);
+      expect(puntoConLlegada.salio, isFalse);
+      expect(puntoConLlegada.completado, isFalse);
+
+      // 2. Marcar salida optimista -> el punto se completa y suma a cumplidos
+      final pasoSalida = const RondinPaso(
+        momento: 'sali',
+        fecha: '2026-10-28 12:05:00',
+        conQr: false,
+      );
+      final nuevosPasos = [...puntoConLlegada.pasos, pasoSalida];
+      final puntoCompletado = puntoConLlegada.copyWith(
+        pasos: nuevosPasos,
+        cumplidoDirecto: true,
+      );
+      expect(puntoCompletado.llego, isTrue);
+      expect(puntoCompletado.salio, isTrue);
+      expect(puntoCompletado.completado, isTrue);
+
+      final rondinActualizado = rondinInicial.copyWith(
+        puntos: [puntoCompletado],
+        cumplidos: rondinInicial.cumplidos + 1,
+      );
+      expect(rondinActualizado.cumplidos, 1);
+      expect(rondinActualizado.puntos.first.completado, isTrue);
+    });
+
+    test('Regla de permanencia: un «llegué» en otro punto cierra el anterior sin permanencia', () {
+      final punto1 = const RondinPunto(
+        id: 1,
+        nombre: 'Punto A',
+        lat: 19.41,
+        lng: -99.11,
+        pasos: [
+          RondinPaso(momento: 'llegue', fecha: '2026-10-28 14:00:00'),
+        ],
+      );
+
+      final punto2 = const RondinPunto(
+        id: 2,
+        nombre: 'Punto B',
+        lat: 19.42,
+        lng: -99.12,
+        poligono: 'a_~iF~ps|U_ulLnnqC',
+        pasos: [],
+      );
+
+      final rondin = RondinDia(
+        idRondinDia: 10,
+        idRondin: 5,
+        cumplidos: 0,
+        total: 2,
+        puntos: [punto1, punto2],
+      );
+
+      expect(punto1.llego, isTrue);
+      expect(punto1.salio, isFalse);
+      expect(punto1.completado, isFalse);
+      expect(punto2.poligono, isNotNull);
+
+      // Simular marcaje de 'llegue' en Punto 2 mientras Punto 1 quedó abierto
+      int cumplidos = rondin.cumplidos;
+      final puntosActualizados = rondin.puntos.map((p) {
+        if (p.id != punto2.id) {
+          if (p.llego && !p.salio && !p.completado) {
+            cumplidos++;
+            return p.copyWith(cumplidoDirecto: true);
+          }
+          return p;
+        }
+        return p.copyWith(
+          pasos: [
+            const RondinPaso(momento: 'llegue', fecha: '2026-10-28 14:15:00'),
+          ],
+        );
+      }).toList();
+
+      expect(puntosActualizados[0].completado, isTrue); // Cerrado automáticamente sin salida
+      expect(puntosActualizados[1].llego, isTrue);
+      expect(cumplidos, 1);
+    });
+
+    test('Prevención de bucle de lectura: solo marca leídos si lastId supera el último procesado', () {
+      int lastReadChatMsgId = 0;
+      int callsCount = 0;
+
+      void procesarMensajes(List<CustodiaMensaje> mensajes) {
+        final unreadFromMonitor =
+            mensajes.where((m) => !m.mio && !m.deApp).toList();
+        if (unreadFromMonitor.isNotEmpty) {
+          final lastId = unreadFromMonitor
+              .map((m) => m.id)
+              .reduce((a, b) => a > b ? a : b);
+          if (lastId > lastReadChatMsgId) {
+            lastReadChatMsgId = lastId;
+            callsCount++;
+          }
+        }
+      }
+
+      final List<CustodiaMensaje> mensajes = [
+        const CustodiaMensaje(id: 101, texto: 'Hola', fecha: '2026-10-28 10:00:00', mio: false, deApp: false),
+        const CustodiaMensaje(id: 102, texto: '¿Cómo vas?', fecha: '2026-10-28 10:01:00', mio: false, deApp: false),
+      ];
+
+      // Primera pasada (render inicial)
+      procesarMensajes(mensajes);
+      expect(callsCount, 1);
+      expect(lastReadChatMsgId, 102);
+
+      // Segunda pasada (re-render por cambio de estado / Riverpod)
+      procesarMensajes(mensajes);
+      expect(callsCount, 1); // NO debe volverse a llamar ni generar bucle infinito
+
+      // Tercera pasada (llega mensaje nuevo con id 103)
+      final List<CustodiaMensaje> mensajesNuevos = [
+        ...mensajes,
+        const CustodiaMensaje(id: 103, texto: 'Responde', fecha: '2026-10-28 10:02:00', mio: false, deApp: false),
+      ];
+      procesarMensajes(mensajesNuevos);
+      expect(callsCount, 2);
+      expect(lastReadChatMsgId, 103);
+    });
+
+    test('Aislamiento de colas: acciones de custodia y rutas son disjuntas por prefijo y tipo', () {
+      final accionesCustodia = ['cusCheckin', 'cusPanico', 'cusMensaje', 'cusFoto', 'cusLeido', 'rondinPunto'];
+      final accionesRutas = ['salida', 'llegada', 'recojo', 'descarga', 'carga', 'entrega', 'incidencia', 'fin', 'visita', 'pedido'];
+
+      for (final tipo in accionesCustodia) {
+        final isCustodia = tipo.startsWith('cus') || tipo == 'rondinPunto';
+        expect(isCustodia, isTrue);
+        expect(accionesRutas.contains(tipo), isFalse);
+      }
+
+      for (final tipo in accionesRutas) {
+        final isCustodia = tipo.startsWith('cus') || tipo == 'rondinPunto';
+        expect(isCustodia, isFalse);
+      }
+    });
   });
 }

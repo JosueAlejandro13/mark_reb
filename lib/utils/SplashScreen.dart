@@ -8,6 +8,7 @@ import 'package:lottie/lottie.dart';
 import 'package:mark_v3/pages/Auth_/login_page.dart';
 import 'package:mark_v3/pages/home_page.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:mark_v3/services/ConnectionCustodia_/custodia_local_db.dart';
 import 'package:mark_v3/services/ConnectionRoutes_/driver_local_db.dart';
 import 'package:mark_v3/services/mark_api_client.dart';
 
@@ -98,6 +99,7 @@ class _SplashScreenState extends State<SplashScreen>
         }
         final isDemo = prefs.getBool('isDemoUser') ?? false;
         await DriverLocalDb.instance.switchUser(uid, isDemo: isDemo);
+        await CustodiaLocalDb.instance.switchUser(uid, isDemo: isDemo);
         // Precargar y sincronizar catálogos maestros en segundo plano
         unawaited(
           MarkApiClient.instance

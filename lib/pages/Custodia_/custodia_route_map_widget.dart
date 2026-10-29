@@ -1,4 +1,6 @@
 import 'dart:math' as math;
+import 'package:flutter/foundation.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -209,18 +211,32 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
       );
     }
 
-    // 4. Polilíneas de la Ruta y Corredor Seguro
+    // 4. Polilíneas de la Ruta y Corredor Seguro (Optimizado para GPU)
     final polylines = <Polyline>{};
 
     if (decoded.isNotEmpty) {
+      // Submuestreo inteligente para el buffer translúcido en rutas largas para evitar sobrecarga en GPU
+      List<LatLng> corridorPoints = decoded;
+      if (decoded.length > 600) {
+        final step = (decoded.length / 350).ceil();
+        final sampled = <LatLng>[];
+        for (int i = 0; i < decoded.length; i += step) {
+          sampled.add(decoded[i]);
+        }
+        if (sampled.last != decoded.last) {
+          sampled.add(decoded.last);
+        }
+        corridorPoints = sampled;
+      }
+
       // Buffer / Halo translúcido que representa el corredor seguro
       polylines.add(
         Polyline(
           polylineId: const PolylineId('corredor_seguro'),
-          points: decoded,
+          points: corridorPoints,
           color: const Color(0xFF0284C7).withOpacity(0.18),
-          width: 14,
-          jointType: JointType.round,
+          width: 12,
+          jointType: JointType.mitered,
           endCap: Cap.roundCap,
           startCap: Cap.roundCap,
         ),
@@ -232,8 +248,8 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
           polylineId: const PolylineId('ruta_principal'),
           points: decoded,
           color: const Color(0xFF0284C7),
-          width: 5,
-          jointType: JointType.round,
+          width: 4,
+          jointType: JointType.bevel,
           endCap: Cap.roundCap,
           startCap: Cap.roundCap,
         ),
@@ -379,7 +395,7 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Por protocolo de seguridad (Ronda 151), la polilínea, corredor y puntos de control se trazarán en el mapa cuando el servicio pase al estado "En tránsito".',
+                    'Por protocolo de seguridad, la polilínea, corredor y puntos de control se trazarán en el mapa cuando el servicio pase al estado "En tránsito".',
                     style: TextStyle(
                       fontSize: 11.5,
                       color: const Color(0xFF64748B),
@@ -415,38 +431,45 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Header del Mapa
+          // Header del Mapa (Con protección contra overflow)
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 14, 16, 12),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE0F2FE),
-                        borderRadius: BorderRadius.circular(8),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE0F2FE),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: const Icon(
+                          Icons.map_rounded,
+                          size: 16,
+                          color: Color(0xFF0284C7),
+                        ),
                       ),
-                      child: const Icon(
-                        Icons.map_rounded,
-                        size: 16,
-                        color: Color(0xFF0284C7),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Trazado de Ruta y Corredor',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0F172A),
+                            letterSpacing: -0.2,
+                          ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 8),
-                    const Text(
-                      'Trazado de Ruta y Corredor',
-                      style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
-                        letterSpacing: -0.2,
-                      ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 8),
                 Container(
                   padding:
                       const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
@@ -468,7 +491,7 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
             ),
           ),
 
-          // Contenedor del Mapa Google con esquinas redondeadas
+          // Contenedor del Mapa Google optimizado con EagerGestureRecognizer
           ClipRRect(
             borderRadius: BorderRadius.circular(16),
             child: SizedBox(
@@ -485,6 +508,14 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
                     zoomControlsEnabled: false,
                     compassEnabled: false,
                     mapToolbarEnabled: false,
+                    buildingsEnabled: false,
+                    indoorViewEnabled: false,
+                    tiltGesturesEnabled: false,
+                    rotateGesturesEnabled: false,
+                    gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                      Factory<OneSequenceGestureRecognizer>(
+                          () => EagerGestureRecognizer()),
+                    },
                     onMapCreated: (ctrl) {
                       _mapController = ctrl;
                       _fitRouteBounds();
@@ -882,6 +913,7 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
   Set<Marker> _markers = {};
   Set<Polyline> _polylines = {};
   Set<Circle> _circles = {};
+  Set<Polygon> _polygons = {};
   List<LatLng> _pointCoords = [];
 
   @override
@@ -899,6 +931,7 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
   void _buildRondinMap() {
     final markers = <Marker>{};
     final circles = <Circle>{};
+    final polygons = <Polygon>{};
     final coords = <LatLng>[];
 
     for (int i = 0; i < widget.rondin.puntos.length; i++) {
@@ -926,20 +959,44 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
         ),
       );
 
-      // Geocerca del punto
-      circles.add(
-        Circle(
-          circleId: CircleId('rondin_circ_${p.id}'),
-          center: pos,
-          radius: p.radioM.toDouble(),
-          fillColor:
-              (p.completado ? const Color(0xFF16A34A) : const Color(0xFF0284C7))
+      // Geocerca del punto: Polígono si viene polyline5 o Círculo por radioM
+      if (p.poligono != null && p.poligono!.isNotEmpty) {
+        final polyPoints = Polyline5Decoder.decode(p.poligono!);
+        if (polyPoints.isNotEmpty) {
+          polygons.add(
+            Polygon(
+              polygonId: PolygonId('rondin_poly_${p.id}'),
+              points: polyPoints
+                  .map((pt) => LatLng(pt.latitude, pt.longitude))
+                  .toList(),
+              fillColor: (p.completado
+                      ? const Color(0xFF16A34A)
+                      : const Color(0xFF0284C7))
                   .withOpacity(0.12),
-          strokeColor:
-              p.completado ? const Color(0xFF16A34A) : const Color(0xFF0284C7),
-          strokeWidth: 1,
-        ),
-      );
+              strokeColor: p.completado
+                  ? const Color(0xFF16A34A)
+                  : const Color(0xFF0284C7),
+              strokeWidth: 2,
+            ),
+          );
+        }
+      } else {
+        circles.add(
+          Circle(
+            circleId: CircleId('rondin_circ_${p.id}'),
+            center: pos,
+            radius: p.radioM.toDouble(),
+            fillColor: (p.completado
+                    ? const Color(0xFF16A34A)
+                    : const Color(0xFF0284C7))
+                .withOpacity(0.12),
+            strokeColor: p.completado
+                ? const Color(0xFF16A34A)
+                : const Color(0xFF0284C7),
+            strokeWidth: 1,
+          ),
+        );
+      }
     }
 
     final polylines = <Polyline>{};
@@ -958,6 +1015,7 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
     setState(() {
       _markers = markers;
       _circles = circles;
+      _polygons = polygons;
       _polylines = polylines;
       _pointCoords = coords;
     });
@@ -1029,21 +1087,28 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                const Row(
-                  children: [
-                    Icon(Icons.explore_rounded,
-                        size: 16, color: Color(0xFF0284C7)),
-                    SizedBox(width: 8),
-                    Text(
-                      'Puntos del Rondín en Mapa',
-                      style: TextStyle(
-                        fontSize: 13.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF0F172A),
+                Expanded(
+                  child: Row(
+                    children: [
+                      const Icon(Icons.explore_rounded,
+                          size: 16, color: Color(0xFF0284C7)),
+                      const SizedBox(width: 8),
+                      const Expanded(
+                        child: Text(
+                          'Puntos del Rondín en Mapa',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13.5,
+                            fontWeight: FontWeight.w800,
+                            color: Color(0xFF0F172A),
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 8),
                 Text(
                   '${widget.rondin.cumplidos}/${widget.rondin.total} cumplidos',
                   style: const TextStyle(
@@ -1066,9 +1131,20 @@ class _CustodiaRondinMapCardState extends State<CustodiaRondinMapCard> {
                     markers: _markers,
                     polylines: _polylines,
                     circles: _circles,
+                    polygons: _polygons,
                     myLocationEnabled: true,
                     myLocationButtonEnabled: false,
                     zoomControlsEnabled: false,
+                    compassEnabled: false,
+                    mapToolbarEnabled: false,
+                    buildingsEnabled: false,
+                    indoorViewEnabled: false,
+                    tiltGesturesEnabled: false,
+                    rotateGesturesEnabled: false,
+                    gestureRecognizers: <Factory<OneSequenceGestureRecognizer>>{
+                      Factory<OneSequenceGestureRecognizer>(
+                          () => EagerGestureRecognizer()),
+                    },
                     onMapCreated: (ctrl) {
                       _mapController = ctrl;
                       _fitRondinBounds();
