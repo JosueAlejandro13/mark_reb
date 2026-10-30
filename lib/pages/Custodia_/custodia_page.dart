@@ -35,6 +35,7 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
   bool _hasRedirectedToClaves = false;
   int _lastReadChatMsgId = 0;
   int _selectedRondinTab = 0; // 0: Puntos, 1: Chat y Bitácora
+  int _selectedCustodiaTab = 0; // 0: Convoy y Ruta, 1: Chat y Bitácora
 
   @override
   void initState() {
@@ -480,13 +481,40 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
 
   Future<void> _launchPhoneCall(String phone) async {
     final cleaned = phone.replaceAll(RegExp(r'[^0-9+]'), '');
-    if (cleaned.isEmpty) return;
+    if (cleaned.isEmpty) {
+      if (mounted) {
+        SnackbarTop.showInfo(
+          context,
+          'El número telefónico no está registrado o es inválido.',
+          title: 'Teléfono no disponible',
+        );
+      }
+      return;
+    }
+
     final uri = Uri.parse('tel:$cleaned');
     try {
-      if (await canLaunchUrl(uri)) {
-        await launchUrl(uri);
+      final launched =
+          await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!launched) {
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri);
+        }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('[CustodiaPage] Error al intentar llamada telefónica: $e');
+      try {
+        if (await canLaunchUrl(uri)) {
+          await launchUrl(uri);
+        } else if (mounted) {
+          SnackbarTop.showInfo(
+            context,
+            'No se pudo abrir el marcador para el número: $cleaned',
+            title: 'No se pudo llamar',
+          );
+        }
+      } catch (_) {}
+    }
   }
 
   Future<String?> _solicitarNumeroSello(BuildContext context) async {
@@ -1124,7 +1152,117 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
     final activeRondin = state.activeRondin ??
         (data?.rondines.isNotEmpty == true ? data!.rondines.first : null);
 
-    // Si estamos visualizando Rondines, presentamos el mapa con cabecera y título flotante estilo Rutas
+    final isServicioActive = data != null &&
+        data.servicios.isNotEmpty &&
+        (state.selectedTab == 0 || data.rondines.isEmpty);
+    final activeServicio = state.activeServicio ??
+        (data?.servicios.isNotEmpty == true ? data!.servicios.first : null);
+
+    // 1. Si estamos visualizando Custodia de Convoy/Traslado, presentamos el mapa en cabecera estilo Rondines/Rutas
+    if (isServicioActive && activeServicio != null) {
+      return Scaffold(
+        backgroundColor: const Color(0xFFF8FAFC),
+        body: Stack(
+          children: [
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // 1. MAPA INTERACTIVO CON BARRA Y TÍTULO FLOTANTE (Estilo Rondines / Rutas)
+                CustodiaRouteMapCard(
+                  servicio: activeServicio,
+                  isFloatingHeader: true,
+                  tieneClaves: data.claves.tiene,
+                  onBack: () => Navigator.maybePop(context),
+                  onOpenClaves: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CustodiaClavesPage(),
+                    ),
+                  ),
+                ),
+
+                // 2. CONTENIDO SCROLLABLE (Alertas de Check + Tabs + Convoy y Ruta / Chat y Bitácora)
+                Expanded(
+                  child: RefreshIndicator(
+                    color: const Color(0xFF0284C7),
+                    backgroundColor: Colors.white,
+                    onRefresh: () =>
+                        ref.read(custodiaProvider.notifier).cargarCustodia(),
+                    child: SingleChildScrollView(
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: BouncingScrollPhysics(),
+                      ),
+                      padding: EdgeInsets.symmetric(
+                        horizontal: isSmallScreen ? 12.0 : 16.0,
+                        vertical: 8.0,
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // A. ALERTA DE CHECK: Solicitudes del monitorista
+                          if (activeServicio.solicitudes.isNotEmpty)
+                            _buildAppleSolicitudesCard(
+                              idServicio: activeServicio.id,
+                              solicitudes: activeServicio.solicitudes,
+                            ),
+
+                          // B. ALERTA DE CHECK VENCIDO / URGENTE
+                          if (state.isVencido)
+                            _buildCheckinVencidoAlert(
+                              context,
+                              idServicio: activeServicio.id,
+                            ),
+
+                          // C. Píldoras de pestañas si hay tanto servicios como rondines
+                          if (data.servicios.isNotEmpty &&
+                              data.rondines.isNotEmpty)
+                            _buildAppleSegmentedTabs(state, data),
+
+                          // D. Claves de seguridad si faltan
+                          if (!data.claves.tiene)
+                            _buildAppleClavesCard(),
+
+                          // E. Pestañas segmentadas de Custodia: [ Convoy y Ruta ] vs [ Chat y Bitácora ]
+                          _buildCustodiaSegmentedTabs(activeServicio),
+
+                          // F. Contenido según pestaña seleccionada
+                          if (_selectedCustodiaTab == 0)
+                            _buildCustodiaConvoyAndRutaSection(activeServicio)
+                          else
+                            _buildCustodiaChatAndBitacoraSection(activeServicio),
+
+                          const SizedBox(height: 100),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+
+              ],
+            ),
+
+            // Barra flotante inferior (Sincronización/Errores + SOS y Check-in)
+            Positioned(
+              left: isSmallScreen ? 12 : 16,
+              right: isSmallScreen ? 12 : 16,
+              bottom: mediaQuery.padding.bottom > 0
+                  ? mediaQuery.padding.bottom + 4
+                  : 12,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const CustodiaSyncStatusBar(),
+                  if (data.hasActiveModule)
+                    _buildBottomFloatingBar(context, state, data),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    // 2. Si estamos visualizando Rondines, presentamos el mapa con cabecera y título flotante estilo Rutas
     if (isRondinActive && activeRondin != null) {
       return Scaffold(
         backgroundColor: const Color(0xFFF8FAFC),
@@ -1204,21 +1342,26 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                   ),
                 ),
 
-                // 3. BARRA DE ESTADO DE COLA Y SINCRONIZACIÓN
-                const CustodiaSyncStatusBar(),
               ],
             ),
 
-            // Píldora Flotante Auténtica (SOS y Check-in) flotando en mid-air sobre el contenido
-            if (data.hasActiveModule)
-              Positioned(
-                left: isSmallScreen ? 12 : 16,
-                right: isSmallScreen ? 12 : 16,
-                bottom: mediaQuery.padding.bottom > 0
-                    ? mediaQuery.padding.bottom + 4
-                    : 12,
-                child: _buildBottomFloatingBar(context, state, data),
+            // Barra flotante inferior (Sincronización/Errores + SOS y Check-in)
+            Positioned(
+              left: isSmallScreen ? 12 : 16,
+              right: isSmallScreen ? 12 : 16,
+              bottom: mediaQuery.padding.bottom > 0
+                  ? mediaQuery.padding.bottom + 4
+                  : 12,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const CustodiaSyncStatusBar(),
+                  if (data.hasActiveModule)
+                    _buildBottomFloatingBar(context, state, data),
+                ],
               ),
+            ),
           ],
         ),
       );
@@ -1293,19 +1436,24 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                         ),
                 ),
 
-                // Barra de estado de sincronización inferior estilo Apple (igual a Rutas)
-                const CustodiaSyncStatusBar(),
               ],
             ),
 
-            // Píldora Flotante Auténtica (SOS y Check-in)
-            if (data != null && data.hasActiveModule)
-              Positioned(
-                left: isSmallScreen ? 12 : 16,
-                right: isSmallScreen ? 12 : 16,
-                bottom: 12,
-                child: _buildBottomFloatingBar(context, state, data),
+            // Barra flotante inferior (Sincronización/Errores + SOS y Check-in)
+            Positioned(
+              left: isSmallScreen ? 12 : 16,
+              right: isSmallScreen ? 12 : 16,
+              bottom: 12,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const CustodiaSyncStatusBar(),
+                  if (data != null && data.hasActiveModule)
+                    _buildBottomFloatingBar(context, state, data),
+                ],
               ),
+            ),
           ],
         ),
       ),
@@ -1741,11 +1889,60 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
     );
   }
 
+  // --- MODELO Y HELPERS PARA UNIDADES UNIFICADAS DEL CONVOY ---
+  List<_CustodiaConvoyItem> _getUnidadesUnificadas(CustodiaServicio servicio) {
+    final List<_CustodiaConvoyItem> items = [];
+    final Set<String> nombresVistos = {};
+
+    // 1. Agregar unidades provenientes de convoy
+    for (final c in servicio.convoy) {
+      final key = c.nombre.trim().toLowerCase();
+      if (key.isNotEmpty) nombresVistos.add(key);
+
+      final bool esDeMisUnidades = servicio.misUnidades
+          .any((u) => u.nombre.trim().toLowerCase() == key);
+      final bool esPropia = c.mia || esDeMisUnidades;
+
+      items.add(_CustodiaConvoyItem(
+        nombre: c.nombre,
+        rolTxt: c.rolTxt.isNotEmpty
+            ? c.rolTxt
+            : (esPropia ? 'Principal' : 'Escolta'),
+        conductor: c.conductor,
+        telefono: c.telefono,
+        esMia: esPropia,
+      ));
+    }
+
+    // 2. Si hay unidades en misUnidades que NO estén en convoy, agregarlas
+    for (final u in servicio.misUnidades) {
+      final key = u.nombre.trim().toLowerCase();
+      if (key.isNotEmpty && nombresVistos.contains(key)) continue;
+      if (key.isNotEmpty) nombresVistos.add(key);
+
+      items.add(_CustodiaConvoyItem(
+        nombre: u.nombre,
+        rolTxt: u.rolTxt.isNotEmpty ? u.rolTxt : 'Principal',
+        conductor: '',
+        telefono: '',
+        esMia: true,
+      ));
+    }
+
+    // 3. Ordenar: las unidades propias ("esMia") primero
+    items.sort((a, b) {
+      if (a.esMia && !b.esMia) return -1;
+      if (!a.esMia && b.esMia) return 1;
+      return 0;
+    });
+
+    return items;
+  }
+
   // --- TARJETA DE CONVOY Y ESCOLTAS (Ronda 151) ---
   Widget _buildAppleConvoySection(CustodiaServicio servicio) {
-    final convoy = servicio.convoy;
-    final misUnidades = servicio.misUnidades;
-    if (convoy.isEmpty && misUnidades.isEmpty) return const SizedBox.shrink();
+    final unidades = _getUnidadesUnificadas(servicio);
+    if (unidades.isEmpty) return const SizedBox.shrink();
 
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1799,7 +1996,7 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(
-                  '${convoy.length + misUnidades.length} ${convoy.length + misUnidades.length == 1 ? "unidad" : "unidades"}',
+                  '${unidades.length} ${unidades.length == 1 ? "unidad" : "unidades"}',
                   style: const TextStyle(
                     fontSize: 11,
                     fontWeight: FontWeight.w700,
@@ -1811,199 +2008,235 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
           ),
           const SizedBox(height: 12),
 
-          // Mis Unidades Asignadas
-          if (misUnidades.isNotEmpty) ...[
-            ...misUnidades.map((u) => Container(
-                  margin: const EdgeInsets.only(bottom: 8),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF0FDF4),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFBBF7D0)),
+          // Lista de unidades unificadas (sin duplicar mi unidad)
+          ...unidades.map((item) {
+            final hasPhone = !item.esMia && item.telefono.trim().isNotEmpty;
+            final isRemolque = item.rolTxt.toLowerCase().contains('remolque') ||
+                item.nombre.toLowerCase().contains('caja');
+
+            final Color iconBgColor = item.esMia
+                ? const Color(0xFFEFF6FF)
+                : (isRemolque
+                    ? const Color(0xFFF1F5F9)
+                    : const Color(0xFFEEF2FF));
+
+            final Color iconBorderColor = item.esMia
+                ? const Color(0xFFBFDBFE)
+                : (isRemolque
+                    ? const Color(0xFFE2E8F0)
+                    : const Color(0xFFC7D2FE));
+
+            final Color iconColor = item.esMia
+                ? const Color(0xFF0284C7)
+                : (isRemolque
+                    ? const Color(0xFF64748B)
+                    : const Color(0xFF4F46E5));
+
+            final IconData unitIcon = item.esMia
+                ? Icons.directions_car_rounded
+                : (isRemolque
+                    ? Icons.inventory_2_outlined
+                    : Icons.shield_rounded);
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 10),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+              decoration: BoxDecoration(
+                color: item.esMia ? const Color(0xFFF8FAFC) : Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: item.esMia
+                      ? const Color(0xFFBAE6FD)
+                      : const Color(0xFFE2E8F0),
+                  width: item.esMia ? 1.2 : 0.9,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFF0F172A)
+                        .withOpacity(item.esMia ? 0.04 : 0.02),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
                   ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFDCFCE7),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: const Icon(Icons.local_shipping_rounded,
-                            size: 16, color: Color(0xFF16A34A)),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                ],
+              ),
+              child: Row(
+                children: [
+                  // 1. Icono distintivo Apple con fondo tonal y borde
+                  Container(
+                    width: 38,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: iconBgColor,
+                      shape: BoxShape.circle,
+                      border: Border.all(color: iconBorderColor, width: 1.0),
+                    ),
+                    child: Center(
+                      child: Icon(unitIcon, size: 18, color: iconColor),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+
+                  // 2. Datos de la unidad, rol y conductor
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
                           children: [
-                            Text(
-                              u.nombre,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w700,
-                                color: Color(0xFF0F172A),
+                            Flexible(
+                              child: Text(
+                                item.nombre,
+                                style: const TextStyle(
+                                  fontSize: 13.5,
+                                  fontWeight: FontWeight.w800,
+                                  color: Color(0xFF0F172A),
+                                  letterSpacing: -0.2,
+                                ),
                               ),
                             ),
-                            const SizedBox(height: 1),
-                            Text(
-                              'Mi Unidad · ${u.rolTxt.isNotEmpty ? u.rolTxt : "Principal"}',
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Color(0xFF15803D),
-                                fontWeight: FontWeight.w600,
+                            if (item.esMia) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 1.5),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFE0F2FE),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: const Color(0xFFBAE6FD),
+                                    width: 0.8,
+                                  ),
+                                ),
+                                child: const Text(
+                                  'MÍA',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w800,
+                                    color: Color(0xFF0284C7),
+                                    letterSpacing: 0.2,
+                                  ),
+                                ),
                               ),
-                            ),
+                            ],
                           ],
                         ),
-                      ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 7, vertical: 3),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFDCFCE7),
-                          borderRadius: BorderRadius.circular(6),
-                        ),
-                        child: const Text(
-                          'Activa',
-                          style: TextStyle(
-                            fontSize: 10.5,
-                            fontWeight: FontWeight.w800,
-                            color: Color(0xFF16A34A),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                )),
-          ],
-
-          // Unidades del Convoy / Escoltas
-          if (convoy.isNotEmpty) ...[
-            ...convoy.map((c) {
-              final hasPhone = c.telefono.trim().isNotEmpty;
-              return Container(
-                margin: const EdgeInsets.only(bottom: 8),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                decoration: BoxDecoration(
-                  color:
-                      c.mia ? const Color(0xFFF0FDF4) : const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: c.mia
-                        ? const Color(0xFFBBF7D0)
-                        : const Color(0xFFF1F5F9),
-                  ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        color: c.mia
-                            ? const Color(0xFFDCFCE7)
-                            : const Color(0xFFE2E8F0),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Icon(
-                        c.mia
-                            ? Icons.local_shipping_rounded
-                            : Icons.security_rounded,
-                        size: 16,
-                        color: c.mia
-                            ? const Color(0xFF16A34A)
-                            : const Color(0xFF475569),
-                      ),
-                    ),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
+                        const SizedBox(height: 3),
+                        Row(
+                          children: [
+                            Text(
+                              item.rolTxt.isNotEmpty
+                                  ? item.rolTxt
+                                  : (item.esMia ? 'Principal' : 'Escolta'),
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w600,
+                                color: item.esMia
+                                    ? const Color(0xFF0284C7)
+                                    : const Color(0xFF64748B),
+                              ),
+                            ),
+                            if (item.conductor.trim().isNotEmpty) ...[
+                              const SizedBox(width: 6),
+                              const Text('•',
+                                  style: TextStyle(
+                                      color: Color(0xFFCBD5E1), fontSize: 10)),
+                              const SizedBox(width: 6),
                               Flexible(
                                 child: Text(
-                                  c.nombre,
-                                  style: const TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF0F172A),
-                                  ),
+                                  item.conductor.trim(),
+                                  maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: Color(0xFF475569),
+                                    fontWeight: FontWeight.w500,
+                                  ),
                                 ),
                               ),
-                              if (c.mia) ...[
-                                const SizedBox(width: 6),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 5, vertical: 1),
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFFDCFCE7),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: const Text(
-                                    'MÍA',
-                                    style: TextStyle(
-                                      fontSize: 9,
-                                      fontWeight: FontWeight.w800,
-                                      color: Color(0xFF16A34A),
-                                    ),
-                                  ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+
+                  // 3. Botón de llamada (solo para escoltas con teléfono) o estado activo para mi unidad
+                  if (hasPhone) ...[
+                    const SizedBox(width: 8),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(20),
+                        onTap: () => _launchPhoneCall(item.telefono),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 11, vertical: 6.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFE0F2FE),
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                              color: const Color(0xFFBAE6FD),
+                              width: 0.9,
+                            ),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.phone_rounded,
+                                size: 13.5,
+                                color: Color(0xFF0284C7),
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'Llamar',
+                                style: TextStyle(
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w700,
+                                  color: Color(0xFF0284C7),
+                                  letterSpacing: -0.1,
                                 ),
-                              ],
+                              ),
                             ],
                           ),
-                          const SizedBox(height: 2),
+                        ),
+                      ),
+                    ),
+                  ] else if (item.esMia) ...[
+                    const SizedBox(width: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3.5),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFECFDF5),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: const Color(0xFFA7F3D0),
+                          width: 0.8,
+                        ),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.check_circle_rounded,
+                              size: 11, color: Color(0xFF059669)),
+                          SizedBox(width: 3),
                           Text(
-                            '${c.rolTxt.isNotEmpty ? c.rolTxt : "Escolta"}${c.conductor.isNotEmpty ? " · ${c.conductor}" : ""}',
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: Color(0xFF64748B),
+                            'Activa',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF059669),
                             ),
                           ),
                         ],
                       ),
                     ),
-                    if (hasPhone)
-                      Material(
-                        color: Colors.transparent,
-                        child: InkWell(
-                          borderRadius: BorderRadius.circular(8),
-                          onTap: () => _launchPhoneCall(c.telefono),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFE0F2FE),
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.phone_rounded,
-                                    size: 13, color: Color(0xFF0284C7)),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Llamar',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                    color: Color(0xFF0284C7),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      ),
                   ],
-                ),
-              );
-            }),
-          ],
+                ],
+              ),
+            );
+          }),
         ],
       ),
     );
@@ -2184,7 +2417,7 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
     );
   }
 
-  // --- CONTENIDO DEL SERVICIO ACTIVO ---
+  // --- CONTENIDO DEL SERVICIO ACTIVO (Mismo diseño de pestañas segmentadas que Rondines) ---
   Widget _buildServicioContent(CustodiaServicio servicio) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2196,168 +2429,217 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
             solicitudes: servicio.solicitudes,
           ),
 
-        // 1. Tarjeta Resumen del Servicio estilo Apple Inset
-        Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: const Color(0xFFE2E8F0)),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0F172A).withOpacity(0.02),
-                blurRadius: 10,
-                offset: const Offset(0, 3),
-              ),
-            ],
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      servicio.folio.isNotEmpty
-                          ? servicio.folio
-                          : 'SERVICIO #${servicio.id}',
-                      style: const TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w800,
-                        color: Color(0xFF334155),
-                      ),
-                    ),
-                  ),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: servicio.isEnTransito
-                          ? const Color(0xFFDCFCE7)
-                          : const Color(0xFFF1F5F9),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 6,
-                          height: 6,
-                          decoration: BoxDecoration(
-                            color: servicio.isEnTransito
-                                ? const Color(0xFF16A34A)
-                                : const Color(0xFF64748B),
-                            shape: BoxShape.circle,
+        _buildCustodiaSegmentedTabs(servicio),
+        if (_selectedCustodiaTab == 0)
+          _buildCustodiaConvoyAndRutaSection(servicio)
+        else
+          _buildCustodiaChatAndBitacoraSection(servicio),
+      ],
+    );
+  }
+
+  /// Pestañas segmentadas para Custodia (Convoy): [ Convoy y Ruta ] vs [ Chat y Bitácora ]
+  Widget _buildCustodiaSegmentedTabs(CustodiaServicio servicio) {
+    final unreadCount =
+        servicio.mensajes.where((m) => !m.mio && !m.deApp).length;
+    final unidades = _getUnidadesUnificadas(servicio);
+    final totalUnidades = unidades.length;
+
+    return Container(
+      margin: const EdgeInsets.only(top: 2, bottom: 14),
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        children: [
+          // Pestaña 1: Convoy y Ruta
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                if (_selectedCustodiaTab != 0) {
+                  setState(() => _selectedCustodiaTab = 0);
+                }
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: _selectedCustodiaTab == 0
+                      ? Colors.white
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(11),
+                  boxShadow: _selectedCustodiaTab == 0
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.06),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
                           ),
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          servicio.estadoTxt.isNotEmpty
-                              ? servicio.estadoTxt
-                              : 'Activo',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
-                            color: servicio.isEnTransito
-                                ? const Color(0xFF15803D)
-                                : const Color(0xFF475569),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Text(
-                servicio.nombre,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.w800,
-                  color: Color(0xFF0F172A),
-                  letterSpacing: -0.4,
+                        ]
+                      : null,
                 ),
-              ),
-              if (servicio.origen != null || servicio.destino != null) ...[
-                const SizedBox(height: 12),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF8FAFC),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: const Color(0xFFF1F5F9)),
-                  ),
+                child: Center(
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.trip_origin_rounded,
-                          size: 14, color: Color(0xFF0284C7)),
-                      const SizedBox(width: 8),
-                      Expanded(
+                      Icon(
+                        Icons.shield_rounded,
+                        size: 15,
+                        color: _selectedCustodiaTab == 0
+                            ? const Color(0xFF0284C7)
+                            : const Color(0xFF64748B),
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
                         child: Text(
-                          '${servicio.origen?.nombre ?? "Origen"} → ${servicio.destino?.nombre ?? "Destino"}',
-                          style: const TextStyle(
+                          totalUnidades > 0
+                              ? 'Convoy y Ruta ($totalUnidades)'
+                              : 'Convoy y Ruta',
+                          style: TextStyle(
                             fontSize: 12.5,
-                            fontWeight: FontWeight.w600,
-                            color: Color(0xFF334155),
+                            fontWeight: _selectedCustodiaTab == 0
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: _selectedCustodiaTab == 0
+                                ? const Color(0xFF0F172A)
+                                : const Color(0xFF64748B),
                           ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                     ],
                   ),
                 ),
-              ],
-              if (servicio.monitor != null && servicio.monitor!.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Padding(
-                  padding: const EdgeInsets.only(left: 2),
-                  child: Text(
-                    'Monitorista asignado: ${servicio.monitor}',
-                    style: const TextStyle(
-                        fontSize: 11.5, color: Color(0xFF64748B)),
+              ),
+            ),
+          ),
+
+          // Pestaña 2: Chat y Bitácora
+          Expanded(
+            child: GestureDetector(
+              onTap: () {
+                if (_selectedCustodiaTab != 1) {
+                  setState(() => _selectedCustodiaTab = 1);
+                }
+              },
+              child: AnimatedContainer(
+                duration: const Duration(milliseconds: 180),
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                decoration: BoxDecoration(
+                  color: _selectedCustodiaTab == 1
+                      ? Colors.white
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(11),
+                  boxShadow: _selectedCustodiaTab == 1
+                      ? [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.06),
+                            blurRadius: 4,
+                            offset: const Offset(0, 2),
+                          ),
+                        ]
+                      : null,
+                ),
+                child: Center(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Icon(
+                        Icons.forum_outlined,
+                        size: 15,
+                        color: _selectedCustodiaTab == 1
+                            ? const Color(0xFF0284C7)
+                            : const Color(0xFF64748B),
+                      ),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          'Chat y Bitácora',
+                          style: TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: _selectedCustodiaTab == 1
+                                ? FontWeight.w700
+                                : FontWeight.w500,
+                            color: _selectedCustodiaTab == 1
+                                ? const Color(0xFF0F172A)
+                                : const Color(0xFF64748B),
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (unreadCount > 0) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF0284C7),
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          child: Text(
+                            '$unreadCount',
+                            style: const TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w800,
+                              color: Colors.white,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-              ],
-            ],
+              ),
+            ),
           ),
-        ),
+        ],
+      ),
+    );
+  }
 
-        // 2. Tarjeta Convoy y Escoltas (Ronda 151)
+  /// Sección de Convoy, Ruta y Evidencias para Custodia
+  Widget _buildCustodiaConvoyAndRutaSection(CustodiaServicio servicio) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // 1. Tarjeta Convoy y Escoltas estilo Apple
         if (servicio.convoy.isNotEmpty || servicio.misUnidades.isNotEmpty) ...[
-          const SizedBox(height: 14),
           _buildAppleConvoySection(servicio),
+          const SizedBox(height: 14),
         ],
 
-        const SizedBox(height: 14),
-
-        // 3. Trazado de Ruta y Corredor en Mapa (Ronda 151)
-        CustodiaRouteMapCard(servicio: servicio),
-
-        // Puntos de Control y Casetas de Ruta en Tránsito
+        // 2. Puntos de Control y Casetas de Ruta en Tránsito
         if (servicio.ruta != null && servicio.ruta!.puntos.isNotEmpty) ...[
           _buildAppleRutaControlPointsCard(servicio.ruta!),
-          const SizedBox(height: 16),
+          const SizedBox(height: 14),
         ],
 
-        const SizedBox(height: 16),
+        // 3. Fotos de Salida y Sellos (con fotos.pide checklist)
+        _buildAppleFotosSection(servicio),
+      ],
+    );
+  }
 
-        // 5. Chat con Monitorista
+  /// Sección de Chat y Bitácora para Custodia
+  Widget _buildCustodiaChatAndBitacoraSection(CustodiaServicio servicio) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Chat con Monitorista
         _buildAppleChatSection(
           idServicio: servicio.id,
           mensajes: servicio.mensajes,
         ),
 
-        const SizedBox(height: 16),
+        const SizedBox(height: 12),
 
-        // 6. Fotos de Salida y Sellos (con fotos.pide checklist)
-        _buildAppleFotosSection(servicio),
+        // Bitácora de Eventos de Custodia
+        _buildAppleCustodiaBitacoraCard(servicio),
       ],
     );
   }
@@ -4253,6 +4535,200 @@ class _CustodiaPageState extends ConsumerState<CustodiaPage> {
     );
   }
 
+  Widget _buildAppleCustodiaBitacoraCard(CustodiaServicio servicio) {
+    final eventos = <_BitacoraItem>[];
+
+    if (servicio.salidaReal != null && servicio.salidaReal!.isNotEmpty) {
+      eventos.add(
+        _BitacoraItem(
+          hora: servicio.salidaReal!.length >= 16
+              ? servicio.salidaReal!.substring(11, 16)
+              : servicio.salidaReal!,
+          fechaCompleta: servicio.salidaReal!,
+          titulo: 'Salida de ${servicio.origen?.nombre ?? "Origen"}',
+          subtitulo: 'Convoy en tránsito hacia ${servicio.destino?.nombre ?? "Destino"}',
+          icono: Icons.logout_rounded,
+          color: const Color(0xFF16A34A),
+        ),
+      );
+    }
+
+    if (servicio.checkin?.ultimo != null && servicio.checkin!.ultimo.isNotEmpty) {
+      eventos.add(
+        _BitacoraItem(
+          hora: servicio.checkin!.ultimo.length >= 16
+              ? servicio.checkin!.ultimo.substring(11, 16)
+              : servicio.checkin!.ultimo,
+          fechaCompleta: servicio.checkin!.ultimo,
+          titulo: 'Check-in «Todo bien» confirmado',
+          subtitulo: 'Estatus operativo reportado exitosamente',
+          icono: Icons.check_circle_rounded,
+          color: const Color(0xFF0284C7),
+        ),
+      );
+    }
+
+    for (final s in servicio.solicitudes) {
+      eventos.add(
+        _BitacoraItem(
+          hora: s.fecha.length >= 16 ? s.fecha.substring(11, 16) : (s.fecha.isNotEmpty ? s.fecha : '--:--'),
+          fechaCompleta: s.fecha,
+          titulo: 'Solicitud de estatus de monitoreo',
+          subtitulo: '«${s.texto}» · Plazo: ${s.plazo}',
+          icono: Icons.notification_important_rounded,
+          color: const Color(0xFFD97706),
+        ),
+      );
+    }
+
+    for (final m in servicio.mensajes) {
+      eventos.add(
+        _BitacoraItem(
+          hora: m.fecha.length >= 16 ? m.fecha.substring(11, 16) : (m.fecha.isNotEmpty ? m.fecha : '--:--'),
+          fechaCompleta: m.fecha,
+          titulo: m.mio ? 'Mensaje enviado a monitoreo' : 'Mensaje de ${m.quien}',
+          subtitulo: m.texto,
+          icono: Icons.chat_bubble_outline_rounded,
+          color: const Color(0xFF64748B),
+        ),
+      );
+    }
+
+    if (eventos.isEmpty) return const SizedBox.shrink();
+
+    eventos.sort((a, b) => b.fechaCompleta.compareTo(a.fechaCompleta));
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withOpacity(0.02),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Expanded(
+                child: Row(
+                  children: [
+                    Icon(Icons.history_rounded, size: 16, color: Color(0xFF0F172A)),
+                    SizedBox(width: 8),
+                    Flexible(
+                      child: Text(
+                        'Bitácora de Eventos',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0F172A),
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${eventos.length} eventos',
+                  style: const TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF64748B),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ListView.separated(
+            shrinkWrap: true,
+            padding: EdgeInsets.zero,
+            physics: const NeverScrollableScrollPhysics(),
+            itemCount: eventos.length,
+            separatorBuilder: (_, __) => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 3),
+              child: Divider(height: 1, color: Color(0xFFF1F5F9)),
+            ),
+            itemBuilder: (ctx, idx) {
+              final ev = eventos[idx];
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 44,
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Text(
+                      ev.hora,
+                      style: const TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF0F172A),
+                      ),
+                    ),
+                  ),
+                  Container(
+                    width: 26,
+                    height: 26,
+                    margin: const EdgeInsets.only(right: 10),
+                    decoration: BoxDecoration(
+                      color: ev.color.withOpacity(0.12),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Center(
+                      child: Icon(ev.icono, size: 14, color: ev.color),
+                    ),
+                  ),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          ev.titulo,
+                          style: const TextStyle(
+                            fontSize: 12.5,
+                            fontWeight: FontWeight.w700,
+                            color: Color(0xFF1E293B),
+                          ),
+                        ),
+                        if (ev.subtitulo.isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            ev.subtitulo,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: Color(0xFF64748B),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildBotonIr(RondinPunto punto) {
     return Tooltip(
       message: 'Ir con Google Maps o Waze (Mantén presionado para cambiar app)',
@@ -4843,4 +5319,20 @@ class _BetweenRondinCardsConnectorPainter extends CustomPainter {
         oldDelegate.lineColor != lineColor ||
         oldDelegate.nodeColor != nodeColor;
   }
+}
+
+class _CustodiaConvoyItem {
+  final String nombre;
+  final String rolTxt;
+  final String conductor;
+  final String telefono;
+  final bool esMia;
+
+  const _CustodiaConvoyItem({
+    required this.nombre,
+    required this.rolTxt,
+    required this.conductor,
+    required this.telefono,
+    required this.esMia,
+  });
 }

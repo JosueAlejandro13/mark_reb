@@ -159,7 +159,7 @@ class LocalNotificationService {
       autoCancel: true,
       styleInformation: const BigTextStyleInformation(
         'Tu tiempo de reporte ha expirado. Realiza tu check-in de inmediato para evitar alertas al monitorista.',
-        contentTitle: '⚠️ Check-in de Custodia requerido',
+        contentTitle: 'Check-in de Custodia requerido',
         summaryText: 'Custodia Activa',
       ),
     );
@@ -182,7 +182,7 @@ class LocalNotificationService {
       // Aviso exacto al vencimiento
       await _notificationsPlugin.zonedSchedule(
         custodiaCheckinReminderId,
-        '⚠️ Check-in de Custodia requerido',
+        'Check-in de Custodia requerido',
         'Tu tiempo de reporte ha expirado. Realiza tu check-in para reportarte.',
         targetDateTime,
         notificationDetails,
@@ -199,7 +199,7 @@ class LocalNotificationService {
         if (warningDateTime.isAfter(tz.TZDateTime.now(tz.local))) {
           await _notificationsPlugin.zonedSchedule(
             custodiaCheckinWarningId,
-            '⏳ Check-in de Custodia por vencer',
+            'Check-in de Custodia por vencer',
             'Tu próximo check-in vence en 2 minutos. Ingresa tu clave para reportarte.',
             warningDateTime,
             notificationDetails,
@@ -256,7 +256,7 @@ class LocalNotificationService {
       autoCancel: true,
       styleInformation: BigTextStyleInformation(
         'El monitorista solicita tu estatus: "$texto"\nPlazo: $plazo. Contesta realizando tu check-in.',
-        contentTitle: '⚠️ Solicitud de Estatus (Custodia)',
+        contentTitle: 'Solicitud de Estatus (Custodia)',
         summaryText: 'Alerta de Monitorista',
       ),
     );
@@ -272,7 +272,7 @@ class LocalNotificationService {
 
     await _notificationsPlugin.show(
       custodiaStatusRequestId,
-      '⚠️ Solicitud de Estatus (Custodia)',
+      'Solicitud de Estatus (Custodia)',
       'El monitorista solicita tu estatus: "$texto" (Plazo: $plazo)',
       notificationDetails,
       payload: 'custodia_solicitud',
@@ -301,7 +301,7 @@ class LocalNotificationService {
       autoCancel: true,
       styleInformation: BigTextStyleInformation(
         texto,
-        contentTitle: '💬 Mensaje de $quien',
+        contentTitle: 'Mensaje de $quien',
         summaryText: 'Custodia Chat',
       ),
     );
@@ -317,7 +317,7 @@ class LocalNotificationService {
 
     await _notificationsPlugin.show(
       custodiaMessageId,
-      '💬 Mensaje de $quien',
+      'Mensaje de $quien',
       texto,
       notificationDetails,
       payload: 'custodia_chat',
@@ -343,7 +343,7 @@ class LocalNotificationService {
       autoCancel: true,
       styleInformation: const BigTextStyleInformation(
         'Tu reporte periódico está vencido. Ingresa tu clave para reportarte inmediatamente.',
-        contentTitle: '⚠️ Check-in Vencido',
+        contentTitle: 'Check-in Vencido',
         summaryText: 'Alerta Crítica',
       ),
     );
@@ -359,7 +359,7 @@ class LocalNotificationService {
 
     await _notificationsPlugin.show(
       custodiaVencidoAlertId,
-      '⚠️ Check-in Vencido',
+      'Check-in Vencido',
       'Tu reporte periódico está vencido. Ingresa tu clave para reportarte.',
       notificationDetails,
       payload: 'custodia_vencido',

@@ -310,7 +310,7 @@ class _HomePageState extends ConsumerState<HomePage>
               left: 0,
               right: 0,
               bottom: 0,
-              height: isTablet ? 128 : 82,
+              height: isTablet ? 88 : 82,
               child: IgnorePointer(
                 child: Container(
                   decoration: BoxDecoration(
@@ -336,11 +336,11 @@ class _HomePageState extends ConsumerState<HomePage>
                 activeContentColor: const Color(0xFF0284C7),
                 activeCapsuleColor: const Color(0xFFE0F2FE),
                 inactiveContentColor: const Color(0xFF64748B),
-                height: isTablet ? 74.0 : 50.0,
-                maxWidth: isTablet ? 580.0 : null,
-                iconSize: isTablet ? 34.0 : null,
+                height: isTablet ? 52.0 : 50.0,
+                maxWidth: isTablet ? 360.0 : null,
+                iconSize: isTablet ? 24.0 : null,
                 margin: isTablet
-                    ? const EdgeInsets.only(left: 24, right: 24, bottom: 22)
+                    ? const EdgeInsets.only(left: 20, right: 20, bottom: 12)
                     : const EdgeInsets.only(left: 18, right: 18, bottom: 8),
                 onTap: handleNavTap,
                 items: navItems,

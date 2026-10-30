@@ -61,10 +61,22 @@ class Polyline5Decoder {
 /// Tarjeta de Mapa de Ruta Interactiva con Polilínea y Puntos de Control (Estilo Apple)
 class CustodiaRouteMapCard extends StatefulWidget {
   final CustodiaServicio servicio;
+  final bool isFloatingHeader;
+  final bool showTopBar;
+  final bool tieneClaves;
+  final VoidCallback? onBack;
+  final VoidCallback? onOpenClaves;
+  final double? height;
 
   const CustodiaRouteMapCard({
     super.key,
     required this.servicio,
+    this.isFloatingHeader = false,
+    this.showTopBar = true,
+    this.tieneClaves = false,
+    this.onBack,
+    this.onOpenClaves,
+    this.height,
   });
 
   @override
@@ -79,6 +91,9 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
   Set<Circle> _circles = {};
   bool _isLoadingMap = true;
   LatLng? _userLocation;
+  bool _mapExpanded = false;
+  bool _showInfoChip = true;
+  bool _isTrackingVehicle = false;
 
   @override
   void initState() {
@@ -273,6 +288,11 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
   }
 
   void _fitRouteBounds() {
+    if (_isTrackingVehicle && mounted) {
+      setState(() {
+        _isTrackingVehicle = false;
+      });
+    }
     if (_mapController == null) return;
     final allPoints = <LatLng>[..._routePoints];
     for (final m in _markers) {
@@ -280,6 +300,13 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
     }
 
     if (allPoints.isEmpty) return;
+
+    if (allPoints.length == 1) {
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLngZoom(allPoints.first, 15.0),
+      );
+      return;
+    }
 
     double minLat = allPoints.first.latitude;
     double maxLat = allPoints.first.latitude;
@@ -293,6 +320,13 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
       maxLng = math.max(maxLng, p.longitude);
     }
 
+    if (minLat == maxLat && minLng == maxLng) {
+      _mapController?.animateCamera(
+        CameraUpdate.newLatLngZoom(LatLng(minLat, minLng), 15.0),
+      );
+      return;
+    }
+
     final bounds = LatLngBounds(
       southwest: LatLng(minLat, minLng),
       northeast: LatLng(maxLat, maxLng),
@@ -300,6 +334,397 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
 
     _mapController?.animateCamera(
       CameraUpdate.newLatLngBounds(bounds, 42.0),
+    );
+  }
+
+  void _toggleVehicleTracking() {
+    final nextState = !_isTrackingVehicle;
+    setState(() {
+      _isTrackingVehicle = nextState;
+    });
+
+    if (nextState) {
+      final target = _userLocation ??
+          (widget.servicio.origen != null && widget.servicio.origen!.lat != 0.0
+              ? LatLng(widget.servicio.origen!.lat, widget.servicio.origen!.lng)
+              : (_routePoints.isNotEmpty ? _routePoints.first : null));
+      if (target != null && _mapController != null) {
+        _mapController?.animateCamera(
+          CameraUpdate.newCameraPosition(
+            CameraPosition(target: target, zoom: 16.5),
+          ),
+        );
+      }
+    }
+  }
+
+  /// Mapa interactivo de cabecera a toda anchura con barra flotante estilo Apple
+  Widget _buildFloatingMap(BuildContext context) {
+    final mediaQuery = MediaQuery.of(context);
+    final isSmallScreen = mediaQuery.size.width < 360;
+    final srv = widget.servicio;
+
+    final initialPos = _routePoints.isNotEmpty
+        ? CameraPosition(target: _routePoints.first, zoom: 12.0)
+        : (srv.origen != null && srv.origen!.lat != 0.0
+            ? CameraPosition(
+                target: LatLng(srv.origen!.lat, srv.origen!.lng), zoom: 14.0)
+            : const CameraPosition(
+                target: LatLng(19.4326, -99.1332), zoom: 12.0));
+
+    final double mapHeight = widget.height ??
+        (_mapExpanded
+            ? mediaQuery.size.height * 0.72
+            : (mediaQuery.size.height * 0.38).clamp(260.0, 340.0));
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeInOutCubic,
+      height: mapHeight,
+      width: double.infinity,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: GoogleMap(
+              initialCameraPosition: initialPos,
+              markers: _markers,
+              polylines: _polylines,
+              circles: _circles,
+              myLocationEnabled: false,
+              myLocationButtonEnabled: false,
+              zoomControlsEnabled: false,
+              compassEnabled: false,
+              mapToolbarEnabled: false,
+              buildingsEnabled: false,
+              indoorViewEnabled: false,
+              tiltGesturesEnabled: false,
+              rotateGesturesEnabled: false,
+              padding: EdgeInsets.only(
+                top: mediaQuery.padding.top + 60,
+                right: 56,
+                bottom: 14,
+                left: 14,
+              ),
+              onMapCreated: (ctrl) {
+                _mapController = ctrl;
+                Future.delayed(const Duration(milliseconds: 350), () {
+                  if (mounted) _fitRouteBounds();
+                });
+              },
+            ),
+          ),
+
+          // Barra Superior Flotante estilo Apple / Rutas
+          if (widget.showTopBar)
+            Positioned(
+              top: mediaQuery.padding.top + 8,
+              left: isSmallScreen ? 10 : 14,
+              right: isSmallScreen ? 10 : 14,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _buildFloatingTopBar(context, isSmallScreen),
+                  if (_showInfoChip &&
+                      srv.monitor != null &&
+                      srv.monitor!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _buildFloatingInfoChip(context, isSmallScreen),
+                  ],
+                ],
+              ),
+            ),
+
+          // Controles Laterales Flotantes
+          Positioned(
+            right: isSmallScreen ? 8 : 12,
+            top: mediaQuery.padding.top + 68,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // 1. Botón Carro para fijar el carro / convoy
+                _buildFloatingMapButton(
+                  icon: _isTrackingVehicle
+                      ? Icons.directions_car_rounded
+                      : Icons.directions_car_outlined,
+                  tooltip: _isTrackingVehicle
+                      ? 'Fijando convoy (Activo)'
+                      : 'Fijar convoy en el mapa',
+                  isActive: _isTrackingVehicle,
+                  activeColor: const Color(0xFF0284C7),
+                  onTap: _toggleVehicleTracking,
+                ),
+                const SizedBox(height: 8),
+                // 2. Botón Encuadrar ruta completa
+                _buildFloatingMapButton(
+                  icon: Icons.my_location_rounded,
+                  tooltip: 'Encuadrar ruta completa',
+                  onTap: _fitRouteBounds,
+                ),
+                const SizedBox(height: 8),
+                // 3. Botón Pantalla Completa
+                _buildFloatingMapButton(
+                  icon: _mapExpanded
+                      ? Icons.fullscreen_exit_rounded
+                      : Icons.fullscreen_rounded,
+                  tooltip: _mapExpanded ? 'Reducir mapa' : 'Abrir todo el mapa',
+                  isActive: _mapExpanded,
+                  onTap: () {
+                    setState(() {
+                      _mapExpanded = !_mapExpanded;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingTopBar(BuildContext context, bool isSmallScreen) {
+    final srv = widget.servicio;
+    final isEnTransito = srv.estado >= 3;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        children: [
+          if (widget.onBack != null) ...[
+            InkWell(
+              borderRadius: BorderRadius.circular(10),
+              onTap: widget.onBack,
+              child: const Padding(
+                padding: EdgeInsets.all(4),
+                child: Icon(
+                  Icons.arrow_back_ios_new_rounded,
+                  size: 17,
+                  color: Color(0xFF0F172A),
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+          ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF0F9FF),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: const Color(0xFFBAE6FD)),
+                      ),
+                      child: Text(
+                        srv.folio.isNotEmpty ? srv.folio : 'CUSTODIA',
+                        style: const TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF0284C7),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: isEnTransito
+                            ? const Color(0xFFF0FDF4)
+                            : const Color(0xFFFFFBEB),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        srv.estadoTxt.isNotEmpty
+                            ? srv.estadoTxt
+                            : (isEnTransito ? 'En Tránsito' : 'Programado'),
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          color: isEnTransito
+                              ? const Color(0xFF16A34A)
+                              : const Color(0xFFD97706),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  srv.nombre.isNotEmpty
+                      ? srv.nombre
+                      : 'Traslado en Convoy',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 13.5,
+                    fontWeight: FontWeight.w800,
+                    color: Color(0xFF0F172A),
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                if ((srv.origen != null && srv.origen!.nombre.isNotEmpty) ||
+                    (srv.destino != null && srv.destino!.nombre.isNotEmpty)) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    '${srv.origen?.nombre ?? ''} → ${srv.destino?.nombre ?? ''}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFF64748B),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (widget.onOpenClaves != null)
+            Material(
+              color: widget.tieneClaves
+                  ? const Color(0xFFF0F9FF)
+                  : const Color(0xFFFEF3C7),
+              borderRadius: BorderRadius.circular(10),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(10),
+                onTap: widget.onOpenClaves,
+                child: Padding(
+                  padding: const EdgeInsets.all(7),
+                  child: Icon(
+                    widget.tieneClaves
+                        ? Icons.shield_outlined
+                        : Icons.shield_rounded,
+                    size: 19,
+                    color: widget.tieneClaves
+                        ? const Color(0xFF0284C7)
+                        : const Color(0xFFD97706),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingInfoChip(BuildContext context, bool isSmallScreen) {
+    final srv = widget.servicio;
+    return Container(
+      constraints: const BoxConstraints(maxWidth: 280),
+      padding: const EdgeInsets.fromLTRB(10, 4, 8, 4),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.96),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(0.06),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(
+            Icons.support_agent_rounded,
+            size: 14,
+            color: Color(0xFF0284C7),
+          ),
+          const SizedBox(width: 5),
+          Flexible(
+            child: Text(
+              'Monitorista: ${srv.monitor}',
+              style: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF0F172A),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 6),
+          InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () {
+              setState(() {
+                _showInfoChip = false;
+              });
+            },
+            child: const Padding(
+              padding: EdgeInsets.all(2),
+              child: Icon(
+                Icons.close_rounded,
+                size: 13,
+                color: Color(0xFF94A3B8),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFloatingMapButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback onTap,
+    bool isActive = false,
+    Color? activeColor,
+  }) {
+    final effectiveColor = activeColor ?? const Color(0xFF0284C7);
+    return Material(
+      color: isActive
+          ? effectiveColor.withOpacity(0.12)
+          : Colors.white.withOpacity(0.96),
+      borderRadius: BorderRadius.circular(11),
+      elevation: 2,
+      shadowColor: Colors.black.withOpacity(0.12),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(11),
+        onTap: onTap,
+        child: Tooltip(
+          message: tooltip,
+          child: Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(11),
+              border: Border.all(
+                color: isActive ? effectiveColor : const Color(0xFFE2E8F0),
+                width: isActive ? 1.5 : 1.0,
+              ),
+            ),
+            child: Icon(
+              icon,
+              size: 18,
+              color: isActive ? effectiveColor : const Color(0xFF0F172A),
+            ),
+          ),
+        ),
+      ),
     );
   }
 
@@ -350,6 +775,10 @@ class _CustodiaRouteMapCardState extends State<CustodiaRouteMapCard> {
 
   @override
   Widget build(BuildContext context) {
+    if (widget.isFloatingHeader) {
+      return _buildFloatingMap(context);
+    }
+
     final srv = widget.servicio;
     final ruta = srv.ruta;
 

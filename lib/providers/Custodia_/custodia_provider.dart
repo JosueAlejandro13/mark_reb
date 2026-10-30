@@ -422,14 +422,68 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
       'prec': pos?.accuracy.round() ?? 10,
     };
 
-    // 1. Guardar en SQLite
+    // 1. Guardar en SQLite (Garantía Offline-First)
     await _db.enqueueAction(
       uuid: actionUuid,
       tipo: 'cusCheckin',
       payload: action,
     );
 
-    // 2. Actualización optimista en memoria
+    // 2. Si estamos en línea, validar inmediatamente con el servidor
+    if (state.isOnline) {
+      try {
+        final resultados = await _api.sendActions([action]);
+        final res = resultados.firstWhere(
+          (r) => (r['uuid'] ?? '').toString() == actionUuid,
+          orElse: () => <String, dynamic>{},
+        );
+
+        if (res.isNotEmpty) {
+          final estado = (res['estado'] ?? '').toString();
+          final rawAvisos = (res['avisos'] as List<dynamic>? ?? [])
+              .whereType<Map<String, dynamic>>()
+              .map(ServerNotice.fromJson)
+              .toList();
+
+          if (estado == 'aplicada' || estado == 'repetida') {
+            await _db.removeAction(actionUuid);
+            _aplicarCheckinEnMemoria(
+              idServicio: idServicio,
+              fecHor: timestamp,
+            );
+            await LocalNotificationService.cancelCustodiaCheckinReminder();
+            await _actualizarConteoCola();
+            state = state.copyWith(isSubmitting: false, clearError: true);
+            unawaited(cargarCustodia(silent: true));
+            return true;
+          } else if (estado == 'rechazada') {
+            await _db.markActionRejected(actionUuid, rawAvisos);
+            await _actualizarConteoCola();
+            final msg = rawAvisos.isNotEmpty
+                ? rawAvisos.map((a) => a.displayTexto).join('\n')
+                : 'Clave de check-in incorrecta';
+            state = state.copyWith(
+              isSubmitting: false,
+              errorMessage: msg,
+            );
+            return false;
+          } else if (estado == 'reintentar') {
+            await _db.markActionRetry(actionUuid, rawAvisos);
+            await _actualizarConteoCola();
+            state = state.copyWith(
+              isSubmitting: false,
+              errorMessage: 'Servidor no disponible. Reintentando...',
+            );
+            return false;
+          }
+        }
+      } catch (e) {
+        debugPrint('Error enviando checkin online directo: $e');
+        // Si falló por red/timeout, continúa al guardado optimista offline
+      }
+    }
+
+    // 3. Modo Offline o fallo transitorio de conexión
     _aplicarCheckinEnMemoria(
       idServicio: idServicio,
       fecHor: timestamp,
@@ -439,7 +493,6 @@ class CustodiaNotifier extends Notifier<CustodiaState> {
     await _actualizarConteoCola();
     state = state.copyWith(isSubmitting: false);
 
-    // 3. Si hay red, sincronizar en segundo plano
     if (state.isOnline) {
       unawaited(syncCustodiaQueue());
     }

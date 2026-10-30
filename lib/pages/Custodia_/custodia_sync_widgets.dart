@@ -7,7 +7,12 @@ import 'package:mark_v3/providers/Custodia_/custodia_provider.dart';
 /// Idéntica en interfaz y comportamiento a la barra de sincronización de rutas.
 class CustodiaSyncStatusBar extends ConsumerStatefulWidget {
   final bool alwaysShow;
-  const CustodiaSyncStatusBar({super.key, this.alwaysShow = false});
+  final EdgeInsetsGeometry? padding;
+  const CustodiaSyncStatusBar({
+    super.key,
+    this.alwaysShow = false,
+    this.padding,
+  });
 
   @override
   ConsumerState<CustodiaSyncStatusBar> createState() =>
@@ -169,32 +174,30 @@ class _CustodiaSyncStatusBarState extends ConsumerState<CustodiaSyncStatusBar> {
     }
 
     return Padding(
-      padding: const EdgeInsets.only(left: 16, right: 16, bottom: 8, top: 2),
-      child: SafeArea(
-        top: false,
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(28),
-            border: Border.all(
-              color: const Color(0xFFE2E8F0),
-              width: 0.9,
-            ),
-            boxShadow: [
-              BoxShadow(
-                color: const Color(0xFF0F172A).withOpacity(0.06),
-                blurRadius: 18,
-                offset: const Offset(0, 4),
-              ),
-              BoxShadow(
-                color: const Color(0xFF0F172A).withOpacity(0.02),
-                blurRadius: 4,
-                offset: const Offset(0, 1),
-              ),
-            ],
+      padding: widget.padding ?? const EdgeInsets.only(bottom: 8),
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(
+            color: const Color(0xFFE2E8F0),
+            width: 0.9,
           ),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-          child: Row(
+          boxShadow: [
+            BoxShadow(
+              color: const Color(0xFF0F172A).withOpacity(0.06),
+              blurRadius: 18,
+              offset: const Offset(0, 4),
+            ),
+            BoxShadow(
+              color: const Color(0xFF0F172A).withOpacity(0.02),
+              blurRadius: 4,
+              offset: const Offset(0, 1),
+            ),
+          ],
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        child: Row(
             children: [
               // 1. Icono con fondo circular sutil Apple
               Container(
@@ -364,8 +367,7 @@ class _CustodiaSyncStatusBarState extends ConsumerState<CustodiaSyncStatusBar> {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 }
 

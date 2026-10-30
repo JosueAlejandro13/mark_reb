@@ -1,6 +1,7 @@
 import 'package:mark_v3/pages/Custodia_/custodia_route_map_widget.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mark_v3/models/Custodia_/custodia_models.dart';
+import 'package:mark_v3/models/Routes_/driver_day_models.dart';
 
 void main() {
   group('Módulo de Custodia (Ronda 151)', () {
@@ -452,6 +453,37 @@ void main() {
         final isCustodia = tipo.startsWith('cus') || tipo == 'rondinPunto';
         expect(isCustodia, isFalse);
       }
+    });
+
+    test('Validación de Check-in con clave incorrecta: rechazo y notificación de error', () {
+      final resRechazada = {
+        'uuid': 'uuid-test-123',
+        'estado': 'rechazada',
+        'avisos': [
+          {'nivel': 'error', 'codigo': 'CLAVE_INVALIDA', 'texto': 'Clave de check-in incorrecta'}
+        ]
+      };
+
+      final estado = (resRechazada['estado'] ?? '').toString();
+      final rawAvisos = (resRechazada['avisos'] as List<dynamic>? ?? [])
+          .whereType<Map<String, dynamic>>()
+          .map(ServerNotice.fromJson)
+          .toList();
+
+      expect(estado, 'rechazada');
+      expect(rawAvisos.isNotEmpty, isTrue);
+      expect(rawAvisos.first.displayTexto, 'Clave de check-in incorrecta');
+
+      // Si está rechazada, el resultado de checkin es false y genera mensaje claro
+      final bool ok = estado == 'aplicada' || estado == 'repetida';
+      final String? errorMsg = !ok
+          ? (rawAvisos.isNotEmpty
+              ? rawAvisos.map((a) => a.displayTexto).join('\n')
+              : 'Clave de check-in incorrecta')
+          : null;
+
+      expect(ok, isFalse);
+      expect(errorMsg, 'Clave de check-in incorrecta');
     });
   });
 }
