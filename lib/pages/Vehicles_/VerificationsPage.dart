@@ -126,6 +126,14 @@ class _VerificationsPageState extends ConsumerState<VerificationsPage> {
       MarkApiClient.instance.flota.can('verificacion', 'crear') ||
       ((int.tryParse(widget.verificationsPermission) ?? 0) & 4 == 4);
 
+  bool get _isChofer {
+    final session = MarkApiClient.instance.currentSession;
+    final rol = (session?.rol ?? '').trim().toLowerCase();
+    return rol == 'chofer' || (session?.isChofer ?? false);
+  }
+
+  bool get _canSeeCostos => !_isChofer;
+
   // --- FORMATEO Y PARSEO DE FECHAS SEGURO ---
   String _formatDisplayDate(dynamic date) {
     if (date == null) return 'N/A';
@@ -2286,42 +2294,44 @@ class _VerificationsPageState extends ConsumerState<VerificationsPage> {
                                 ),
                               ),
                             ),
-                            Container(
-                              width: 1,
-                              height: 24,
-                              color: Colors.white.withOpacity(0.12),
-                            ),
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.only(left: 10),
-                                child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                    Text(
-                                      'COSTO',
-                                      style: TextStyle(
-                                        fontSize: 8,
-                                        fontWeight: FontWeight.w700,
-                                        color: Colors.white.withOpacity(0.55),
-                                        letterSpacing: 0.6,
+                            if (_canSeeCostos) ...[
+                              Container(
+                                width: 1,
+                                height: 24,
+                                color: Colors.white.withOpacity(0.12),
+                              ),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.only(left: 10),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'COSTO',
+                                        style: TextStyle(
+                                          fontSize: 8,
+                                          fontWeight: FontWeight.w700,
+                                          color: Colors.white.withOpacity(0.55),
+                                          letterSpacing: 0.6,
+                                        ),
                                       ),
-                                    ),
-                                    const SizedBox(height: 2),
-                                    Text(
-                                      _currencyFormat.format(monto),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w800,
-                                        color: Color(0xFFFDE047),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        _currencyFormat.format(monto),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFFFDE047),
+                                        ),
                                       ),
-                                    ),
-                                  ],
+                                    ],
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ],
                         ),
                       ),
@@ -2489,13 +2499,15 @@ class _VerificationsPageState extends ConsumerState<VerificationsPage> {
               label: 'Próxima Verificación',
               value: proximaVerificStr,
             ),
-            const Divider(height: 20, color: Color(0xFFE2E8F0)),
-            _buildDetailRow(
-              icon: Icons.attach_money_rounded,
-              label: 'Costo / Derechos',
-              value: _currencyFormat.format(monto),
-              isHighlight: true,
-            ),
+            if (_canSeeCostos) ...[
+              const Divider(height: 20, color: Color(0xFFE2E8F0)),
+              _buildDetailRow(
+                icon: Icons.attach_money_rounded,
+                label: 'Costo / Derechos',
+                value: _currencyFormat.format(monto),
+                isHighlight: true,
+              ),
+            ],
           ],
         ),
         const SizedBox(height: 14),

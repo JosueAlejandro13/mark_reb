@@ -57,6 +57,13 @@ class ProfilePage extends ConsumerWidget {
     final profileState = ref.watch(profileProvider);
     final profileNotifier = ref.read(profileProvider.notifier);
 
+    // Determinar si se debe mostrar el apartado de Licencia de Conducir:
+    // Si tiene licencia (licencia != null), se muestra para verla.
+    // Si no tiene licencia pero puede editar (puedeEditar == true), se muestra para registrarla.
+    // Si NO tiene licencia (licencia == null) Y NO puede editar (puedeEditar == false), se oculta.
+    final bool mostrarLicencia =
+        profileState.hasLicense || profileState.canEditLicense;
+
     final mediaQuery = MediaQuery.of(context);
     final clampedScaler = mediaQuery.textScaler.clamp(
       minScaleFactor: 0.85,
@@ -72,154 +79,160 @@ class ProfilePage extends ConsumerWidget {
         backgroundColor: const Color(0xFFF2F4F7),
         body: SafeArea(
           bottom: false,
-          child: SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            padding: EdgeInsets.symmetric(
-              horizontal: isSmallScreen ? 14.0 : 18.0,
-              vertical: 10.0,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── 1. Encabezado Apple (Large Title) ───────────────────
-                _buildAnimatedItem(_buildAppleHeader(), 0),
-                const SizedBox(height: 14),
+          child: RefreshIndicator(
+            onRefresh: () => profileNotifier.refreshProfile(),
+            color: const Color(0xFF0284C7),
+            child: SingleChildScrollView(
+              physics: const AlwaysScrollableScrollPhysics(
+                parent: BouncingScrollPhysics(),
+              ),
+              padding: EdgeInsets.symmetric(
+                horizontal: isSmallScreen ? 14.0 : 18.0,
+                vertical: 10.0,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // ── 1. Encabezado Apple (Large Title) ───────────────────
+                  _buildAnimatedItem(_buildAppleHeader(), 0),
+                  const SizedBox(height: 14),
 
-                // ── 2. Tarjeta de Usuario Estilo Apple ID (Blanca y Elegante) ──
-                _buildAnimatedItem(
-                  _buildAppleUserProfileCard(
-                    context,
-                    profileState,
-                    profileNotifier,
-                    ref,
+                  // ── 2. Tarjeta de Usuario Estilo Apple ID (Blanca y Elegante) ──
+                  _buildAnimatedItem(
+                    _buildAppleUserProfileCard(
+                      context,
+                      profileState,
+                      profileNotifier,
+                      ref,
+                    ),
+                    1,
                   ),
-                  1,
-                ),
-                const SizedBox(height: 22),
+                  const SizedBox(height: 22),
 
-                // ── 3. Sección Cuenta y Credenciales (Apple Inset Grouped) ──
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _buildAnimatedItem(
-                      _buildAppleSectionHeader(
-                        title: 'CUENTA Y CREDENCIALES',
-                        badge: '4 OPCIONES',
+                  // ── 3. Sección Cuenta y Credenciales (Apple Inset Grouped) ──
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildAnimatedItem(
+                        _buildAppleSectionHeader(
+                          title: 'CUENTA Y CREDENCIALES',
+                          badge: mostrarLicencia ? '4 OPCIONES' : '3 OPCIONES',
+                        ),
+                        2,
                       ),
-                      2,
-                    ),
-                    const SizedBox(height: 7),
-                    _buildAnimatedItem(
-                      _buildAppleGroupedCard(
-                        children: [
-                          // Datos Personales
-                          _buildAppleListTile(
-                            icon: Icons.person_rounded,
-                            iconGradient: const [
-                              Color(0xFF0284C7),
-                              Color(0xFF38BDF8),
-                            ],
-                            title: 'Datos Personales',
-                            subtitle:
-                                'Nombre, teléfono y datos de contacto',
-                            badgeText: 'Perfil',
-                            badgeColor: const Color(0xFFE0F2FE),
-                            badgeTextColor: const Color(0xFF0369A1),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => EditProfilePage(
-                                    idCollaborator: idCollaborator,
-                                    idMainAccount: idMainAccount,
+                      const SizedBox(height: 7),
+                      _buildAnimatedItem(
+                        _buildAppleGroupedCard(
+                          children: [
+                            // Datos Personales
+                            _buildAppleListTile(
+                              icon: Icons.person_rounded,
+                              iconGradient: const [
+                                Color(0xFF0284C7),
+                                Color(0xFF38BDF8),
+                              ],
+                              title: 'Datos Personales',
+                              subtitle:
+                                  'Nombre, teléfono y datos de contacto',
+                              badgeText: 'Perfil',
+                              badgeColor: const Color(0xFFE0F2FE),
+                              badgeTextColor: const Color(0xFF0369A1),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => EditProfilePage(
+                                      idCollaborator: idCollaborator,
+                                      idMainAccount: idMainAccount,
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
-                          ),
-                          // Licencia de Conducir
-                          _buildAppleListTile(
-                            icon: Icons.badge_rounded,
-                            iconGradient: const [
-                              Color(0xFF0D9488),
-                              Color(0xFF14B8A6),
-                            ],
-                            title: 'Licencia de Conducir',
-                            subtitle:
-                                'Estatus, vigencia y tipo de documento',
-                            badgeText: 'Licencia',
-                            badgeColor: const Color(0xFFCCFBF1),
-                            badgeTextColor: const Color(0xFF0F766E),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) =>
-                                      LicenseDetailsPage(
-                                    idCollaborator: idCollaborator,
+                                ).then((_) => profileNotifier.refreshProfile());
+                              },
+                            ),
+                            // Licencia de Conducir (Oculto si licencia == null y puedeEditar == false)
+                            if (mostrarLicencia)
+                              _buildAppleListTile(
+                                icon: Icons.badge_rounded,
+                                iconGradient: const [
+                                Color(0xFF0D9488),
+                                Color(0xFF14B8A6),
+                              ],
+                              title: 'Licencia de Conducir',
+                              subtitle:
+                                  'Estatus, vigencia y tipo de documento',
+                              badgeText: 'Licencia',
+                              badgeColor: const Color(0xFFCCFBF1),
+                              badgeTextColor: const Color(0xFF0F766E),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        LicenseDetailsPage(
+                                      idCollaborator: idCollaborator,
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
-                          ),
-                          // Cambiar Contraseña
-                          _buildAppleListTile(
-                            icon: Icons.lock_rounded,
-                            iconGradient: const [
-                              Color(0xFF4F46E5),
-                              Color(0xFF818CF8),
-                            ],
-                            title: 'Cambiar Contraseña',
-                            subtitle:
-                                'Modifica tu clave de acceso a la cuenta',
-                            badgeText: 'Acceso',
-                            badgeColor: const Color(0xFFEEF2FF),
-                            badgeTextColor: const Color(0xFF4338CA),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => ChangePasswordPage(
-                                    usuario: usuario,
-                                    userId: userId,
-                                    idMainAccount: idMainAccount,
+                                ).then((_) => profileNotifier.refreshProfile());
+                              },
+                            ),
+                            // Cambiar Contraseña
+                            _buildAppleListTile(
+                              icon: Icons.lock_rounded,
+                              iconGradient: const [
+                                Color(0xFF4F46E5),
+                                Color(0xFF818CF8),
+                              ],
+                              title: 'Cambiar Contraseña',
+                              subtitle:
+                                  'Modifica tu clave de acceso a la cuenta',
+                              badgeText: 'Acceso',
+                              badgeColor: const Color(0xFFEEF2FF),
+                              badgeTextColor: const Color(0xFF4338CA),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => ChangePasswordPage(
+                                      usuario: usuario,
+                                      userId: userId,
+                                      idMainAccount: idMainAccount,
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
-                            isLast: false,
-                          ),
-                          // Verificación en 2 Pasos
-                          _buildAppleListTile(
-                            icon: Icons.shield_rounded,
-                            iconGradient: const [
-                              Color(0xFF2563EB),
-                              Color(0xFF60A5FA),
-                            ],
-                            title: 'Verificación en 2 Pasos',
-                            subtitle:
-                                'Protege tu cuenta con códigos de acceso',
-                            badgeText: 'Seguridad',
-                            badgeColor: const Color(0xFFEFF6FF),
-                            badgeTextColor: const Color(0xFF1D4ED8),
-                            onTap: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                  builder: (context) => TwoFactorSettingsPage(
-                                    usuario: usuario,
+                                );
+                              },
+                              isLast: false,
+                            ),
+                            // Verificación en 2 Pasos
+                            _buildAppleListTile(
+                              icon: Icons.shield_rounded,
+                              iconGradient: const [
+                                Color(0xFF2563EB),
+                                Color(0xFF60A5FA),
+                              ],
+                              title: 'Verificación en 2 Pasos',
+                              subtitle:
+                                  'Protege tu cuenta con códigos de acceso',
+                              badgeText: 'Seguridad',
+                              badgeColor: const Color(0xFFEFF6FF),
+                              badgeTextColor: const Color(0xFF1D4ED8),
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) => TwoFactorSettingsPage(
+                                      usuario: usuario,
+                                    ),
                                   ),
-                                ),
-                              );
-                            },
-                            isLast: true,
-                          ),
-                        ],
+                                );
+                              },
+                              isLast: true,
+                            ),
+                          ],
+                        ),
+                        3,
                       ),
-                      3,
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
                 _buildAppleSectionFooter(
                   'Mantén tus datos y credenciales oficiales actualizados para el registro operativo.',
                 ),
@@ -235,8 +248,9 @@ class ProfilePage extends ConsumerWidget {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   // ── 1. ENCABEZADO APPLE (LARGE TITLE) ───────────────────────────────────────
   Widget _buildAppleHeader() {
@@ -279,11 +293,20 @@ class ProfilePage extends ConsumerWidget {
     final canEdit = (editUserData?['puedeEditar'] == true) ||
         MarkApiClient.instance.flota.can('colaboradores', 'editar');
 
-    String realName = (editUserData?['name'] ??
-            editUserData?['nombre'] ??
-            clientSession?.usuario.nombre ??
-            clientSession?.chofer.nombre ??
-            usuario)
+    final rawColaborador =
+        state.rawPerfil?['colaborador'] as Map<String, dynamic>?;
+    final String colabFullName = [
+      rawColaborador?['nombre'] ?? '',
+      rawColaborador?['apellido'] ?? '',
+    ].join(' ').trim();
+
+    String realName = (colabFullName.isNotEmpty
+            ? colabFullName
+            : (editUserData?['name'] ??
+                editUserData?['nombre'] ??
+                clientSession?.usuario.nombre ??
+                clientSession?.chofer.nombre ??
+                usuario))
         .toString()
         .trim();
     String parsedName = '';
@@ -547,8 +570,10 @@ class ProfilePage extends ConsumerWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          (editUserData?['email'] ??
+                          (rawColaborador?['email'] ??
+                                  editUserData?['email'] ??
                                   editUserData?['correo'] ??
+                                  state.rawPerfil?['correoUsuario'] ??
                                   editUserData?['correoUsuario'] ??
                                   email)
                               .toString(),

@@ -15,6 +15,8 @@ class ProfileState {
   final String? error;
   final bool hasLicense;
   final bool canEditLicense;
+  final bool hasLoadedProfile;
+  final Map<String, dynamic>? rawPerfil;
 
   const ProfileState({
     this.imageFile,
@@ -23,7 +25,9 @@ class ProfileState {
     this.isUploadingPhoto = false,
     this.error,
     this.hasLicense = false,
-    this.canEditLicense = true,
+    this.canEditLicense = false,
+    this.hasLoadedProfile = false,
+    this.rawPerfil,
   });
 
   ProfileState copyWith({
@@ -34,9 +38,12 @@ class ProfileState {
     String? error,
     bool? hasLicense,
     bool? canEditLicense,
+    bool? hasLoadedProfile,
+    Map<String, dynamic>? rawPerfil,
     bool clearImage = false,
     bool clearNetworkPhoto = false,
     bool clearError = false,
+    bool clearRawPerfil = false,
   }) {
     return ProfileState(
       imageFile: clearImage ? null : (imageFile ?? this.imageFile),
@@ -48,6 +55,8 @@ class ProfileState {
       error: clearError ? null : (error ?? this.error),
       hasLicense: hasLicense ?? this.hasLicense,
       canEditLicense: canEditLicense ?? this.canEditLicense,
+      hasLoadedProfile: hasLoadedProfile ?? this.hasLoadedProfile,
+      rawPerfil: clearRawPerfil ? null : (rawPerfil ?? this.rawPerfil),
     );
   }
 }
@@ -66,7 +75,8 @@ class ProfileNotifier extends Notifier<ProfileState> {
       _loadNetworkPhoto();
     });
     return const ProfileState(
-      canEditLicense: true,
+      canEditLicense: false,
+      hasLoadedProfile: false,
     );
   }
 
@@ -108,10 +118,13 @@ class ProfileNotifier extends Notifier<ProfileState> {
         final licencia = res['licencia'];
         final licNum = (licencia is Map ? (licencia['numero'] ?? '') : '').toString().trim();
         final hasLic = licNum.isNotEmpty;
+        final puedeEditar = res['puedeEditar'] == true;
 
         state = state.copyWith(
           hasLicense: hasLic,
-          canEditLicense: true,
+          canEditLicense: puedeEditar,
+          hasLoadedProfile: true,
+          rawPerfil: res,
         );
       }
     } catch (e) {

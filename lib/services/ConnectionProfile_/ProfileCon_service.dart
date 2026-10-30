@@ -221,11 +221,7 @@ class ProfileconService {
       final rol = session?.rol.toLowerCase().trim() ?? '';
       final isPreventa = session?.isPreventa == true || rol == 'preventa' || rol == 'vendedor';
 
-      final bool puedeEditar = !isPreventa &&
-          (res['puedeEditar'] == true ||
-           _client.flota.can('colaboradores', 'editar') ||
-           _client.flota.can('licencia', 'editar') ||
-           _client.flota.can('licencias', 'editar'));
+      final bool puedeEditar = !isPreventa && (res['puedeEditar'] == true);
 
       if (licencia is Map<String, dynamic> &&
           licencia.isNotEmpty &&

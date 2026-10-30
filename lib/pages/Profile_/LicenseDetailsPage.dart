@@ -34,6 +34,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
   bool isPermanent = false;
   bool isLoading = false;
   bool _isEditing = false;
+  Map<String, dynamic>? _lastFetchedData;
 
   // Fotos de la credencial y estado de OCR
   File? _frontImage;
@@ -821,6 +822,7 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
                       }
 
                       final data = snapshot.data;
+                      _lastFetchedData = data;
                       final hasLicense = data != null &&
                           data.isNotEmpty &&
                           (data['licNum'] != null &&
@@ -1038,7 +1040,13 @@ class _LicenseDetailsPageState extends State<LicenseDetailsPage> {
   }
 
   bool _canEdit(Map<String, dynamic>? data) {
-    return true;
+    if (data == null) {
+      if (_lastFetchedData != null) {
+        return _lastFetchedData!['puedeEditar'] == true;
+      }
+      return false;
+    }
+    return data['puedeEditar'] == true;
   }
 
   Widget _buildNoPermissionEmptyState() {

@@ -128,6 +128,14 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
       MarkApiClient.instance.flota.can('tenencia', 'crear') ||
       ((int.tryParse(widget.taxesPermission) ?? 0) & 4 == 4);
 
+  bool get _isChofer {
+    final session = MarkApiClient.instance.currentSession;
+    final rol = (session?.rol ?? '').trim().toLowerCase();
+    return rol == 'chofer' || (session?.isChofer ?? false);
+  }
+
+  bool get _canSeeCostos => !_isChofer;
+
   // --- FORMATO DE FECHAS SEGURO ---
   String _formatDisplayDate(dynamic date) {
     if (date == null) return 'N/A';
@@ -1600,35 +1608,37 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
                               ],
                             ),
                           ),
-                          const SizedBox(width: 12),
-                          Flexible(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  'MONTO TOTAL',
-                                  style: TextStyle(
-                                    fontSize: 8.5,
-                                    fontWeight: FontWeight.w600,
-                                    color: Colors.white.withOpacity(0.65),
-                                    letterSpacing: 1.0,
-                                  ),
-                                ),
-                                FittedBox(
-                                  fit: BoxFit.scaleDown,
-                                  child: Text(
-                                    _currencyFormat.format(montoTotal),
-                                    style: const TextStyle(
-                                      fontSize: 20,
-                                      fontWeight: FontWeight.w900,
-                                      color: Colors.white,
-                                      letterSpacing: 0.5,
+                          if (_canSeeCostos) ...[
+                            const SizedBox(width: 12),
+                            Flexible(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    'MONTO TOTAL',
+                                    style: TextStyle(
+                                      fontSize: 8.5,
+                                      fontWeight: FontWeight.w600,
+                                      color: Colors.white.withOpacity(0.65),
+                                      letterSpacing: 1.0,
                                     ),
                                   ),
-                                ),
-                              ],
+                                  FittedBox(
+                                    fit: BoxFit.scaleDown,
+                                    child: Text(
+                                      _currencyFormat.format(montoTotal),
+                                      style: const TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w900,
+                                        color: Colors.white,
+                                        letterSpacing: 0.5,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 18),
@@ -1862,25 +1872,27 @@ class _TaxesPageState extends ConsumerState<TaxesPage> {
               label: 'Fecha de Expiración',
               value: fechaExpiracionStr,
             ),
-            const Divider(height: 20, color: Color(0xFFF1F5F9)),
-            _buildDetailRow(
-              icon: Icons.account_balance_wallet_outlined,
-              label: 'Monto de Tenencia',
-              value: _currencyFormat.format(montoTenencia),
-            ),
-            const Divider(height: 20, color: Color(0xFFF1F5F9)),
-            _buildDetailRow(
-              icon: Icons.receipt_long_outlined,
-              label: 'Monto de Refrendo',
-              value: _currencyFormat.format(montoRefrendo),
-            ),
-            const Divider(height: 20, color: Color(0xFFE2E8F0)),
-            _buildDetailRow(
-              icon: Icons.monetization_on_outlined,
-              label: 'Total Pagado',
-              value: _currencyFormat.format(montoTotal),
-              isHighlight: true,
-            ),
+            if (_canSeeCostos) ...[
+              const Divider(height: 20, color: Color(0xFFF1F5F9)),
+              _buildDetailRow(
+                icon: Icons.account_balance_wallet_outlined,
+                label: 'Monto de Tenencia',
+                value: _currencyFormat.format(montoTenencia),
+              ),
+              const Divider(height: 20, color: Color(0xFFF1F5F9)),
+              _buildDetailRow(
+                icon: Icons.receipt_long_outlined,
+                label: 'Monto de Refrendo',
+                value: _currencyFormat.format(montoRefrendo),
+              ),
+              const Divider(height: 20, color: Color(0xFFE2E8F0)),
+              _buildDetailRow(
+                icon: Icons.monetization_on_outlined,
+                label: 'Total Pagado',
+                value: _currencyFormat.format(montoTotal),
+                isHighlight: true,
+              ),
+            ],
           ],
         ),
         const SizedBox(height: 14),

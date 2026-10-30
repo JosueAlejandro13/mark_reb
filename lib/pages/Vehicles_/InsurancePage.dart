@@ -159,6 +159,14 @@ class _InsurancePageState extends ConsumerState<InsurancePage> {
       MarkApiClient.instance.flota.can('seguro', 'crear') ||
       ((int.tryParse(widget.insurancePermission) ?? 0) & 4 == 4);
 
+  bool get _isChofer {
+    final session = MarkApiClient.instance.currentSession;
+    final rol = (session?.rol ?? '').trim().toLowerCase();
+    return rol == 'chofer' || (session?.isChofer ?? false);
+  }
+
+  bool get _canSeeCostos => !_isChofer;
+
   // --- FORMATEO Y PARSEO DE FECHAS SEGURO ---
   String _formatDisplayDate(dynamic date) {
     if (date == null) return 'N/A';
@@ -2879,12 +2887,14 @@ class _InsurancePageState extends ConsumerState<InsurancePage> {
               label: 'Número de Póliza',
               value: policyNum,
             ),
-            const Divider(height: 20, color: Color(0xFFF1F5F9)),
-            _buildDetailRow(
-              icon: Icons.percent_rounded,
-              label: 'Deducible',
-              value: _currencyFormat.format(deducible),
-            ),
+            if (_canSeeCostos) ...[
+              const Divider(height: 20, color: Color(0xFFF1F5F9)),
+              _buildDetailRow(
+                icon: Icons.percent_rounded,
+                label: 'Deducible',
+                value: _currencyFormat.format(deducible),
+              ),
+            ],
             const Divider(height: 20, color: Color(0xFFF1F5F9)),
             _buildDetailRow(
               icon: Icons.event_available_rounded,
@@ -2905,13 +2915,15 @@ class _InsurancePageState extends ConsumerState<InsurancePage> {
                 value: observaciones,
               ),
             ],
-            const Divider(height: 20, color: Color(0xFFE2E8F0)),
-            _buildDetailRow(
-              icon: Icons.monetization_on_outlined,
-              label: 'Prima Total / Monto',
-              value: _currencyFormat.format(monto),
-              isHighlight: true,
-            ),
+            if (_canSeeCostos) ...[
+              const Divider(height: 20, color: Color(0xFFE2E8F0)),
+              _buildDetailRow(
+                icon: Icons.monetization_on_outlined,
+                label: 'Prima Total / Monto',
+                value: _currencyFormat.format(monto),
+                isHighlight: true,
+              ),
+            ],
           ],
         ),
         const SizedBox(height: 14),
